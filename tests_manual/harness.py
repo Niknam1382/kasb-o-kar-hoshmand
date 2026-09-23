@@ -17,6 +17,7 @@ from aiogram.types import (
     ChatMemberMember,
     ChatMemberOwner,
     Contact,
+    Document,
     Message,
     File,
     PhotoSize,
@@ -191,6 +192,9 @@ def make_message_update(
     contact_phone: str | None = None,
     photo: bool = False,
     voice: bool = False,
+    document_file_id: str | None = None,
+    document_file_name: str = "file.xlsx",
+    document_file_size: int | None = None,
     caption: str | None = None,
     forward_from_chat: Chat | None = None,
     message_id: int | None = None,
@@ -213,6 +217,14 @@ def make_message_update(
 
     if voice:
         kwargs["voice"] = Voice.model_construct(file_id="incoming_voice_id", file_unique_id="incoming_voice_uid", duration=3)
+
+    if document_file_id is not None:
+        kwargs["document"] = Document.model_construct(
+            file_id=document_file_id,
+            file_unique_id=f"{document_file_id}_uid",
+            file_name=document_file_name,
+            file_size=document_file_size,
+        )
 
     if forward_from_chat is not None:
         kwargs["forward_from_chat"] = forward_from_chat

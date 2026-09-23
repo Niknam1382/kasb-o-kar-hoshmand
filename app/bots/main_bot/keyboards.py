@@ -88,7 +88,17 @@ def products_list_keyboard(products, page: int = 0) -> InlineKeyboardMarkup:
     if nav:
         rows.append(nav)
     rows.append([InlineKeyboardButton(text="➕ افزودن محصول جدید", callback_data="product_add")])
+    rows.append([InlineKeyboardButton(text="📥 افزودن گروهی از اکسل", callback_data="product_bulk_import")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def product_import_confirm_keyboard(valid_count: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"✅ بله، {valid_count} محصول اضافه کن", callback_data="product_bulk_import_confirm")],
+            [InlineKeyboardButton(text="❌ انصراف", callback_data="product_bulk_import_cancel")],
+        ]
+    )
 
 
 def product_detail_keyboard(product_id: int) -> InlineKeyboardMarkup:

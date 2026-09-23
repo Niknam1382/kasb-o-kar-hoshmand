@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import logging
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
-from app.bots.main_bot.states import ProductStates
+from app.bots.main_bot.states import ProductImportStates, ProductStates
 from app.database.models import ShopBot
-from app.services import product_service, shop_bot_service, shop_owner_service
+from app.services import excel_import_service, product_service, shop_bot_service, shop_owner_service
 from app.utils.validators import parse_price_toman
 
+logger = logging.getLogger(__name__)
+
 router = Router(name="products")
+
+# محافظت در برابرِ فایل‌هایِ بیش‌ازحد بزرگ، قبل از اینکه اصلاً تلاش کنیم بازش کنیم.
+_MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
 
 
 async def _require_shop_bot(message: Message, session: AsyncSession) -> ShopBot | None:
@@ -167,6 +174,112 @@ async def _finalize_new_product(message: Message, state: FSMContext, session: As
 
     products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
     await message.answer(texts.PRODUCTS_LIST_INTRO, reply_markup=keyboards.products_list_keyboard(products))
+
+
+@router.callback_query(F.data == "product_bulk_import")
+async def cb_product_bulk_import(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await _require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+
+    await callback.answer()
+    template_bytes = excel_import_service.build_template_workbook()
+    await callback.message.answer_document(
+        BufferedInputFile(template_bytes, filename="قالب-افزودن-محصولات.xlsx"),
+        caption=texts.PRODUCT_IMPORT_TEMPLATE_CAPTION,
+    )
+    await state.set_state(ProductImportStates.waiting_file)
+    await callback.message.answer(texts.PRODUCT_IMPORT_INSTRUCTIONS)
+
+
+@router.message(ProductImportStates.waiting_file, F.document)
+async def receive_import_file(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    shop_bot = await _require_shop_bot(message, session)
+    if shop_bot is None:
+        await state.clear()
+        return
+
+    file_name = message.document.file_name or ""
+    if not file_name.lower().endswith(".xlsx"):
+        await message.answer(texts.PRODUCT_IMPORT_WRONG_FILE_TYPE)
+        return
+
+    if (message.document.file_size or 0) > _MAX_IMPORT_FILE_BYTES:
+        await message.answer(texts.PRODUCT_IMPORT_FILE_TOO_LARGE)
+        return
+
+    try:
+        file_io = await message.bot.download(message.document.file_id)
+        content = file_io.read()
+    except Exception:
+        logger.exception("دانلودِ فایلِ اکسلِ فروشگاه‌دار %s ناموفق بود.", message.from_user.id)
+        await message.answer(texts.PRODUCT_IMPORT_DOWNLOAD_FAILED)
+        return
+
+    if len(content) > _MAX_IMPORT_FILE_BYTES:
+        await message.answer(texts.PRODUCT_IMPORT_FILE_TOO_LARGE)
+        return
+
+    try:
+        result = excel_import_service.parse_workbook(content)
+    except excel_import_service.InvalidExcelFileError:
+        await message.answer(texts.PRODUCT_IMPORT_INVALID_FILE)
+        return
+
+    if result.too_many_rows:
+        await message.answer(texts.product_import_too_many_rows(excel_import_service.MAX_IMPORT_ROWS))
+        return
+
+    if not result.valid_rows and not result.errors:
+        await message.answer(texts.PRODUCT_IMPORT_EMPTY_FILE)
+        return
+
+    if not result.valid_rows:
+        await message.answer(texts.product_import_no_valid_rows(result.errors))
+        return
+
+    await state.update_data(rows=result.valid_rows)
+    await state.set_state(ProductImportStates.waiting_confirmation)
+    await message.answer(
+        texts.product_import_preview(len(result.valid_rows), result.errors),
+        reply_markup=keyboards.product_import_confirm_keyboard(len(result.valid_rows)),
+    )
+
+
+@router.message(ProductImportStates.waiting_file)
+async def receive_import_file_wrong_type(message: Message) -> None:
+    await message.answer(texts.PRODUCT_IMPORT_WRONG_FILE_TYPE)
+
+
+@router.callback_query(ProductImportStates.waiting_confirmation, F.data == "product_bulk_import_confirm")
+async def cb_product_bulk_import_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    shop_bot = await _require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        await state.clear()
+        return
+
+    data = await state.get_data()
+    rows = data.get("rows", [])
+    await excel_import_service.bulk_create(session, shop_bot.id, rows)
+    await state.clear()
+
+    products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
+    await callback.answer(texts.product_import_result_toast(len(rows)))
+    text = texts.PRODUCTS_LIST_INTRO if products else texts.PRODUCTS_EMPTY
+    await callback.message.edit_text(text, reply_markup=keyboards.products_list_keyboard(products))
+
+
+@router.callback_query(ProductImportStates.waiting_confirmation, F.data == "product_bulk_import_cancel")
+async def cb_product_bulk_import_cancel(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await state.clear()
+    shop_bot = await _require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+
+    await callback.answer(texts.PRODUCT_IMPORT_CANCELLED)
+    products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
+    text = texts.PRODUCTS_LIST_INTRO if products else texts.PRODUCTS_EMPTY
+    await callback.message.edit_text(text, reply_markup=keyboards.products_list_keyboard(products))
 
 
 @router.callback_query(F.data.startswith("product_delete:"))

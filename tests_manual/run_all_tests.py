@@ -52,6 +52,7 @@ TEST_FILES = [
     "test_wallet_pricing_formula.py",
     "test_ai_key_pool.py",
     "test_admin_rbac.py",
+    "test_excel_product_import.py",
 ]
 
 

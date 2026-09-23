@@ -25,6 +25,11 @@ class ProductStates(StatesGroup):
     waiting_edit_field_value = State()
 
 
+class ProductImportStates(StatesGroup):
+    waiting_file = State()
+    waiting_confirmation = State()
+
+
 class AiInstructionsStates(StatesGroup):
     waiting_instructions = State()
 

@@ -185,6 +185,65 @@ def product_field_updated(field: str) -> str:
 
 
 # =============================================================================
+# افزودنِ گروهیِ محصول از اکسل (فازِ ۲-ب، زیربخشِ ۲)
+# =============================================================================
+PRODUCT_IMPORT_TEMPLATE_CAPTION = "📄 قالبِ افزودنِ گروهیِ محصول"
+PRODUCT_IMPORT_INSTRUCTIONS = (
+    "فایلِ بالا رو باز کن و برایِ هر محصول یه ردیف (زیرِ هدر) پر کن:\n"
+    "• نام محصول — الزامی\n"
+    "• توضیحات — اختیاری، برایِ رد کردن خالی بذار\n"
+    "• قیمت (تومان) — الزامی، فقط عدد\n"
+    "• موجودی — اختیاری، برایِ نامحدود/بدونِ پیگیری خالی بذار\n\n"
+    "عکسِ محصول از این راه اضافه نمی‌شه؛ بعد از افزودنِ گروهی، هر محصول رو جداگانه "
+    "ویرایش کن و عکسش رو بفرست.\n\n"
+    "وقتی فایل آماده شد، همینجا به‌صورتِ فایل (نه عکس) بفرستش."
+)
+PRODUCT_IMPORT_WRONG_FILE_TYPE = "لطفاً فقط فایلِ اکسلِ همون قالب (.xlsx) رو به‌صورتِ فایل بفرست، نه متن یا عکس."
+PRODUCT_IMPORT_INVALID_FILE = "این فایل خراب یا نامعتبره. از همون قالبی که فرستادم استفاده کن و دوباره امتحان کن."
+PRODUCT_IMPORT_FILE_TOO_LARGE = "این فایل خیلی بزرگه. لطفاً فایلِ کوچیک‌تری (در حدِ چند صد ردیف) بفرست."
+PRODUCT_IMPORT_EMPTY_FILE = "این فایل هیچ داده‌ای نداره. زیرِ ردیفِ هدر، اطلاعاتِ محصولات رو وارد کن و دوباره بفرست."
+PRODUCT_IMPORT_CANCELLED = "❌ افزودنِ گروهی لغو شد."
+PRODUCT_IMPORT_DOWNLOAD_FAILED = "دانلودِ فایل ناموفق بود. لطفاً دوباره امتحان کن."
+
+_PRODUCT_IMPORT_ERROR_DISPLAY_CAP = 15
+
+
+def product_import_too_many_rows(max_rows: int) -> str:
+    return f"این فایل بیش از {max_rows} ردیف داره. لطفاً فایل رو به چند بخشِ کوچیک‌تر تقسیم کن و هر بخش رو جدا بفرست."
+
+
+def _format_error_block(errors: list[str]) -> list[str]:
+    shown = errors[:_PRODUCT_IMPORT_ERROR_DISPLAY_CAP]
+    lines = [f"• {e}" for e in shown]
+    remaining = len(errors) - len(shown)
+    if remaining > 0:
+        lines.append(f"...و {remaining} موردِ دیگه.")
+    return lines
+
+
+def product_import_no_valid_rows(errors: list[str]) -> str:
+    lines = ["❌ هیچ ردیفِ معتبری توی فایل پیدا نشد."]
+    if errors:
+        lines.append("مشکلات:")
+        lines.extend(_format_error_block(errors))
+    lines.append("\nفایل رو اصلاح کن و دوباره بفرست.")
+    return "\n".join(lines)
+
+
+def product_import_preview(valid_count: int, errors: list[str]) -> str:
+    lines = ["📊 بررسیِ فایل تموم شد.", f"✅ {valid_count} ردیفِ معتبر آماده‌ی افزودنه."]
+    if errors:
+        lines.append(f"\n⚠️ {len(errors)} ردیف مشکل داشت و اضافه نمی‌شه:")
+        lines.extend(_format_error_block(errors))
+    lines.append(f"\nمی‌خوای همین {valid_count} محصولِ معتبر اضافه بشه؟")
+    return "\n".join(lines)
+
+
+def product_import_result_toast(count: int) -> str:
+    return f"✅ {count} محصول با موفقیت اضافه شد."
+
+
+# =============================================================================
 # دستور هوشمندسازی و پیش‌نمایش (مرحله ۶)
 # =============================================================================
 AI_INSTRUCTIONS_INTRO = "دستور هوشمندسازی چیزیه که به دستیار هوش‌مصنوعیت می‌گه چطور با مشتری‌ها رفتار کنه."
