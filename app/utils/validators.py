@@ -52,3 +52,27 @@ def parse_price_toman(raw_text: str) -> int | None:
     if value <= 0:
         return None
     return value
+
+
+def parse_signed_toman_amount(raw_text: str) -> int | None:
+    """
+    مثلِ parse_price_toman، ولی علامت‌دار — برایِ جاهایی مثلِ استرداد/اصلاحِ
+    کیف‌پول که هم مقدارِ مثبت (افزایش) هم منفی (کاهش) معنی داره. علامتِ +
+    اختیاریه، - باید بیاد. صفر همیشه نامعتبره (یعنی هیچ تغییری بی‌معنیه).
+    """
+    cleaned = _PRICE_CLEAN_RE.sub("", raw_text.strip())
+    if not cleaned:
+        return None
+
+    sign = 1
+    if cleaned[0] in "+-":
+        sign = -1 if cleaned[0] == "-" else 1
+        cleaned = cleaned[1:]
+
+    if not cleaned.isdigit():
+        return None
+
+    value = int(cleaned) * sign
+    if value == 0:
+        return None
+    return value

@@ -343,6 +343,7 @@ def admin_owner_detail_keyboard(owner_id: int, shop_bot) -> InlineKeyboardMarkup
         else:
             rows.append([InlineKeyboardButton(text="✅ فعال‌سازی دوباره", callback_data=f"admin_owner_unsuspend:{owner_id}")])
     rows.append([InlineKeyboardButton(text="🎁 اعطای اعتبارِ هدیه", callback_data=f"admin_owner_gift:{owner_id}")])
+    rows.append([InlineKeyboardButton(text="🧾 استرداد/اصلاحِ کیف‌پول", callback_data=f"admin_owner_wallet_correction:{owner_id}")])
     rows.append([InlineKeyboardButton(text="🔙 بازگشت به فهرست", callback_data="admin_owners_list")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

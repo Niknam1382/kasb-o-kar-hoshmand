@@ -113,6 +113,7 @@ class WalletTransactionReason(str, enum.Enum):
     TRIAL = "trial"
     REFERRAL_REWARD = "referral_reward"
     ADMIN_GRANT = "admin_grant"
+    ADMIN_CORRECTION = "admin_correction"
     EXPIRY = "expiry"
 
 
@@ -140,6 +141,7 @@ class AuditEventType(str, enum.Enum):
     OWNER_GIFT_GRANTED = "owner_gift_granted"
     OPERATOR_ADMIN_GRANTED = "operator_admin_granted"
     OPERATOR_ADMIN_REVOKED = "operator_admin_revoked"
+    OWNER_WALLET_CORRECTED = "owner_wallet_corrected"
 
 
 class AdminRoleType(str, enum.Enum):

@@ -18,6 +18,7 @@ from app.bots.main_bot.states import (
     AdminPricingStates,
     AdminRoleStates,
     AdminSettingsStates,
+    AdminWalletCorrectionStates,
     AiPoolStates,
     BroadcastStates,
     ModerationStates,
@@ -40,6 +41,7 @@ from app.services import (
     wallet_service,
 )
 from app.services.admin_settings_service import get_admin_settings
+from app.utils.validators import parse_signed_toman_amount
 
 logger = logging.getLogger(__name__)
 
@@ -888,6 +890,14 @@ async def owner_gift_amount_entered(message: Message, state: FSMContext, session
         return
 
     await wallet_service.add_charge(session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_GRANT)
+    gift_shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    await audit_log_service.log(
+        session,
+        AuditEventType.OWNER_GIFT_GRANTED,
+        shop_bot_id=gift_shop_bot.id if gift_shop_bot else None,
+        actor_telegram_id=message.from_user.id,
+        details=f"owner_id={owner_id}, amount_toman={amount_toman}",
+    )
 
     await state.clear()
     await message.answer(texts.admin_gift_confirmation(_owner_display_name(owner), amount_toman))
@@ -899,6 +909,89 @@ async def owner_gift_amount_entered(message: Message, state: FSMContext, session
 
     # نکته: اینجا از _render_owner_detail استفاده نمی‌کنیم چون اون از .edit_text
     # استفاده می‌کنه که فقط روی پیام‌های خودِ ربات کار می‌کنه، نه پیام ورودیِ ادمین.
+
+
+# --- استرداد/اصلاحِ تراکنشِ کیف‌پول (فازِ ۲-ب، زیربخشِ ۳) ---
+@router.callback_query(F.data.startswith("admin_owner_wallet_correction:"))
+async def cb_owner_wallet_correction_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    owner_id = int(callback.data.split(":")[1])
+    owner = await shop_owner_service.get_by_id(session, owner_id)
+    if owner is None:
+        await callback.answer(texts.ADMIN_SHOP_OWNERS_EMPTY, show_alert=True)
+        return
+
+    transactions = await wallet_service.get_recent_transactions(session, owner.id)
+    await state.set_state(AdminWalletCorrectionStates.waiting_amount)
+    await state.update_data(correction_owner_id=owner_id)
+    await callback.answer()
+    await callback.message.answer(texts.admin_wallet_correction_intro(_owner_display_name(owner), transactions))
+
+
+@router.message(AdminWalletCorrectionStates.waiting_amount, F.text)
+async def owner_wallet_correction_amount_entered(message: Message, state: FSMContext) -> None:
+    amount_toman = parse_signed_toman_amount(message.text.strip())
+    if amount_toman is None:
+        await message.answer(texts.ADMIN_INVALID_SIGNED_AMOUNT)
+        return
+
+    await state.update_data(correction_amount=amount_toman)
+    await state.set_state(AdminWalletCorrectionStates.waiting_reason)
+    await message.answer(texts.ADMIN_ASK_WALLET_CORRECTION_REASON)
+
+
+@router.message(AdminWalletCorrectionStates.waiting_reason, F.text)
+async def owner_wallet_correction_reason_entered(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    note = message.text.strip()
+    if not note:
+        await message.answer(texts.ADMIN_WALLET_CORRECTION_EMPTY_REASON)
+        return
+    if len(note) > 255:
+        await message.answer(texts.ADMIN_WALLET_CORRECTION_REASON_TOO_LONG)
+        return
+
+    data = await state.get_data()
+    owner_id = data["correction_owner_id"]
+    amount_toman = data["correction_amount"]
+    owner = await shop_owner_service.get_by_id(session, owner_id)
+    if owner is None:
+        await state.clear()
+        await message.answer(texts.ADMIN_SHOP_OWNERS_EMPTY)
+        return
+
+    if amount_toman > 0:
+        await wallet_service.add_charge(session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_CORRECTION, reference=note)
+    else:
+        applied = await wallet_service.deduct(
+            session, owner, abs(amount_toman), reason=WalletTransactionReason.ADMIN_CORRECTION, reference=note
+        )
+        if not applied:
+            await state.set_state(AdminWalletCorrectionStates.waiting_amount)
+            await message.answer(texts.ADMIN_WALLET_CORRECTION_INSUFFICIENT_BALANCE)
+            return
+
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    await audit_log_service.log(
+        session,
+        AuditEventType.OWNER_WALLET_CORRECTED,
+        shop_bot_id=shop_bot.id if shop_bot else None,
+        actor_telegram_id=message.from_user.id,
+        details=f"owner_id={owner_id}, amount_toman={amount_toman}, note={note}",
+    )
+
+    await state.clear()
+    await message.answer(
+        texts.admin_wallet_correction_confirmation(_owner_display_name(owner), amount_toman, owner.wallet_balance_toman)
+    )
+
+    try:
+        await message.bot.send_message(owner.telegram_id, texts.owner_wallet_correction_notification(amount_toman, note))
+    except TelegramAPIError:
+        logger.exception("اطلاع‌رسانیِ اصلاحِ کیف‌پول به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
+
+
+@router.message(AdminWalletCorrectionStates.waiting_reason)
+async def owner_wallet_correction_reason_wrong_type(message: Message) -> None:
+    await message.answer(texts.ADMIN_WALLET_CORRECTION_EMPTY_REASON)
 
 
 # =============================================================================

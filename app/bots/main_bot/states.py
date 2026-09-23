@@ -79,6 +79,11 @@ class AdminGiftStates(StatesGroup):
     waiting_amount = State()
 
 
+class AdminWalletCorrectionStates(StatesGroup):
+    waiting_amount = State()
+    waiting_reason = State()
+
+
 class ModerationStates(StatesGroup):
     waiting_pattern = State()
 

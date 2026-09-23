@@ -303,6 +303,7 @@ _WALLET_REASON_LABELS = {
     "trial": "🎁 اعتبارِ رایگانِ شروع",
     "referral_reward": "🤝 پاداشِ معرفی",
     "admin_grant": "🎁 هدیه‌ی ادمین",
+    "admin_correction": "🧾 اصلاحِ ادمین",
     "expiry": "⌛️ انقضا",
 }
 
@@ -895,6 +896,44 @@ def admin_gift_confirmation(owner_name: str, amount_toman: int) -> str:
 
 def owner_gift_notification(amount_toman: int) -> str:
     return f"🎁 ادمین {format_toman(amount_toman)} اعتبار به کیف‌پولت هدیه داد! از پنل خودت می‌تونی موجودیِ جدیدت رو ببینی."
+
+
+# --- استرداد/اصلاحِ تراکنشِ کیف‌پول (فازِ ۲-ب، زیربخشِ ۳) ---
+def admin_wallet_correction_intro(owner_name: str, transactions: list) -> str:
+    lines = [f"🧾 استرداد/اصلاحِ کیف‌پولِ {owner_name}."]
+    if transactions:
+        lines.append("\nتراکنش‌هایِ اخیرش (برایِ مرجع):")
+        lines.extend(wallet_transaction_line(t) for t in transactions[:10])
+    else:
+        lines.append("\nاین فروشگاه‌دار هنوز هیچ تراکنشی نداره.")
+    lines.append(
+        "\nمبلغ رو به تومان بنویس: برایِ افزایش (استرداد) عددِ مثبت، برایِ "
+        "کاهش (اصلاح) با - جلوش بنویس (مثلاً 50000 یا -50000):"
+    )
+    return "\n".join(lines)
+
+
+ADMIN_INVALID_SIGNED_AMOUNT = "این عدد معتبر نیست. یه عددِ غیرصفر بنویس؛ برایِ کاهش، - رو جلوش بذار (مثلاً -50000)."
+ADMIN_ASK_WALLET_CORRECTION_REASON = "دلیلِ این استرداد/اصلاح رو بنویس (توی دفترِ تراکنش‌ها و گزارشِ ممیزی ثبت می‌شه):"
+ADMIN_WALLET_CORRECTION_EMPTY_REASON = "دلیل نمی‌تونه خالی باشه. لطفاً یه توضیحِ کوتاه بنویس."
+ADMIN_WALLET_CORRECTION_REASON_TOO_LONG = "این توضیح خیلی طولانیه (حداکثر ۲۵۵ کاراکتر). یه‌کم کوتاه‌ترش کن."
+ADMIN_WALLET_CORRECTION_INSUFFICIENT_BALANCE = (
+    "موجودیِ فعلیِ این فروشگاه‌دار برایِ این مقدار کاهش کافی نیست. مبلغِ کوچیک‌تری امتحان کن."
+)
+
+
+def admin_wallet_correction_confirmation(owner_name: str, amount_toman: int, new_balance_toman: int) -> str:
+    verb = "افزوده" if amount_toman > 0 else "کاسته"
+    return (
+        f"✅ {format_toman(abs(amount_toman))} از کیف‌پولِ {owner_name} {verb} شد.\n"
+        f"موجودیِ جدیدش: {format_toman(new_balance_toman)}"
+    )
+
+
+def owner_wallet_correction_notification(amount_toman: int, note: str) -> str:
+    if amount_toman > 0:
+        return f"💳 ادمین {format_toman(amount_toman)} به کیف‌پولت اضافه کرد.\nدلیل: {note}"
+    return f"⚠️ ادمین {format_toman(abs(amount_toman))} از کیف‌پولت کم کرد.\nدلیل: {note}"
 
 
 # =============================================================================

@@ -53,6 +53,7 @@ TEST_FILES = [
     "test_ai_key_pool.py",
     "test_admin_rbac.py",
     "test_excel_product_import.py",
+    "test_wallet_correction.py",
 ]
 
 

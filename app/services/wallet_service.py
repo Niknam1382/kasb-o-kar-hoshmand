@@ -59,6 +59,7 @@ async def add_charge(
     reason: WalletTransactionReason = WalletTransactionReason.TOPUP,
     payment_id: int | None = None,
     validity_months: int | None = None,
+    reference: str | None = None,
 ) -> WalletCharge:
     """یه بسته‌ی شارژِ جدید می‌سازه (با انقضای مستقل) و موجودیِ کش‌شده رو آپدیت می‌کنه."""
     if amount_toman <= 0:
@@ -85,7 +86,9 @@ async def add_charge(
     owner.wallet_empty_notified_at = None
     owner.wallet_low_balance_notified_at = None
     session.add(
-        WalletTransaction(shop_owner_id=owner.id, wallet_charge_id=charge.id, amount_toman=amount_toman, reason=reason)
+        WalletTransaction(
+            shop_owner_id=owner.id, wallet_charge_id=charge.id, amount_toman=amount_toman, reason=reason, reference=reference
+        )
     )
     await session.flush()
     return charge
