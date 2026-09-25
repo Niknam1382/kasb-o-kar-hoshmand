@@ -70,8 +70,7 @@ async def _check_access(message: Message, session: AsyncSession, shop_bot, main_
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
     if owner is None or owner.wallet_balance_toman <= 0:
         await message.answer(texts.SHOP_UNAVAILABLE)
-        if owner is not None and wallet_service.should_notify_empty(owner):
-            await wallet_service.mark_empty_notified(session, owner)
+        if owner is not None and await wallet_service.try_claim_empty_notification(session, owner):
             try:
                 await main_bot.send_message(owner.telegram_id, main_texts.wallet_empty_notification())
             except TelegramAPIError:
@@ -100,15 +99,13 @@ async def _deduct_and_notify(
         logger.warning("کسرِ کیف‌پول برای فروشگاه‌دار %s ناموفق بود (موجودیِ ناکافی در لحظه‌ی کسر).", owner.id)
 
     if owner.wallet_balance_toman <= 0:
-        if wallet_service.should_notify_empty(owner):
-            await wallet_service.mark_empty_notified(session, owner)
+        if await wallet_service.try_claim_empty_notification(session, owner):
             try:
                 await main_bot.send_message(owner.telegram_id, main_texts.wallet_empty_notification())
             except TelegramAPIError:
                 logger.exception("اطلاع‌رسانیِ اتمامِ کیف‌پول به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
     elif owner.wallet_balance_toman < admin_settings.wallet_low_balance_warning_toman:
-        if wallet_service.should_notify_low_balance(owner):
-            await wallet_service.mark_low_balance_notified(session, owner)
+        if await wallet_service.try_claim_low_balance_notification(session, owner):
             try:
                 await main_bot.send_message(
                     owner.telegram_id, main_texts.wallet_low_balance_notification(owner.wallet_balance_toman)

@@ -104,6 +104,7 @@ async def test_wallet_correction_insufficient_balance_allows_retry(main_dp) -> N
 
     await main_dp.feed_update(admin_bot, make_callback_update(1, data=f"admin_owner_wallet_correction:{owner_id}", user_id=ADMIN_TG_ID))
     await main_dp.feed_update(admin_bot, make_message_update(2, text="-50000", user_id=ADMIN_TG_ID))
+    await main_dp.feed_update(admin_bot, make_message_update(3, text="تلاشِ اولِ ناموفق", user_id=ADMIN_TG_ID))
 
     async with session_scope() as session:
         owner = await session.get(ShopOwner, owner_id)
@@ -112,8 +113,8 @@ async def test_wallet_correction_insufficient_balance_allows_retry(main_dp) -> N
 
     # باید برگرده به مرحله‌ی «مبلغ» تا بشه دوباره یه عددِ کوچیک‌تر امتحان کرد،
     # نه بمونه توی حلقه‌ی بی‌پایانِ «دلیل».
-    await main_dp.feed_update(admin_bot, make_message_update(3, text="-5000", user_id=ADMIN_TG_ID))
-    await main_dp.feed_update(admin_bot, make_message_update(4, text="اصلاحِ کوچیک‌تر", user_id=ADMIN_TG_ID))
+    await main_dp.feed_update(admin_bot, make_message_update(4, text="-5000", user_id=ADMIN_TG_ID))
+    await main_dp.feed_update(admin_bot, make_message_update(5, text="اصلاحِ کوچیک‌تر", user_id=ADMIN_TG_ID))
 
     async with session_scope() as session:
         owner = await session.get(ShopOwner, owner_id)

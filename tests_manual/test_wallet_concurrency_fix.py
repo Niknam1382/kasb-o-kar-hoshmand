@@ -1,5 +1,6 @@
 """
-تست: رفعِ باگِ lost-update در موجودیِ کش‌شده‌ی کیف‌پول.
+تست: رفعِ باگِ lost-update در موجودیِ کش‌شده‌ی کیف‌پول + باگِ مشابهش در
+فلگ‌هایِ ضدِ-اسپمِ اطلاع‌رسانی.
 
 باگِ واقعی که پیدا شد: هر پیامِ مشتری باعثِ دو کسرِ کیف‌پولِ *هم‌زمان* می‌شه —
 یکی برای پاسخِ چت (در همون تسک)، یکی برای تشخیصِ سفارش (در یه asyncio task
@@ -7,6 +8,15 @@
 کن، بنویس» آپدیت می‌شد (نه یه UPDATEِ اتمیکِ سطحِ دیتابیس)، یکی از این دو کسر
 می‌تونست overwrite بشه — دقیقاً همونی که تویِ اجرای واقعیِ تست‌ها با Docker
 دیده شد (۱۰۵۰ - ۱۰۰ - ۱ باید ۹۴۹ می‌شد، ولی ۱۰۴۹ شد چون کسرِ ۱۰۰تومنی گم شد).
+
+فازِ ۲-ب، زیربخشِ ۳: دقیقاً همون معماری (دو تسکِ هم‌زمان، دو سشنِ جدا) یه
+باگِ مشابه ولی جداگانه داشت که تازه پیدا شد: فلگ‌هایِ wallet_low_balance_notified_at
+و wallet_empty_notified_at هم با همون الگویِ «توی پایتون چک کن، جدا ست
+کن» (should_notify_* + mark_*_notified) پیاده‌سازی شده بودن — پس دو تسکِ
+هم‌زمان می‌تونستن هر دو «هنوز نرفته» ببینن و هر دو هشدار بفرستن (تویِ
+اجرایِ واقعیِ Dockerِ کاربر، دقیقاً همین: ۲ تا هشدار به‌جایِ ۱ تا). فیکس شد
+با همون تکنیکِ UPDATE...WHERE ی اتمیک (try_claim_low_balance_notification /
+try_claim_empty_notification).
 
 اجرا: python3 tests_manual/test_wallet_concurrency_fix.py
 """
@@ -100,10 +110,54 @@ async def test_concurrent_topup_and_deduction_both_apply() -> None:
     print("✅ test_concurrent_topup_and_deduction_both_apply PASSED")
 
 
+async def test_concurrent_low_balance_claims_only_one_succeeds() -> None:
+    """۵ تسکِ هم‌زمان (۵ سشنِ جدا) هر کدوم سعی می‌کنن هشدارِ «موجودی کمه» رو
+    claim کنن — باید دقیقاً یکی‌شون True بگیره، نه بیشتر (وگرنه یعنی
+    فروشگاه‌دار چندبار برایِ همون افتِ موجودی هشدار می‌گیره)."""
+    await reset_database()
+    await seed_usable_shop(OWNER_TG_ID + 3, SHOP_BOT_TG_ID + 3, initial_balance_toman=500)
+    async with session_scope() as session:
+        owner = await shop_owner_service.get_by_telegram_id(session, OWNER_TG_ID + 3)
+        owner_id = owner.id
+
+    async def _try_claim_low_balance() -> bool:
+        async with session_scope() as session:
+            owner = await session.get(ShopOwner, owner_id)
+            return await wallet_service.try_claim_low_balance_notification(session, owner)
+
+    results = await asyncio.gather(*[_try_claim_low_balance() for _ in range(5)])
+
+    assert sum(results) == 1, f"باید فقط یکی از ۵ تلاشِ هم‌زمان موفق بشه، نه {sum(results)} تا"
+
+    print("✅ test_concurrent_low_balance_claims_only_one_succeeds PASSED")
+
+
+async def test_concurrent_empty_wallet_claims_only_one_succeeds() -> None:
+    """مثلِ بالا، برایِ هشدارِ «کیف‌پول کاملاً خالیه»."""
+    await reset_database()
+    await seed_usable_shop(OWNER_TG_ID + 4, SHOP_BOT_TG_ID + 4, initial_balance_toman=0)
+    async with session_scope() as session:
+        owner = await shop_owner_service.get_by_telegram_id(session, OWNER_TG_ID + 4)
+        owner_id = owner.id
+
+    async def _try_claim_empty() -> bool:
+        async with session_scope() as session:
+            owner = await session.get(ShopOwner, owner_id)
+            return await wallet_service.try_claim_empty_notification(session, owner)
+
+    results = await asyncio.gather(*[_try_claim_empty() for _ in range(5)])
+
+    assert sum(results) == 1, f"باید فقط یکی از ۵ تلاشِ هم‌زمان موفق بشه، نه {sum(results)} تا"
+
+    print("✅ test_concurrent_empty_wallet_claims_only_one_succeeds PASSED")
+
+
 async def main() -> None:
     await test_two_concurrent_deductions_both_apply_no_lost_update()
     await test_ten_concurrent_small_deductions_all_apply()
     await test_concurrent_topup_and_deduction_both_apply()
+    await test_concurrent_low_balance_claims_only_one_succeeds()
+    await test_concurrent_empty_wallet_claims_only_one_succeeds()
 
 
 if __name__ == "__main__":

@@ -124,6 +124,39 @@ async def test_deduct_rejected_when_insufficient_balance() -> None:
     print("✅ test_deduct_rejected_when_insufficient_balance PASSED")
 
 
+async def test_failed_deduct_does_not_partially_drain_charges_spanning_multiple() -> None:
+    """
+    این دقیقاً همون سناریوییه که فازِ ۲-ب-۳ (استرداد/اصلاحِ کیف‌پول) لو داد:
+    یه تلاشِ ناموفق (چون کلِ درخواست از مجموعِ بسته‌ها بیشتره) نباید حتی
+    یه‌ذره از بسته‌ای که *تا نیمه* می‌تونست جواب بده رو کم کنه — چون قبلاً
+    (قبلِ فیکسِ چکِ پیشاپیش) دقیقاً همین جا مقدارِ گرفته‌شده‌ی نصفه‌کاره واقعاً
+    commit می‌شد، و یه تلاشِ *بعدیِ* کوچیک‌تر و کاملاً معتبر هم به‌غلط رد
+    می‌شد (چون بسته‌ی اولیه از قبل، به‌اشتباه، صفر شده بود).
+    """
+    await reset_database()
+    owner_id = await _seed_owner()
+
+    async with session_scope() as session:
+        from sqlalchemy import select
+
+        from app.database.models import ShopOwner
+
+        owner = (await session.execute(select(ShopOwner).where(ShopOwner.id == owner_id))).scalar_one()
+        await wallet_service.add_charge(session, owner, 10_000)
+
+        # تلاشِ اول: بیشتر از کلِ موجودی — باید رد بشه، بدونِ هیچ اثری.
+        first_attempt = await wallet_service.deduct(session, owner, 50_000, WalletTransactionReason.VOICE_TRANSCRIPTION)
+        assert first_attempt is False
+
+        # تلاشِ دوم: کاملاً منطقی و کمتر از موجودی — باید بدونِ مشکل جواب بده،
+        # چون تلاشِ اول نباید هیچ اثری رویِ بسته گذاشته باشه.
+        second_attempt = await wallet_service.deduct(session, owner, 3_000, WalletTransactionReason.VOICE_TRANSCRIPTION)
+        assert second_attempt is True, "تلاشِ دومِ معتبر نباید به‌خاطرِ اثرِ باقی‌مونده از تلاشِ اولِ ناموفق رد بشه"
+        assert owner.wallet_balance_toman == 7_000, f"باید ۱۰٬۰۰۰-۳٬۰۰۰=۷٬۰۰۰ بمونه، نه {owner.wallet_balance_toman}"
+
+    print("✅ test_failed_deduct_does_not_partially_drain_charges_spanning_multiple PASSED")
+
+
 async def test_expire_stale_charges() -> None:
     await reset_database()
     owner_id = await _seed_owner()
@@ -196,6 +229,7 @@ async def main() -> None:
     await test_deduct_uses_oldest_charge_first()
     await test_deduct_spans_multiple_charges()
     await test_deduct_rejected_when_insufficient_balance()
+    await test_failed_deduct_does_not_partially_drain_charges_spanning_multiple()
     await test_expire_stale_charges()
     await test_reminders_found_and_not_repeated()
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 import datetime
 import logging
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ShopOwner, WalletCharge, WalletTransaction, WalletTransactionReason
@@ -118,6 +118,20 @@ async def deduct(
     )
     charges = list(result.scalars().all())
 
+    # مهم: قبل از هرگونه mutation چک می‌کنیم که مجموعِ بسته‌ها اصلاً کافیه یا
+    # نه. قبلاً این چک بعدِ حلقه بود (بعدِ اینکه charge.remaining_toman ی
+    # بسته‌هایی که تا اون لحظه پردازش شده بودن از قبل کم شده بود و
+    # WalletTransactionِ متناظرشون هم session.add شده بود) — یعنی حتی
+    # وقتی نهایتاً False برمی‌گردوند، اون کاهش‌های نصفه‌کاره (چون هیچ
+    # commit/rollبکِ صریحی هم نبود) با commitِ نهاییِ همون session
+    # (مثلاً توسطِ DbSessionMiddleware در پایانِ آپدیت) واقعاً پایدار می‌شدن
+    # — دقیقاً برخلافِ چیزی که این تابع ادعا می‌کرد («هیچ تغییری اعمال
+    # نمی‌شه»). چون .with_for_update() از همین اول قفل گرفته، هیچ تراکنشِ
+    # هم‌زمانِ دیگه‌ای نمی‌تونه بینِ این چک و حلقه‌ی پایین چیزی رو عوض کنه.
+    if sum(charge.remaining_toman for charge in charges) < amount_toman:
+        logger.warning("کسرِ %s تومنی برای shop_owner_id=%s رد شد — موجودی کافی نیست.", amount_toman, owner.id)
+        return False
+
     remaining_to_deduct = amount_toman
     for charge in charges:
         if remaining_to_deduct <= 0:
@@ -132,13 +146,13 @@ async def deduct(
         )
 
     if remaining_to_deduct > 0:
-        # این یعنی موجودیِ کش‌شده با مجموعِ واقعیِ بسته‌ها هم‌خوان نبوده —
-        # یه ناسازگاریِ داده‌ست که نباید عملاً پیش بیاد؛ به‌جای خرابی/rollbackِ
-        # کورکورانه، لاگ می‌کنیم و امن fail می‌کنیم تا caller خودش تصمیم بگیره.
+        # به‌طورِ نظری دیگه نباید به اینجا برسیم (چونِ چکِ بالا از قبل مجموع
+        # رو تایید کرده و ردیف‌ها هم قفل‌ان) — نگهش داشتیم فقط به‌عنوانِ یه
+        # محافظِ نهایی در برابرِ ناسازگاریِ داده‌ای که واقعاً نباید پیش بیاد.
         logger.error(
-            "ناسازگاریِ موجودیِ کیف‌پول برای shop_owner_id=%s: موجودیِ کش‌شده=%s ولی جمعِ بسته‌ها کافی نبود",
+            "ناسازگاریِ غیرمنتظره‌ی موجودیِ کیف‌پول برای shop_owner_id=%s: بعدِ تاییدِ کافی‌بودن، بازم %s تومن کم اومد.",
             owner.id,
-            owner.wallet_balance_toman,
+            remaining_to_deduct,
         )
         return False
 
@@ -309,25 +323,50 @@ _LOW_BALANCE_RENOTIFY_HOURS = 24
 _EMPTY_RENOTIFY_HOURS = 6
 
 
-def should_notify_empty(owner: ShopOwner) -> bool:
-    if owner.wallet_empty_notified_at is None:
-        return True
-    elapsed = datetime.datetime.now(datetime.timezone.utc) - owner.wallet_empty_notified_at
-    return elapsed >= datetime.timedelta(hours=_EMPTY_RENOTIFY_HOURS)
+async def try_claim_empty_notification(session: AsyncSession, owner: ShopOwner) -> bool:
+    """
+    اتمیک (UPDATE...WHERE سطحِ دیتابیس، نه چک‌وسِت پایتونی): True فقط به یه
+    caller برمی‌گرده، حتی اگه دو تسکِ هم‌زمان (با سشن‌های جدا، مثلِ کسرِ
+    هزینه‌ی پاسخِ چت و کسرِ هزینه‌ی تشخیصِ سفارش که واقعاً به‌صورتِ دو تسکِ
+    async مجزا اجرا می‌شن) هم‌زمان صداش بزنن — دقیقاً همون کلاسِ مشکلی که
+    _apply_balance_delta برایِ خودِ موجودی حلش کرده، اینجا برایِ فلگِ
+    ضدِ-اسپم‌ِ اطلاع‌رسانی. قبلاً این چک با should_notify_empty (که فقط
+    owner ی از یه session رو توی پایتون می‌خوند) + mark_empty_notified
+    جدا انجام می‌شد؛ چون دو session ی جدا از هم بی‌خبرن، هر دو می‌تونستن
+    هم‌زمان «هنوز نرفته» ببینن و هر دو پیام بفرستن — دقیقاً باگی که این
+    نسخه‌ی اتمیک رفعش می‌کنه.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    threshold = now - datetime.timedelta(hours=_EMPTY_RENOTIFY_HOURS)
+    result = await session.execute(
+        update(ShopOwner)
+        .where(
+            ShopOwner.id == owner.id,
+            or_(ShopOwner.wallet_empty_notified_at.is_(None), ShopOwner.wallet_empty_notified_at <= threshold),
+        )
+        .values(wallet_empty_notified_at=now)
+        .returning(ShopOwner.id)
+    )
+    claimed = result.scalar_one_or_none() is not None
+    if claimed:
+        owner.wallet_empty_notified_at = now
+    return claimed
 
 
-def should_notify_low_balance(owner: ShopOwner) -> bool:
-    if owner.wallet_low_balance_notified_at is None:
-        return True
-    elapsed = datetime.datetime.now(datetime.timezone.utc) - owner.wallet_low_balance_notified_at
-    return elapsed >= datetime.timedelta(hours=_LOW_BALANCE_RENOTIFY_HOURS)
-
-
-async def mark_empty_notified(session: AsyncSession, owner: ShopOwner) -> None:
-    owner.wallet_empty_notified_at = datetime.datetime.now(datetime.timezone.utc)
-    await session.flush()
-
-
-async def mark_low_balance_notified(session: AsyncSession, owner: ShopOwner) -> None:
-    owner.wallet_low_balance_notified_at = datetime.datetime.now(datetime.timezone.utc)
-    await session.flush()
+async def try_claim_low_balance_notification(session: AsyncSession, owner: ShopOwner) -> bool:
+    """مثلِ try_claim_empty_notification، ولی برایِ هشدارِ «موجودی داره کم می‌شه» (نه «تمومِ کامل»)."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    threshold = now - datetime.timedelta(hours=_LOW_BALANCE_RENOTIFY_HOURS)
+    result = await session.execute(
+        update(ShopOwner)
+        .where(
+            ShopOwner.id == owner.id,
+            or_(ShopOwner.wallet_low_balance_notified_at.is_(None), ShopOwner.wallet_low_balance_notified_at <= threshold),
+        )
+        .values(wallet_low_balance_notified_at=now)
+        .returning(ShopOwner.id)
+    )
+    claimed = result.scalar_one_or_none() is not None
+    if claimed:
+        owner.wallet_low_balance_notified_at = now
+    return claimed
