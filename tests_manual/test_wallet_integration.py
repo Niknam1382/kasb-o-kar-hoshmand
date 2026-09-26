@@ -58,12 +58,12 @@ class _FakeAiServiceWithKnownTokens:
         if user_message == _CLASSIFIER_USER_PROMPT:
             if self.classifier_completes_order:
                 text = (
-                    '{"completed": true, "type": "consultation", "summary": "مشاوره‌ی آزمایشی", '
+                    '{"status": "completed", "type": "consultation", "summary": "مشاوره‌ی آزمایشی", '
                     '"estimated_value_toman": null, "product_id": null, "quantity": null, '
                     '"customer_phone": null, "customer_address": null}'
                 )
             else:
-                text = '{"completed": false}'
+                text = '{"status": "none"}'
             return AiCallResult(text=text, total_tokens=self.classifier_tokens)
         return AiCallResult(text="این پاسخِ آزمایشیِ هوشِ مصنوعیه.", total_tokens=self.chat_tokens)
 

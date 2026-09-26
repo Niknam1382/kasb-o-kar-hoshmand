@@ -468,13 +468,19 @@ def order_detected_notification(order, customer) -> str:
     type_label = "🛒 سفارش جدید" if (order.type.value if hasattr(order.type, "value") else order.type) == "order" else "💬 مشاوره‌ی جدید"
     customer_name = customer.first_name or (f"@{customer.username}" if customer.username else str(customer.telegram_id))
     text = (
-        f"{type_label}\n\n"
+        f"{type_label} (تاییدشده توسطِ مشتری)\n\n"
         f"مشتری: {customer_name}\n"
         f"آیدی تلگرام: {customer.telegram_id}\n"
         f"خلاصه: {order.summary}"
     )
     if order.estimated_value_toman:
         text += f"\nارزش تخمینی: {format_toman(order.estimated_value_toman)}"
+    # فیلدهای ساختاریافته (بازطراحیِ سفارش‌گیری) — قبلاً این دو تا داخلِ summary
+    # چسبونده می‌شدن، حالا جدا و همیشه یه‌جای مشخص نشون داده می‌شن.
+    if order.customer_phone:
+        text += f"\n📞 تلفن: {order.customer_phone}"
+    if order.customer_address:
+        text += f"\n📍 آدرس: {order.customer_address}"
     return text
 
 
@@ -753,6 +759,7 @@ ADMIN_ASK_RATE_LIMIT_MAX_MESSAGES = "حداکثر چند پیام از هر مش
 ADMIN_ASK_RATE_LIMIT_WINDOW_SECONDS = "این محدودیت روی چند ثانیه اعمال بشه؟"
 ADMIN_ASK_PAYMENT_RESERVATION_MINUTES = "مبلغ‌ منحصربه‌فردِ پرداخت کارت‌به‌کارت چند دقیقه برای همون فروشگاه‌دار رزرو بمونه؟"
 ADMIN_ASK_ORDER_RESERVATION_MINUTES = "رزروِ خودکارِ موجودیِ یه سفارشِ تاییدنشده چند دقیقه فعال بمونه تا اگه فروشگاه‌دار اقدام نکرد، خودکار آزاد بشه؟"
+ADMIN_ASK_ORDER_CONFIRMATION_TIMEOUT_MINUTES = "یه سفارش/مشاوره‌ی کاندید (که هوش مصنوعی تشخیص داده ولی هنوز خودِ مشتری تاییدش نکرده) چند دقیقه منتظرِ جوابِ مشتری بمونه تا خودکار لغو بشه؟"
 ADMIN_ASK_REPORT_FREQUENCY_DAYS = "گزارش دوره‌ای هر چند روز یک‌بار برای فروشگاه‌دارها ارسال بشه؟"
 ADMIN_ASK_REFERRAL_PERCENT = (
     "پورسانتِ معرف چند درصد از اولین شارژِ زیرمجموعه‌ش باشه؟ (فقط معرف می‌گیره؛ عدد ۰ یعنی غیرفعال، مثلاً 10):"
@@ -813,6 +820,10 @@ def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
         ),
         ("payment_reservation_minutes", f"⏱ رزرو مبلغ‌ پرداخت: {admin_settings.payment_reservation_minutes} دقیقه"),
         ("order_reservation_minutes", f"📦 رزروِ موجودیِ سفارش: {admin_settings.order_reservation_minutes} دقیقه"),
+        (
+            "order_customer_confirmation_timeout_minutes",
+            f"⏳ مهلتِ تاییدِ سفارش توسطِ مشتری: {admin_settings.order_customer_confirmation_timeout_minutes} دقیقه",
+        ),
         ("periodic_report_frequency_days", f"📈 بازه‌ی گزارش دوره‌ای: هر {admin_settings.periodic_report_frequency_days} روز"),
         ("conversation_history_limit", f"💭 حافظه‌ی مکالمه: {admin_settings.conversation_history_limit} پیام"),
         (

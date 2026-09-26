@@ -37,7 +37,7 @@ class _FakeAiServiceForVoice:
     async def get_reply(self, system_prompt: str, history, user_message: str) -> AiCallResult:
         if user_message != _CLASSIFIER_USER_PROMPT:
             self.chat_prompts.append(user_message)
-        text = '{"completed": false}' if user_message == _CLASSIFIER_USER_PROMPT else "پاسخِ آزمایشی"
+        text = '{"status": "none"}' if user_message == _CLASSIFIER_USER_PROMPT else "پاسخِ آزمایشی"
         return AiCallResult(text=text, total_tokens=42)
 
     async def analyze_image(self, prompt, image_bytes, mime_type="image/jpeg") -> AiCallResult:

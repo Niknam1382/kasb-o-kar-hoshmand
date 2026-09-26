@@ -92,6 +92,119 @@ async def create_order(
     return order
 
 
+async def create_order_awaiting_confirmation(
+    session: AsyncSession,
+    shop_bot_id: int,
+    customer_id: int,
+    order_type: OrderType,
+    summary: str,
+    estimated_value_toman: int | None,
+    product_id: int | None,
+    quantity: int | None,
+    customer_phone: str | None,
+    customer_address: str | None,
+) -> OrderConsultation:
+    """
+    بازطراحیِ سفارش‌گیری: وقتی هوش مصنوعی یه سفارش/مشاوره‌ی «کامل» تشخیص می‌ده،
+    دیگه مستقیم PENDING ساخته نمی‌شه — چون خودِ مشتری هنوز درستیِ اطلاعات رو
+    تایید نکرده. این تابع یه ردیفِ کاندید با status=AWAITING_CUSTOMER_CONFIRMATION
+    می‌سازه: نه رزروِ موجودی انجام می‌ده، نه فروشگاه‌دار خبردار می‌شه. این دو تا
+    فقط بعدِ customer_confirm_order (یعنی تاییدِ واقعیِ مشتری) اتفاق می‌افتن —
+    دقیقاً همون‌جا که create_order قبلاً رزرو رو انجام می‌داد.
+    """
+    order = OrderConsultation(
+        shop_bot_id=shop_bot_id,
+        customer_id=customer_id,
+        type=order_type,
+        summary=summary,
+        estimated_value_toman=estimated_value_toman,
+        product_id=product_id,
+        quantity=quantity,
+        customer_phone=customer_phone,
+        customer_address=customer_address,
+        status=OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+    )
+    session.add(order)
+    await session.flush()
+    return order
+
+
+async def get_awaiting_confirmation_for_customer(session: AsyncSession, order_id: int, customer_id: int) -> OrderConsultation | None:
+    """
+    مثلِ get_owned_by_id ولی برایِ مسیرهایی که order_id از callback_dataیِ خودِ
+    مشتری میاد (دکمه‌های تاییدِ سفارش توی رباتِ فروشگاهی) — مالکیت رو با
+    customer_id چک می‌کنه (نه shop_bot_id)، و فقط سفارش‌هایی که هنوز واقعاً
+    منتظرِ همین تاییدن رو برمی‌گردونه؛ تا یه مشتری نتونه با حدسِ id، سفارشِ
+    مشتریِ دیگه‌ای رو تایید/لغو کنه یا یه سفارشِ از‌قبل‌حل‌شده رو دوباره تغییر بده.
+    """
+    result = await session.execute(
+        select(OrderConsultation).where(
+            OrderConsultation.id == order_id,
+            OrderConsultation.customer_id == customer_id,
+            OrderConsultation.status == OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def customer_confirm_order(session: AsyncSession, order: OrderConsultation) -> None:
+    """
+    خودِ مشتری صحتِ اطلاعاتِ تشخیص‌داده‌شده رو تایید کرد: سفارش از حالتِ کاندید
+    خارج می‌شه و وارد چرخه‌ی عادیِ PENDING می‌شه (از همین‌جا به بعد، فروشگاه‌دار
+    مثلِ قبل با دکمه‌ی «تایید/رد» تصمیم می‌گیره). رزروِ موجودی هم دقیقاً همینجا
+    (نه زودتر، وقتِ تشخیصِ هوش مصنوعی) انجام می‌شه — الگوش عیناً از create_order
+    گرفته شده، فقط جابه‌جا شده به بعدِ تاییدِ واقعیِ مشتری.
+    """
+    order.status = OrderStatus.PENDING
+
+    if order.product_id is not None:
+        product = await session.get(Product, order.product_id)
+        if product is not None and product.stock_quantity is not None:
+            qty = order.quantity or 1
+            available = product.stock_quantity - product.reserved_quantity
+            if available >= qty:
+                admin_settings = await get_admin_settings(session)
+                product.reserved_quantity += qty
+                order.stock_reserved = True
+                order.reservation_expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+                    minutes=admin_settings.order_reservation_minutes
+                )
+
+    await session.flush()
+
+
+async def customer_cancel_order(session: AsyncSession, order: OrderConsultation) -> None:
+    """
+    مشتری گفته اطلاعاتِ تشخیص‌داده‌شده اشتباهه. چون هنوز رزروِ موجودی‌ای انجام
+    نشده (create_order_awaiting_confirmation هیچ رزروی نمی‌کنه)، لغو کردن فقط
+    یه تغییرِ status ه — چیزی برای آزادسازی نیست. فروشگاه‌دار اصلاً از وجودِ این
+    کاندید خبردار نشده بود، پس نیازی به اطلاع‌رسانی هم نیست.
+    """
+    order.status = OrderStatus.CANCELLED
+    await session.flush()
+
+
+async def expire_stale_customer_confirmations(session: AsyncSession, minutes: int) -> list[OrderConsultation]:
+    """
+    کاندیدهایی که مشتری ظرفِ minutes دقیقه جوابِ تایید/لغو نداده رو خودکار لغو
+    می‌کنه، تا برای همیشه توی حالتِ نامشخص نمونن. برای اجرای دوره‌ای توسطِ
+    زمان‌بند، کنارِ expire_stale_reservations (order_expiry_service.py).
+    """
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=minutes)
+    result = await session.execute(
+        select(OrderConsultation).where(
+            OrderConsultation.status == OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
+            OrderConsultation.created_at < cutoff,
+        )
+    )
+    stale = list(result.scalars().all())
+    for order in stale:
+        order.status = OrderStatus.CANCELLED
+    if stale:
+        await session.flush()
+    return stale
+
+
 async def get_by_id(session: AsyncSession, order_id: int) -> OrderConsultation | None:
     return await session.get(OrderConsultation, order_id)
 
@@ -121,6 +234,10 @@ async def _release_reservation(session: AsyncSession, order: OrderConsultation) 
 
 async def confirm_order(session: AsyncSession, order: OrderConsultation) -> bool:
     """
+    نکته (بازطراحیِ سفارش‌گیری): این تابع فقط برایِ سفارش‌هاییه که از قبل واردِ
+    چرخه‌ی عادی (PENDING به بعد) شدن. سفارش‌های کاندیدی که هنوز خودِ مشتری
+    تاییدشون نکرده (AWAITING_CUSTOMER_CONFIRMATION) عمداً پایین‌تر رد می‌شن —
+    فروشگاه‌دار نباید بتونه زودتر از خودِ مشتری یه کاندید رو قطعی کنه.
     سفارش رو تاییدشده علامت می‌زنه و اگه به یه محصولِ موجودی‌دار وصل باشه،
     از تعدادِ موجودیش کم می‌کنه (اگه رزروی داشت، رزرو به کسرِ قطعی تبدیل
     می‌شه؛ اگه رزرو نداشت — مثلاً منقضی شده بود — بازم مستقیم کم می‌شه، چون
@@ -128,6 +245,8 @@ async def confirm_order(session: AsyncSession, order: OrderConsultation) -> bool
     تاییدشده بود، False برمی‌گردونه (برای جلوگیری از کسرِ دوباره‌ی موجودی با
     چندبار زدنِ دکمه).
     """
+    if order.status == OrderStatus.AWAITING_CUSTOMER_CONFIRMATION:
+        return False
     if order.confirmed:
         return False
 

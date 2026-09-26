@@ -33,6 +33,7 @@ TEST_FILES = [
     "test_referral_and_trial.py",
     "test_card_to_card_improvements.py",
     "test_order_product_id_matching.py",
+    "test_order_customer_confirmation.py",
     "test_wallet_service.py",
     "test_wallet_integration.py",
     "test_order_reservation.py",

@@ -53,7 +53,7 @@ class _FakeAiServiceReturningProductId:
         if user_message != _CLASSIFIER_USER_PROMPT:
             return AiCallResult(text="باشه، الان براتون ثبت می‌کنم.", total_tokens=42)
         text = (
-            '{"completed": true, "type": "order", "summary": "سفارشِ مشتری", '
+            '{"status": "completed", "type": "order", "summary": "سفارشِ مشتری", '
             f'"estimated_value_toman": 250000, "product_id": {self.product_id_to_return}, '
             '"quantity": 2, "customer_phone": null, "customer_address": null}'
         )
@@ -96,12 +96,21 @@ async def test_valid_product_id_decrements_stock_correctly(shop_dp) -> None:
     async with session_scope() as session:
         from sqlalchemy import select
 
-        from app.database.models import OrderConsultation
+        from app.database.models import OrderConsultation, OrderStatus
 
         result = await session.execute(select(OrderConsultation).where(OrderConsultation.shop_bot_id == shop_bot_id))
         order = result.scalar_one()
         assert order.product_id == product_id, f"انتظار داشتیم product_id دقیقاً {product_id} باشه، ولی {order.product_id} بود"
         assert order.quantity == 2, f"انتظار داشتیم quantity برابرِ ۲ باشه، ولی {order.quantity} بود"
+        assert order.status == OrderStatus.AWAITING_CUSTOMER_CONFIRMATION, (
+            "بازطراحیِ سفارش‌گیری: تازه‌تشخیص‌داده‌شده باید منتظرِ تاییدِ خودِ مشتری بمونه، نه مستقیم PENDING"
+        )
+
+        # بازطراحیِ سفارش‌گیری: قبل از این‌که فروشگاه‌دار بتونه تاییدش کنه، اول باید
+        # خودِ مشتری صحتِ اطلاعاتِ تشخیص‌داده‌شده رو تایید کرده باشه (اینجا مستقیم
+        # لایه‌ی سرویس صدا زده می‌شه؛ مسیرِ کاملِ دکمه/کال‌بک توی
+        # test_order_customer_confirmation.py پوشش داده شده).
+        await order_service.customer_confirm_order(session, order)
 
         confirmed = await order_service.confirm_order(session, order)
         assert confirmed is True

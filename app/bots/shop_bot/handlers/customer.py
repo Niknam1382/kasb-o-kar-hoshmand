@@ -7,11 +7,11 @@ import time
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import CommandStart
-from aiogram.types import BufferedInputFile, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts as main_texts
-from app.bots.shop_bot import texts
+from app.bots.shop_bot import keyboards, texts
 from app.database.models import AuditEventType, ModerationAction, TenantMode, WalletTransactionReason
 from app.database.session import session_scope
 from app.services import (
@@ -249,7 +249,7 @@ async def _generate_and_send_reply(
     await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot)
 
     full_history = history + [{"role": "user", "content": combined_text}, {"role": "assistant", "content": reply}]
-    asyncio.create_task(_detect_and_notify_order(shop_bot_id, customer.id, full_history, main_bot))
+    asyncio.create_task(_detect_and_notify_order(shop_bot_id, customer.id, full_history, shop_bot_instance, main_bot))
 
 
 @router.message(F.photo)
@@ -360,8 +360,22 @@ async def _detect_and_notify_order(
     shop_bot_id: int,
     customer_id: int,
     full_history: list[dict[str, str]],
+    shop_bot_instance: Bot,
     main_bot: Bot,
 ) -> None:
+    """
+    بازطراحیِ سفارش‌گیری: قبلاً این تابع (اگه کلاسیفایر «completed» تشخیص
+    می‌داد) مستقیم سفارش رو می‌ساخت و فقط به فروشگاه‌دار خبر می‌داد — مشتری
+    هیچ‌وقت نمی‌دید چی ثبت شده. حالا سه حالت داره:
+      - هیچی (status=None): مثلِ قبل، کاری انجام نمی‌شه.
+      - "unsure": حدس نمی‌زنیم؛ سوالِ روشن‌کننده‌ی خودِ هوش مصنوعی مستقیم به
+        مشتری فرستاده می‌شه (و توی تاریخچه‌ی مکالمه ذخیره می‌شه تا دفعه‌ی بعد
+        بدونه قبلاً پرسیده)، بدونِ ساختنِ هیچ سفارشی.
+      - "completed": یه سفارش/مشاوره‌ی *کاندید* (AWAITING_CUSTOMER_CONFIRMATION)
+        ساخته می‌شه و یه پیامِ تاییدِ صریح (خلاصه + فیلدهای ساختاریافته‌ی
+        تلفن/آدرس + دکمه‌ی تایید/رد) به خودِ مشتری فرستاده می‌شه. فروشگاه‌دار
+        فقط *بعدِ* تاییدِ واقعیِ مشتری خبردار می‌شه (توی cb_customer_confirm_order).
+    """
     try:
         async with session_scope() as session:
             shop_bot = await shop_bot_service.get_by_id(session, shop_bot_id)
@@ -389,13 +403,32 @@ async def _detect_and_notify_order(
             if result is None:
                 return
 
+            customer = await customer_service.get_by_id(session, customer_id)
+            if customer is None:
+                return
+
+            if result["status"] == "unsure":
+                question = result["clarifying_question"]
+                try:
+                    await shop_bot_instance.send_message(customer.telegram_id, question)
+                    # توی تاریخچه هم ذخیره می‌شه تا فراخوانیِ بعدیِ کلاسیفایر (که کلِ
+                    # تاریخچه رو می‌بینه) بفهمه این سوال قبلاً پرسیده شده، و دوباره
+                    # unsureِ تکراری برنگردونه.
+                    await conversation_service.save_turn(session, customer_id, "", question)
+                except TelegramAPIError:
+                    logger.exception("فرستادنِ سوالِ روشن‌کننده به مشتری %s ناموفق بود.", customer.telegram_id)
+                return
+
+            # از اینجا به بعد: result["status"] == "completed"
             recent = await order_service.get_recent_duplicate(
                 session, customer_id, result["type"], result.get("product_id"), minutes=ORDER_DEDUP_WINDOW_MINUTES
             )
             if recent is not None:
+                # یا همین الان یه کاندیدِ حل‌نشده برای همین محصول/نوع داریم (پس دوباره
+                # مزاحمِ مشتری نمی‌شیم)، یا یه سفارشِ قبلاً حل‌شده برای همینه.
                 return
 
-            order = await order_service.create_order(
+            order = await order_service.create_order_awaiting_confirmation(
                 session,
                 shop_bot_id,
                 customer_id,
@@ -404,22 +437,85 @@ async def _detect_and_notify_order(
                 result["estimated_value_toman"],
                 result.get("product_id"),
                 result.get("quantity"),
+                result.get("customer_phone"),
+                result.get("customer_address"),
             )
 
-            customer = await customer_service.get_by_id(session, customer_id)
-
-            from app.bots.main_bot import keyboards as main_keyboards
-
-            keyboard = main_keyboards.order_notification_keyboard(order.id) if order.product_id is not None else None
-
             try:
-                await main_bot.send_message(
-                    owner.telegram_id, main_texts.order_detected_notification(order, customer), reply_markup=keyboard
+                await shop_bot_instance.send_message(
+                    customer.telegram_id,
+                    texts.order_confirmation_prompt(order),
+                    reply_markup=keyboards.order_customer_confirmation_keyboard(order.id),
                 )
             except TelegramAPIError:
-                logger.exception("اطلاع‌رسانیِ سفارش/مشاوره‌ی تشخیص‌داده‌شده به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
+                logger.exception("فرستادنِ پیامِ تاییدِ سفارش به مشتری %s ناموفق بود.", customer.telegram_id)
     except Exception:
         logger.exception("تسکِ پس‌زمینه‌ی تشخیصِ سفارش/مشاوره با خطا مواجه شد.")
+
+
+async def _resolve_awaiting_order_for_callback(callback: CallbackQuery, session: AsyncSession):
+    """کمک‌کننده‌ی مشترکِ دو هندلرِ زیر: shop_bot و customer و سفارشِ کاندید رو
+    از روی callback.bot.id/callback.from_user.id/callback.data پیدا می‌کنه، و
+    مالکیت رو چک می‌کنه. اگه هرجا namatch بود، None برمی‌گردونه (و خودش پیامِ
+    «دیگه معتبر نیست» رو جواب می‌ده) — فراخوان فقط کافیه چک کنه None هست یا نه."""
+    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    if shop_bot is None:
+        await callback.answer(texts.ORDER_CONFIRMATION_NO_LONGER_VALID, show_alert=True)
+        return None
+
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    if customer is None:
+        await callback.answer(texts.ORDER_CONFIRMATION_NO_LONGER_VALID, show_alert=True)
+        return None
+
+    order_id = int(callback.data.split(":")[1])
+    order = await order_service.get_awaiting_confirmation_for_customer(session, order_id, customer.id)
+    if order is None:
+        # یا شناسه‌ی جعلی/حدسی بوده (مالِ یه مشتریِ دیگه)، یا این کاندید از قبل
+        # تایید/لغو/منقضی شده (مثلاً کاربر روی یه پیامِ قدیمی دوباره زده).
+        await callback.answer(texts.ORDER_CONFIRMATION_NO_LONGER_VALID, show_alert=True)
+        return None
+
+    return shop_bot, customer, order
+
+
+@router.callback_query(F.data.startswith("cust_confirm_order:"))
+async def cb_customer_confirm_order(callback: CallbackQuery, session: AsyncSession, main_bot: Bot) -> None:
+    resolved = await _resolve_awaiting_order_for_callback(callback, session)
+    if resolved is None:
+        return
+    shop_bot, customer, order = resolved
+
+    await order_service.customer_confirm_order(session, order)
+    await callback.answer()
+    await callback.message.edit_text(texts.ORDER_CUSTOMER_CONFIRMED_ACK)
+
+    # فقط از همین لحظه به بعد فروشگاه‌دار خبردار می‌شه — دقیقاً همون چیزی که
+    # این بازطراحی قرار بود عوض کنه: قبلاً این اطلاع‌رسانی بلافاصله بعدِ تشخیصِ
+    # هوش مصنوعی می‌رفت، بدونِ اینکه خودِ مشتری چیزی تایید کرده باشه.
+    owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
+    if owner is not None:
+        from app.bots.main_bot import keyboards as main_keyboards
+
+        keyboard = main_keyboards.order_notification_keyboard(order.id) if order.product_id is not None else None
+        try:
+            await main_bot.send_message(
+                owner.telegram_id, main_texts.order_detected_notification(order, customer), reply_markup=keyboard
+            )
+        except TelegramAPIError:
+            logger.exception("اطلاع‌رسانیِ سفارش/مشاوره‌ی تاییدشده به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
+
+
+@router.callback_query(F.data.startswith("cust_cancel_order:"))
+async def cb_customer_cancel_order(callback: CallbackQuery, session: AsyncSession) -> None:
+    resolved = await _resolve_awaiting_order_for_callback(callback, session)
+    if resolved is None:
+        return
+    _shop_bot, _customer, order = resolved
+
+    await order_service.customer_cancel_order(session, order)
+    await callback.answer()
+    await callback.message.edit_text(texts.ORDER_CUSTOMER_CANCELLED_ACK)
 
 
 @router.message()

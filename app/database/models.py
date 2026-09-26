@@ -77,6 +77,10 @@ class OrderType(str, enum.Enum):
 
 
 class OrderStatus(str, enum.Enum):
+    # کاندیدی که هوش مصنوعی تشخیص داده ولی هنوز خودِ مشتری صحتش رو تایید نکرده؛
+    # در این وضعیت هنوز نه رزروِ موجودی انجام شده نه فروشگاه‌دار خبردار شده —
+    # این‌ها فقط بعدِ تاییدِ واقعیِ مشتری (customer_confirm_order) اتفاق می‌افتن.
+    AWAITING_CUSTOMER_CONFIRMATION = "awaiting_customer_confirmation"
     PENDING = "pending"
     CONFIRMED = "confirmed"
     PROCESSING = "processing"
@@ -195,6 +199,11 @@ class AdminSettings(Base):
     # مدتِ رزروِ خودکارِ موجودی برای سفارش‌هایی که هوش مصنوعی تشخیص داده ولی
     # فروشگاه‌دار هنوز تاییدشون نکرده؛ بعدِ این مدت، رزرو خودکار آزاد می‌شه.
     order_reservation_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    # مدتی که یه سفارش/مشاوره‌ی کاندید (تشخیص‌داده‌شده ولی هنوز تاییدنشده‌ توسطِ
+    # خودِ مشتری) منتظرِ جوابِ مشتری می‌مونه؛ بعدِ این مدت خودکار لغو می‌شه (تا
+    # برای همیشه توی حالتِ نامشخص نمونه). چون هنوز رزروِ موجودی نداره، لغوش
+    # نیازی به آزادسازیِ رزرو نداره.
+    order_customer_confirmation_timeout_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
 
     # سوییچ‌های اضطراری/کنترلی: بدونِ نیاز به دیپلویِ جدید، سریع می‌شه جلوی
     # ثبت‌نامِ تازه، شارژِ کیف‌پول، یا کلِ عملکردِ هوش‌مصنوعیِ پلتفرم رو گرفت.
@@ -480,6 +489,12 @@ class OrderConsultation(Base, CreatedAtMixin):
     estimated_value_toman: Mapped[int | None] = mapped_column(Integer, nullable=True)
     product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id"), nullable=True)
     quantity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # فیلدهای ساختاریافته (بازطراحیِ سفارش‌گیری): قبلاً این دو تا فقط به‌صورتِ
+    # چندخطِ اضافه به summary چسبونده می‌شدن؛ حالا ستونِ جداگانه دارن تا هم
+    # قابلِ‌کوئری باشن هم بشه توی پیامِ تاییدِ مشتری/اطلاع‌رسانیِ فروشگاه‌دار
+    # جدا از خلاصه‌ی آزاد نمایش داده بشن.
+    customer_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    customer_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     confirmed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

@@ -613,6 +613,7 @@ _INT_FIELDS: dict[str, str] = {
     "grace_period_hours": texts.ADMIN_ASK_GRACE_PERIOD_HOURS,
     "payment_reservation_minutes": texts.ADMIN_ASK_PAYMENT_RESERVATION_MINUTES,
     "order_reservation_minutes": texts.ADMIN_ASK_ORDER_RESERVATION_MINUTES,
+    "order_customer_confirmation_timeout_minutes": texts.ADMIN_ASK_ORDER_CONFIRMATION_TIMEOUT_MINUTES,
     "periodic_report_frequency_days": texts.ADMIN_ASK_REPORT_FREQUENCY_DAYS,
     "conversation_history_limit": texts.ADMIN_ASK_CONVERSATION_HISTORY_LIMIT,
     "knowledge_items_limit": texts.ADMIN_ASK_KNOWLEDGE_ITEMS_LIMIT,

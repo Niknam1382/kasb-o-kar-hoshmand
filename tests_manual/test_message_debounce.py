@@ -44,7 +44,7 @@ class _FakeAiService:
         # debounce/ترکیبِ پیام‌ها روش اثر می‌ذاره.
         if user_message != _CLASSIFIER_USER_PROMPT:
             self.received_prompts.append(user_message)
-        text = '{"completed": false}' if user_message == _CLASSIFIER_USER_PROMPT else "این پاسخِ آزمایشیِ هوشِ مصنوعیه."
+        text = '{"status": "none"}' if user_message == _CLASSIFIER_USER_PROMPT else "این پاسخِ آزمایشیِ هوشِ مصنوعیه."
         return AiCallResult(text=text, total_tokens=42)
 
     async def analyze_image(self, prompt: str, image_bytes: bytes, mime_type: str = "image/jpeg") -> AiCallResult:

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.main_bot import texts
 from app.database.models import Product, ShopBot, ShopOwner
 from app.services import order_service
+from app.services.admin_settings_service import get_admin_settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,17 @@ async def process_order_expiry(session: AsyncSession, main_bot: Bot) -> None:
     """
     کارِ دوره‌ای: سفارش‌های PENDING که رزروِ موجودیشون منقضی شده رو آزاد
     می‌کنه و به فروشگاه‌دار خبر می‌ده که دیگه رزرو نداره (تا اگه هنوز مشتری
-    رو داره، بتونه دستی هماهنگ کنه).
+    رو داره، بتونه دستی هماهنگ کنه). کنارِ اون، سفارش‌های کاندیدی که مشتری
+    برای مدتِ طولانی جوابِ تایید/لغو نداده رو هم خودکار لغو می‌کنه (بازطراحیِ
+    سفارش‌گیری) — این‌ها هنوز رزروی ندارن، پس فروشگاه‌دار هم خبردار نمی‌شه.
     """
+    admin_settings = await get_admin_settings(session)
+    stale_confirmations = await order_service.expire_stale_customer_confirmations(
+        session, admin_settings.order_customer_confirmation_timeout_minutes
+    )
+    if stale_confirmations:
+        logger.info("تعداد %s کاندیدِ سفارشِ تاییدنشده (توسطِ مشتری) خودکار لغو شد.", len(stale_confirmations))
+
     expired = await order_service.expire_stale_reservations(session)
     if not expired:
         return

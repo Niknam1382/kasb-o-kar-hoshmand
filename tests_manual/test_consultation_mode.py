@@ -70,7 +70,7 @@ def test_panel_keyboard_label_matches_mode() -> None:
 
 
 async def test_detect_order_forces_consultation_type() -> None:
-    fake_ai = _FakeClassifierAi('{"completed": true, "type": "order", "summary": "درخواستِ وقتِ مشاوره", "estimated_value_toman": null, "product_id": null, "quantity": null, "customer_phone": null, "customer_address": null}')
+    fake_ai = _FakeClassifierAi('{"status": "completed", "type": "order", "summary": "درخواستِ وقتِ مشاوره", "estimated_value_toman": null, "product_id": null, "quantity": null, "customer_phone": null, "customer_address": null}')
     result, tokens = await order_detection_service.detect_order(fake_ai, [{"role": "user", "content": "سلام"}], [], is_consultation=True)
     assert result is not None
     assert result["type"] == OrderType.CONSULTATION, f"باید همیشه CONSULTATION باشه، شد: {result['type']}"

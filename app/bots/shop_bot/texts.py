@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.utils.validators import format_toman
+
 SHOP_WELCOME = "سلام! خوش اومدی 👋 هر سوالی درباره‌ی محصولات یا خدمات داری بپرس."
 
 SHOP_UNAVAILABLE = "این فروشگاه فعلاً در دسترس نیست. لطفاً بعداً دوباره امتحان کن."
@@ -27,3 +29,35 @@ VOICE_TRANSCRIBE_ERROR = "متاسفانه نتونستم پیامِ صوتیت 
 
 def customer_photo_forward_caption(customer_name: str, caption_note: str, analysis_note: str) -> str:
     return f"📸 مشتری «{customer_name}» یه عکس فرستاد.{caption_note}{analysis_note}"
+
+
+# =============================================================================
+# تاییدِ سفارش توسطِ مشتری (بازطراحیِ سفارش‌گیری)
+# =============================================================================
+def order_confirmation_prompt(order) -> str:
+    """
+    قبل از این‌که یه سفارش/مشاوره‌ی تشخیص‌داده‌شده واقعاً ثبت بشه و به
+    فروشگاه‌دار برسه، همین پیام (با دکمه‌ی تاییدِ order_customer_confirmation_keyboard)
+    به خودِ مشتری نشون داده می‌شه — چون قبلاً این کارِ کاملاً پشتِ‌صحنه انجام
+    می‌شد و مشتری هیچ‌وقت نمی‌دید چی ثبت شده.
+    """
+    order_type_value = order.type.value if hasattr(order.type, "value") else order.type
+    title = "🛒 این چیزیه که برات به‌عنوانِ سفارش ثبت می‌کنم" if order_type_value == "order" else "💬 این چیزیه که برات به‌عنوانِ درخواستِ مشاوره ثبت می‌کنم"
+
+    lines = [title, "", f"خلاصه: {order.summary}"]
+    if order.quantity:
+        lines.append(f"تعداد: {order.quantity}")
+    if order.estimated_value_toman:
+        lines.append(f"ارزش تخمینی: {format_toman(order.estimated_value_toman)}")
+    if order.customer_phone:
+        lines.append(f"📞 تلفن: {order.customer_phone}")
+    if order.customer_address:
+        lines.append(f"📍 آدرس: {order.customer_address}")
+    lines.append("")
+    lines.append("درسته؟ لطفاً تایید کن تا برای فروشگاه‌دار ارسال بشه.")
+    return "\n".join(lines)
+
+
+ORDER_CUSTOMER_CONFIRMED_ACK = "✅ ثبت شد! به‌زودی فروشگاه‌دار باهات هماهنگ می‌کنه."
+ORDER_CUSTOMER_CANCELLED_ACK = "باشه، لغوش کردم 🙏 اگه خواستی دوباره سفارش بدی، کافیه دوباره بگی."
+ORDER_CONFIRMATION_NO_LONGER_VALID = "این درخواست دیگه معتبر نیست (شاید قبلاً جواب داده شده یا منقضی شده)."
