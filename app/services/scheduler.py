@@ -13,6 +13,7 @@ from app.services import (
     order_expiry_service,
     payment_expiry_service,
     report_service,
+    shop_prefs_service,
     time_freeze_service,
     wallet_expiry_service,
 )
@@ -45,7 +46,10 @@ async def run_periodic_pass(main_bot: Bot) -> None:
             await order_expiry_service.process_order_expiry(session, main_bot)
     if not job_gate_service.is_paused(admin_settings, "prune"):
         async with session_scope() as session:
-            await conversation_service.prune_old_messages(session, admin_settings.conversation_retention_days)
+            # A5: مدتِ نگهداریِ مکالمه per-shop است؛ نگاشتِ همه‌یِ فروشگاه‌ها یک‌بار ساخته می‌شود.
+            default_days = shop_prefs_service.resolve(shop_prefs_service.CONVERSATION_RETENTION, None, admin_settings)
+            retention_by_shop = await shop_prefs_service.retention_by_shop(session, admin_settings)
+            await conversation_service.prune_old_messages_for_shops(session, retention_by_shop, default_days)
 
 
 async def run_periodic_tasks(main_bot: Bot, stop_event: asyncio.Event, interval_seconds: int = CHECK_INTERVAL_SECONDS) -> None:

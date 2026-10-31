@@ -91,6 +91,8 @@ TEST_FILES = [
     "test_p18_topup_receipt.py",
     "test_p18_weekly_report.py",
     "test_p18_block_and_conversation.py",
+    "test_p18_per_shop_settings.py",
+    "test_p18_checkout_steps.py",
 ]
 
 

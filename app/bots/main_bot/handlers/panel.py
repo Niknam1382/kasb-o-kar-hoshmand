@@ -49,6 +49,7 @@ from app.services import (
     referral_service,
     shop_bot_service,
     shop_owner_service,
+    shop_prefs_service,
     stats_service,
     wallet_service,
     zarinpal_service,
@@ -190,7 +191,9 @@ async def preview_message(message: Message, session: AsyncSession) -> None:
     products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
 
     admin_settings = await get_admin_settings(session)
-    knowledge = await channel_knowledge_service.get_recent_knowledge(session, shop_bot.id, admin_settings.knowledge_items_limit)
+    # A5: حافظه‌یِ کانالِ دانش‌افزایی per-shop است؛ NULL یعنی همان پیش‌فرضِ سراسری.
+    knowledge_limit = shop_prefs_service.resolve(shop_prefs_service.KNOWLEDGE_ITEMS, shop_bot, admin_settings)
+    knowledge = await channel_knowledge_service.get_recent_knowledge(session, shop_bot.id, knowledge_limit)
     learned_answers = await knowledge_service.get_active_for_prompt(session, shop_bot.id)
     system_prompt = ai_context.build_system_prompt(
         shop_bot,
@@ -908,7 +911,7 @@ async def open_checkout_questions(message: Message, session: AsyncSession, state
 
     await message.answer(texts.checkout_questions_current(shop_bot))
     await state.set_state(CheckoutQuestionsStates.waiting_questions)
-    await message.answer(texts.ASK_CHECKOUT_QUESTIONS)
+    await message.answer(texts.ASK_CHECKOUT_QUESTIONS, reply_markup=keyboards.checkout_questions_keyboard())
 
 
 @router.message(CheckoutQuestionsStates.waiting_questions, F.text)

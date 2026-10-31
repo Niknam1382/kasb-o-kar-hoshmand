@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts
 from app.database.models import Product, ShopBot, ShopOwner
-from app.services import order_service
+from app.services import order_service, shop_prefs_service
 from app.services.admin_settings_service import get_admin_settings
 
 logger = logging.getLogger(__name__)
@@ -23,8 +23,11 @@ async def process_order_expiry(session: AsyncSession, main_bot: Bot) -> None:
     سفارش‌گیری) — این‌ها هنوز رزروی ندارن، پس فروشگاه‌دار هم خبردار نمی‌شه.
     """
     admin_settings = await get_admin_settings(session)
+    # A5: مهلتِ تاییدِ مشتری per-shop است؛ جاب نگاشتِ همه‌یِ فروشگاه‌ها را یک‌بار می‌سازد.
+    default_minutes = shop_prefs_service.resolve(shop_prefs_service.CONFIRMATION_TIMEOUT, None, admin_settings)
+    timeout_by_shop = await shop_prefs_service.confirmation_timeout_by_shop(session, admin_settings)
     stale_confirmations = await order_service.expire_stale_customer_confirmations(
-        session, admin_settings.order_customer_confirmation_timeout_minutes
+        session, timeout_by_shop, default_minutes
     )
     if stale_confirmations:
         logger.info("تعداد %s کاندیدِ سفارشِ تاییدنشده (توسطِ مشتری) خودکار لغو شد.", len(stale_confirmations))

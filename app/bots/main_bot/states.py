@@ -202,14 +202,16 @@ class AssistantStates(StatesGroup):
 
 
 class ShopSettingsStates(StatesGroup):
-    """تنظیماتِ رباتِ فروشگاه (فازِ ۶-الف). فعلاً فقط مدتِ تجمیعِ پیام‌ها؛ تنظیم‌هایِ بعدی (پشتیبانی، حافظه‌یِ AI،
-    محدودیتِ عکس، زمانِ رزرو، ...) همین‌جا اضافه می‌شن."""
+    """تنظیماتِ رباتِ فروشگاه (فازِ ۶-الف + P18 · A5/B5/B9): تجمیعِ پیام‌ها، پشتیبانی، زمانِ گزارشِ دوره‌ای،
+    مهلت‌ها/حافظه‌یِ per-shop و گام‌هایِ چک‌اوت."""
 
     waiting_batch_seconds = State()
     waiting_support_username = State()
     waiting_support_phone = State()
     waiting_support_text = State()
     waiting_report_hour = State()
+    waiting_pref_value = State()
+    waiting_checkout_step_question = State()
 
 
 class OrderOpsStates(StatesGroup):

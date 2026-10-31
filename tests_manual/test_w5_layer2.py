@@ -288,33 +288,30 @@ async def test_review_warning_sent_once(shop_dp, main_dp, bot_manager, main_bot)
     print("✅ test_review_warning_sent_once PASSED")
 
 
-async def test_admin_deadline_bounds(shop_dp, main_dp, bot_manager, main_bot) -> None:
-    assert payment_settings_service.deadline_bounds(None) == (5, 1440)
-    assert payment_settings_service.review_hold_bounds(None) == (60, 4320)
-    weird = SimpleNamespace(payment_deadline_min_minutes=500, payment_deadline_max_minutes=10, review_hold_min_hours=5, review_hold_max_hours=2)
-    assert payment_settings_service.deadline_bounds(weird) == (5, 1440), "وارونه ⇒ پیش‌فرض"
-    assert payment_settings_service.review_hold_bounds(weird) == (60, 4320)
+async def test_owner_deadline_bounds_come_from_code(shop_dp, main_dp, bot_manager, main_bot) -> None:
+    """P18 · A5: بازه‌یِ مهلتِ پرداخت/بررسیِ رسید دیگر از پنلِ ادمین تنظیم نمی‌شود؛ فقط بازه‌یِ ایمنیِ کد."""
+    assert payment_settings_service.deadline_bounds() == (5, 1440)
+    assert payment_settings_service.review_hold_bounds() == (60, 4320)
 
     shop_bot_id, p1, p2 = await _seed()
     await _configure(shop_bot_id, card=True)
-    async with session_scope() as session:
-        await update_setting(session, "payment_deadline_max_minutes", 120)
-        await update_setting(session, "review_hold_max_hours", 6)
     env = _Env(shop_dp, main_dp, bot_manager, main_bot, shop_bot_id, p1, p2)
+
     await env.owner_cb("pays_dl:card")
-    assert "120" in env.owner_bot.session.sent_messages[-1]["text"]
+    assert "بینِ 5 و 1440" in env.owner_bot.session.sent_messages[-1]["text"], env.owner_bot.session.sent_messages[-1]["text"]
+    await env.owner_say("1441")
+    assert "بازه‌یِ مجاز: 5 تا 1440 دقیقه" in env.owner_bot.session.sent_messages[-1]["text"]
     await env.owner_say("500")
-    assert "بازه‌یِ مجاز: 5 تا 120" in env.owner_bot.session.sent_messages[-1]["text"]
-    await env.owner_say("90")
     async with session_scope() as session:
-        assert (await payment_settings_service.get_or_create(session, shop_bot_id)).card_deadline_minutes == 90
+        assert (await payment_settings_service.get_or_create(session, shop_bot_id)).card_deadline_minutes == 500
     await env.owner_cb("pays_hold")
-    await env.owner_say("1000")  # ۶ ساعت = ۳۶۰ دقیقه سقف
-    assert "بازه‌یِ مجاز: 60 تا 360" in env.owner_bot.session.sent_messages[-1]["text"]
+    assert "بینِ 60 و 4320" in env.owner_bot.session.sent_messages[-1]["text"]
+    await env.owner_say("4321")  # ۶ ساعت = ۳۶۰ دقیقه دیگر سقفِ ادمین نیست؛ بازه‌یِ کد ۴۳۲۰ است
+    assert "بازه‌یِ مجاز: 60 تا 4320 دقیقه" in env.owner_bot.session.sent_messages[-1]["text"]
     await env.owner_say("300")
     async with session_scope() as session:
         assert (await payment_settings_service.get_or_create(session, shop_bot_id)).receipt_review_hold_minutes == 300
-    print("✅ test_admin_deadline_bounds PASSED")
+    print("✅ test_owner_deadline_bounds_come_from_code PASSED")
 
 
 async def test_restock_after_refund(shop_dp, main_dp, bot_manager, main_bot) -> None:
@@ -604,7 +601,7 @@ async def main() -> None:
     await test_late_receipt_approval(shop_dp, main_dp, bot_manager, main_bot)
     await test_late_receipt_approval_oversold(shop_dp, main_dp, bot_manager, main_bot)
     await test_review_warning_sent_once(shop_dp, main_dp, bot_manager, main_bot)
-    await test_admin_deadline_bounds(shop_dp, main_dp, bot_manager, main_bot)
+    await test_owner_deadline_bounds_come_from_code(shop_dp, main_dp, bot_manager, main_bot)
     await test_restock_after_refund(shop_dp, main_dp, bot_manager, main_bot)
     await test_time_freeze_lifecycle(main_bot)
     await test_time_freeze_auto_resume_cap_and_all_scope(main_bot)

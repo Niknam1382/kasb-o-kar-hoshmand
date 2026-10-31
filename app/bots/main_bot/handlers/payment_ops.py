@@ -23,7 +23,7 @@ from app.bots.shop_bot import texts as shop_texts
 from app.bots.shop_bot.handlers.orders import send_invoice_to_customer
 from app.database.models import Customer, TenantMode
 from app.services import bale_credentials_service, order_payment_service, order_state, payment_settings_service
-from app.services.admin_settings_service import get_admin_settings
+
 from app.services import order_transition_service as transitions
 
 logger = logging.getLogger(__name__)
@@ -320,13 +320,13 @@ async def pays_deadline_start(callback: CallbackQuery, state: FSMContext, sessio
     await state.set_state(PaymentSettingsStates.waiting_deadline)
     await state.update_data(pays_method=method)
     await callback.answer()
-    low, high = payment_settings_service.deadline_bounds(await get_admin_settings(session))
+    low, high = payment_settings_service.deadline_bounds()
     await callback.message.answer(texts.pays_ask_deadline(low, high))
 
 
 @router.message(PaymentSettingsStates.waiting_deadline, F.text)
 async def pays_deadline_save(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    low, high = payment_settings_service.deadline_bounds(await get_admin_settings(session))
+    low, high = payment_settings_service.deadline_bounds()
     value = payment_settings_service.parse_positive_int(message.text or "", low, high)
     if value is None:
         await message.answer(f"{texts.PAYS_INVALID_NUMBER}\n{texts.pays_range_hint(low, high, 'دقیقه')}")
@@ -347,13 +347,13 @@ async def pays_deadline_save(message: Message, state: FSMContext, session: Async
 async def pays_hold_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await state.set_state(PaymentSettingsStates.waiting_hold)
     await callback.answer()
-    low, high = payment_settings_service.review_hold_bounds(await get_admin_settings(session))
+    low, high = payment_settings_service.review_hold_bounds()
     await callback.message.answer(texts.pays_ask_hold(low, high))
 
 
 @router.message(PaymentSettingsStates.waiting_hold, F.text)
 async def pays_hold_save(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    low, high = payment_settings_service.review_hold_bounds(await get_admin_settings(session))
+    low, high = payment_settings_service.review_hold_bounds()
     value = payment_settings_service.parse_positive_int(message.text or "", low, high)
     if value is None:
         await message.answer(f"{texts.PAYS_INVALID_NUMBER}\n{texts.pays_range_hint(low, high, 'دقیقه')}")

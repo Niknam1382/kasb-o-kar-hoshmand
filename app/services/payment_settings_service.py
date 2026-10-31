@@ -68,22 +68,18 @@ def clamp_review_hold(minutes: int) -> int:
     return max(REVIEW_HOLD_HARD_MIN_MINUTES, min(REVIEW_HOLD_HARD_MAX_MINUTES, int(minutes)))
 
 
-def deadline_bounds(admin_settings=None) -> tuple[int, int]:
-    """(کف, سقف) مهلتِ پرداخت به دقیقه از تنظیماتِ ادمین؛ نامعتبر/وارونه ⇒ پیش‌فرضِ ۵..۱۴۴۰."""
-    low = getattr(admin_settings, "payment_deadline_min_minutes", DEADLINE_MIN_MINUTES) or DEADLINE_MIN_MINUTES
-    high = getattr(admin_settings, "payment_deadline_max_minutes", DEADLINE_MAX_MINUTES) or DEADLINE_MAX_MINUTES
-    low = max(DEADLINE_HARD_MIN_MINUTES, min(int(low), DEADLINE_HARD_MAX_MINUTES))
-    high = max(DEADLINE_HARD_MIN_MINUTES, min(int(high), DEADLINE_HARD_MAX_MINUTES))
-    return (low, high) if low <= high else (DEADLINE_MIN_MINUTES, DEADLINE_MAX_MINUTES)
+def deadline_bounds() -> tuple[int, int]:
+    """(کف, سقف) مهلتِ پرداخت به دقیقه.
+
+    A5: این بازه دیگر از پنلِ ادمین تنظیم نمی‌شود؛ فقط همین بازه‌یِ ایمنیِ کد وجود دارد و فروشگاه‌دار
+    داخلِ آن انتخاب می‌کند. `clamp_deadline` سقفِ سخت‌ترِ زمانِ استفاده است.
+    """
+    return DEADLINE_MIN_MINUTES, DEADLINE_MAX_MINUTES
 
 
-def review_hold_bounds(admin_settings=None) -> tuple[int, int]:
-    """(کف, سقف) مهلتِ بررسیِ رسید به *دقیقه* (ادمین به ساعت تنظیم می‌کنه)."""
-    low_h = getattr(admin_settings, "review_hold_min_hours", None) or REVIEW_HOLD_MIN_MINUTES // 60
-    high_h = getattr(admin_settings, "review_hold_max_hours", None) or REVIEW_HOLD_MAX_MINUTES // 60
-    low = max(REVIEW_HOLD_HARD_MIN_MINUTES, min(int(low_h) * 60, REVIEW_HOLD_HARD_MAX_MINUTES))
-    high = max(REVIEW_HOLD_HARD_MIN_MINUTES, min(int(high_h) * 60, REVIEW_HOLD_HARD_MAX_MINUTES))
-    return (low, high) if low <= high else (REVIEW_HOLD_MIN_MINUTES, REVIEW_HOLD_MAX_MINUTES)
+def review_hold_bounds() -> tuple[int, int]:
+    """(کف, سقف) مهلتِ بررسیِ رسید به دقیقه — مثلِ `deadline_bounds` فقط از کد (A5)."""
+    return REVIEW_HOLD_MIN_MINUTES, REVIEW_HOLD_MAX_MINUTES
 
 
 def parse_positive_int(raw: str, low: int, high: int) -> int | None:

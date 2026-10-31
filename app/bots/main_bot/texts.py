@@ -1113,19 +1113,12 @@ ADMIN_ASK_PLATFORM_CARD_HOLDER = "نام صاحب کارت رو بفرست:"
 ADMIN_ASK_GRACE_PERIOD_HOURS = "چند ساعت مهلت (گریس‌پیریود) بعد از پایان اشتراک داده بشه؟"
 ADMIN_ASK_RATE_LIMIT_MAX_MESSAGES = "حداکثر چند پیام از هر مشتری در بازه‌ی زمانی مجاز باشه؟"
 ADMIN_ASK_RATE_LIMIT_WINDOW_SECONDS = "این محدودیت روی چند ثانیه اعمال بشه؟"
-ADMIN_ASK_PAYMENT_RESERVATION_MINUTES = "مبلغ‌ منحصربه‌فردِ پرداخت کارت‌به‌کارت چند دقیقه برای همون فروشگاه‌دار رزرو بمونه؟"
-ADMIN_ASK_ORDER_RESERVATION_MINUTES = "رزروِ خودکارِ موجودیِ یه سفارشِ تاییدنشده چند دقیقه فعال بمونه تا اگه فروشگاه‌دار اقدام نکرد، خودکار آزاد بشه؟"
-ADMIN_ASK_ORDER_CONFIRMATION_TIMEOUT_MINUTES = "یه سفارش/مشاوره‌ی کاندید (که هوش مصنوعی تشخیص داده ولی هنوز خودِ مشتری تاییدش نکرده) چند دقیقه منتظرِ جوابِ مشتری بمونه تا خودکار لغو بشه؟"
 ADMIN_ASK_REPORT_FREQUENCY_DAYS = "گزارش دوره‌ای هر چند روز یک‌بار برای فروشگاه‌دارها ارسال بشه؟"
 ADMIN_ASK_NIGHTLY_REPORT_HOUR = "گزارشِ شبانه سرِ چه ساعتی (به‌وقتِ UTC، عددِ ۰ تا ۲۳) فرستاده بشه؟ ساعتِ تهران سه ساعت و نیم جلوتر از UTC است."
 ADMIN_ASK_REFERRAL_PERCENT = (
     "پورسانتِ معرف چند درصد از اولین شارژِ زیرمجموعه‌ش باشه؟ (فقط معرف می‌گیره؛ عدد ۰ یعنی غیرفعال):"
 )
 ADMIN_ASK_CONVERSATION_HISTORY_LIMIT = "حداکثر چند پیام از تاریخچه‌ی مکالمه به‌عنوان حافظه به هوش مصنوعی داده بشه؟"
-ADMIN_ASK_CONVERSATION_RETENTION_DAYS = (
-    "پیام‌های مکالمه بعد از چند روز به‌طور خودکار پاک بشن؟ (عدد ۰ یعنی پاکسازیِ خودکار غیرفعال بشه)"
-)
-ADMIN_ASK_KNOWLEDGE_ITEMS_LIMIT = "حداکثر چند پست از کانال دانش‌افزایی به‌عنوان حافظه به هوش مصنوعی داده بشه؟"
 
 ADMIN_ASK_WALLET_COST_PER_1K_TOKENS = "هزینه‌ی هر ۱۰۰۰ توکن (برای پاسخِ چت و تشخیصِ سفارش)، به تومان چقدر باشه؟ (یا از فرمولِ زیر با دکمه‌ی «محاسبه‌ی خودکار» بسازش)"
 ADMIN_ASK_AI_COST_USD = "هزینه‌ی واقعیِ مدلِ AI به ازای هر ۱ میلیون توکن، به دلار چقدره؟ (عددِ اعشاری؛ همان نرخِ اعلامیِ سرویس‌دهنده):"
@@ -1303,38 +1296,18 @@ def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
             "rate_limit",
             f"🚦 محدودیت پیام: {admin_settings.rate_limit_max_messages} پیام / {admin_settings.rate_limit_window_seconds} ثانیه",
         ),
-        ("payment_reservation_minutes", f"⏱ رزرو مبلغ‌ پرداخت: {admin_settings.payment_reservation_minutes} دقیقه"),
-        ("order_reservation_minutes", f"📦 رزروِ موجودیِ سفارش: {admin_settings.order_reservation_minutes} دقیقه"),
-        (
-            "order_customer_confirmation_timeout_minutes",
-            f"⏳ مهلتِ تاییدِ سفارش توسطِ مشتری: {admin_settings.order_customer_confirmation_timeout_minutes} دقیقه",
-        ),
         ("periodic_report_frequency_days", f"📈 بازه‌ی گزارش دوره‌ای: هر {admin_settings.periodic_report_frequency_days} روز"),
         (
             "nightly_report_hour_utc",
             f"🌙 ساعتِ گزارشِ شبانه: {admin_settings.nightly_report_hour_utc}:00 UTC (≈ {(admin_settings.nightly_report_hour_utc + 3) % 24}:30 تهران)",
         ),
         ("conversation_history_limit", f"💭 حافظه‌ی مکالمه: {admin_settings.conversation_history_limit} پیام"),
-        (
-            "conversation_retention_days",
-            "🧹 پاکسازیِ خودکارِ مکالمات: "
-            + (
-                f"هر {admin_settings.conversation_retention_days} روز"
-                if admin_settings.conversation_retention_days > 0
-                else "غیرفعال"
-            ),
-        ),
-        ("knowledge_items_limit", f"📚 حافظه‌ی کانال دانش: {admin_settings.knowledge_items_limit} پست"),
         ("wallet_cost_per_1k_tokens_toman", f"🪙 هزینه‌ی هر ۱۰۰۰ توکن: {format_toman(admin_settings.wallet_cost_per_1k_tokens_toman)}"),
         ("ai_cost_usd_per_1m_tokens", f"💵 هزینه‌ی خامِ AI: ${admin_settings.ai_cost_usd_per_1m_tokens}/۱M توکن"),
         ("usd_to_toman_rate", f"💱 نرخِ دلار: {format_toman(admin_settings.usd_to_toman_rate)}"),
         ("wallet_markup_multiplier", f"📈 ضریبِ سود: {admin_settings.wallet_markup_multiplier}×"),
         ("wallet_cost_photo_analysis_toman", f"🖼 هزینه‌ی تحلیلِ عکس: {format_toman(admin_settings.wallet_cost_photo_analysis_toman)}"),
         ("wallet_cost_receipt_analysis_toman", f"🧾 هزینه‌ی تحلیلِ رسید (مشورتی): {format_toman(admin_settings.wallet_cost_receipt_analysis_toman)}"),
-        ("payment_deadline_min_minutes", f"⏱ کفِ مهلتِ پرداخت: {admin_settings.payment_deadline_min_minutes} دقیقه"),
-        ("payment_deadline_max_minutes", f"⏱ سقفِ مهلتِ پرداخت: {admin_settings.payment_deadline_max_minutes} دقیقه"),
-        ("review_hold_min_hours", f"🧾 کفِ مهلتِ بررسیِ رسید: {admin_settings.review_hold_min_hours} ساعت"),
-        ("review_hold_max_hours", f"🧾 سقفِ مهلتِ بررسیِ رسید: {admin_settings.review_hold_max_hours} ساعت"),
         ("wallet_cost_voice_transcription_toman", f"🎙 هزینه‌ی رونویسیِ صوت: {format_toman(admin_settings.wallet_cost_voice_transcription_toman)}"),
         ("wallet_cost_order_detection_toman", f"🔎 هزینه‌ی پیش‌فرضِ تشخیصِ سفارش: {format_toman(admin_settings.wallet_cost_order_detection_toman)}"),
         ("wallet_topup_validity_months", f"📅 اعتبارِ هر شارژ: {admin_settings.wallet_topup_validity_months} ماه"),
@@ -2140,6 +2113,155 @@ BATCH_SECONDS_RESET = "↩️ به پیش‌فرضِ سیستم برگشت."
 SHOP_SETTINGS_STALE = "این دکمه دیگه معتبر نیست. دوباره «⚙️ تنظیماتِ ربات فروشگاه» رو بزن."
 BATCH_PRESETS = ((3, "⚡ ۳ ثانیه"), (8, "⚖️ ۸ ثانیه"), (15, "💰 ۱۵ ثانیه"), (30, "🐢 ۳۰ ثانیه"))
 
+# ------------------------------------------------------------------ P18 · A5: مهلت‌ها و حافظه (per-shop)
+ADMIN_SETTING_REMOVED = (
+    "این تنظیم دیگر از پنلِ مدیرِ پلتفرم انجام نمی‌شود. "
+    "اگر مربوط به خودِ فروشگاه است، در «⚙️ تنظیماتِ ربات فروشگاه › ⏱ مهلت‌ها و حافظه» پیدایش می‌کنی."
+)
+SHOP_PREFS_BUTTON = "⏱ مهلت‌ها و حافظه"
+SHOP_PREFS_STALE = "این تنظیم شناخته‌شده نیست. دوباره «⚙️ تنظیماتِ ربات فروشگاه» رو بزن."
+SHOP_PREF_SAVED = "✅ ذخیره شد."
+SHOP_PREF_RESET_DONE = "↩️ به پیش‌فرضِ سراسری برگشت."
+SHOP_PREF_RESET_BUTTON = "↩️ پیش‌فرضِ سراسری"
+SHOP_PREF_CUSTOM_BUTTON = "✍️ مقدارِ دلخواه"
+SHOP_PREF_BACK_BUTTON = "↩️ برگشت"
+
+# برچسب / یکا / توضیحِ یک‌خطی. کلیدها با ستون‌هایِ `ShopBot` در `shop_prefs_service` یکی‌اند.
+SHOP_PREF_LABELS = {
+    "payment_reservation_minutes": (
+        "⏱ رزروِ مبلغِ پرداخت",
+        "دقیقه",
+        "وقتی پرداختِ شارژِ کیف‌پول را با کارت‌به‌کارت شروع می‌کنی، همین‌قدر دقیقه همان مبلغ برای خودت رزرو می‌ماند.",
+    ),
+    "order_reservation_minutes": (
+        "📦 رزروِ موجودیِ سفارش",
+        "دقیقه",
+        "بعد از ساخته‌شدنِ سفارش، موجودیِ محصول همین‌قدر دقیقه برای همان سفارش نگه داشته می‌شود و بعد آزاد می‌گردد.",
+    ),
+    "order_confirmation_timeout_minutes": (
+        "⏳ مهلتِ تاییدِ مشتری",
+        "دقیقه",
+        "اگر مشتری سفارشِ تشخیص‌داده‌شده را همین‌قدر دقیقه تایید نکند، آن سفارش خودکار لغو می‌شود.",
+    ),
+    "conversation_retention_days": (
+        "🧹 نگهداریِ گفتگو",
+        "روز",
+        "پیام‌های گفتگو بعد از این چند روز خودکار پاک می‌شوند. عدد ۰ یعنی هیچ‌وقت پاک نشوند.",
+    ),
+    "knowledge_items_limit": (
+        "📚 حافظه‌ی کانالِ دانش",
+        "پست",
+        "حداکثر چند پستِ آخرِ کانالِ دانش‌افزایی به‌عنوان حافظه به هوش مصنوعی داده شود.",
+    ),
+}
+
+
+def shop_prefs_text(shop_bot, admin_settings, prefs) -> str:
+    from app.services import shop_prefs_service
+
+    lines = [f"{SHOP_PREFS_BUTTON} — فقط برایِ همین فروشگاه", ""]
+    for pref in prefs:
+        label, unit, _help = SHOP_PREF_LABELS[pref.key]
+        effective = shop_prefs_service.resolve(pref, shop_bot, admin_settings)
+        origin = "خودت" if getattr(shop_bot, pref.key, None) is not None else "پیش‌فرضِ سراسری"
+        lines.append(f"• {label}: {effective} {unit} ({origin})")
+    lines.append("")
+    lines.append("روی هر کدام بزن تا عوضش کنی. این‌ها سراسری نیستند و رویِ بقیه‌یِ فروشگاه‌ها اثر ندارند.")
+    return "\n".join(lines)
+
+
+def shop_pref_text(shop_bot, admin_settings, pref) -> str:
+    from app.services import shop_prefs_service
+
+    label, unit, help_text = SHOP_PREF_LABELS[pref.key]
+    stored = getattr(shop_bot, pref.key, None)
+    effective = shop_prefs_service.resolve(pref, shop_bot, admin_settings)
+    origin = f"مقدارِ خودت: {stored} {unit}" if stored is not None else "هنوز تنظیم نکرده‌ای ⇒ پیش‌فرضِ سراسری"
+    return (
+        f"{label}\n\n"
+        f"اثرِ فعلی: {effective} {unit}\n"
+        f"{origin}\n"
+        f"بازه‌یِ مجاز: {pref.low} تا {pref.high} {unit}\n\n"
+        f"{help_text}"
+    )
+
+
+def shop_pref_ask(pref) -> str:
+    _label, unit, _help = SHOP_PREF_LABELS[pref.key]
+    return f"عددِ دلخواه را به {unit} بنویس ({pref.low} تا {pref.high}). برایِ انصراف /cancel رو بزن."
+
+
+def shop_pref_invalid(pref) -> str:
+    _label, unit, _help = SHOP_PREF_LABELS[pref.key]
+    return f"عدد نامعتبره. یه عددِ صحیح بینِ {pref.low} تا {pref.high} {unit} بنویس."
+
+
+# ------------------------------------------------------------------ P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت
+CHECKOUT_STEPS_BUTTON = "🧾 گام‌هایِ پیش‌فرضِ چک‌اوت"
+CHECKOUT_STEP_LABELS = {
+    "name": "👤 نامِ تحویل‌گیرنده",
+    "phone": "📱 شماره‌یِ موبایل",
+    "address": "🏠 آدرسِ تحویل",
+    "shipping": "🚚 روشِ ارسال",
+    "note": "📝 توضیحِ سفارش",
+}
+CHECKOUT_STEP_ON = "⛔️ خاموش‌کردن"
+CHECKOUT_STEP_OFF = "✅ روشن‌کردن"
+CHECKOUT_STEP_QUESTION_BUTTON = "✏️ متنِ پرسش"
+CHECKOUT_STEPS_BACK_BUTTON = "↩️ برگشت"
+CHECKOUT_STEPS_SAVED = "✅ ذخیره شد."
+CHECKOUT_STEPS_STALE = "این دکمه دیگه معتبر نیست. دوباره از «🛒 سوال‌هایِ چک‌اوتِ سبد» شروع کن."
+CHECKOUT_STEPS_GUARD = "🚫 آدرس و موبایل را نمی‌توانی هم‌زمان خاموش کنی؛ سفارش باید راهی برایِ تحویل داشته باشد."
+CHECKOUT_STEP_QUESTION_ASK = (
+    "متنِ پرسش را بنویس (حداکثر ۱۵۰ نویسه). برایِ برگشت به متنِ پیش‌فرض بنویس «خالی». برایِ انصراف /cancel رو بزن."
+)
+CHECKOUT_STEP_QUESTION_TOO_LONG = (
+    "متنِ پرسش نباید بیشتر از ۱۵۰ نویسه باشه. کوتاه‌ترش کن یا «خالی» بنویس تا متنِ پیش‌فرض برگردد."
+)
+CHECKOUT_STEP_PHYSICAL_HINT = "🧾 این گام فقط وقتی در چک‌اوت می‌آید که سبد کالایِ فیزیکی داشته باشد."
+CHECKOUT_SHIPPING_HINT = (
+    "🧾 گامِ «روشِ ارسال» علاوه بر کالایِ فیزیکی، دستکم یک روشِ ارسالِ فعال هم لازم دارد. "
+    "از «📦 محصولات › روش‌هایِ ارسال» بسازیش."
+)
+
+
+def checkout_steps_text(steps) -> str:
+    """صفحه‌یِ گام‌هایِ چک‌اوت: وضعیتِ هر گام + اینکه آیا واقعاً در چک‌اوت ظاهر می‌شود."""
+    from app.services import checkout_config_service
+
+    lines = ["🧾 گام‌هایِ پیش‌فرضِ چک‌اوت — فقط برایِ همین فروشگاه", ""]
+    for key in checkout_config_service.STEP_KEYS:
+        step = steps[key]
+        label = CHECKOUT_STEP_LABELS[key]
+        state = "روشن" if step.enabled else "خاموش"
+        marks = []
+        if key in ("address", "shipping"):
+            marks.append("فقط برایِ کالایِ فیزیکی")
+        if step.question != checkout_config_service.DEFAULT_QUESTIONS[key]:
+            marks.append("متنِ خودت")
+        tail = f" ({' · '.join(marks)})" if marks else ""
+        lines.append(f"• {label}: {state}{tail}")
+    lines.append("")
+    lines.append("گامی که خاموش باشد از مشتری پرسیده نمی‌شود و در سفارش هم ثبت نمی‌شود.")
+    lines.append(CHECKOUT_STEP_PHYSICAL_HINT)
+    return "\n".join(lines)
+
+
+def checkout_step_text(steps, key) -> str:
+    """جزئیاتِ یک گام: وضعیت، متنِ پرسشِ فعلی و متنِ پیش‌فرض."""
+    from app.services import checkout_config_service
+
+    step = steps[key]
+    default = checkout_config_service.DEFAULT_QUESTIONS[key]
+    label = CHECKOUT_STEP_LABELS[key]
+    return (
+        f"{label}\n\n"
+        f"وضعیت: {'🟢 روشن' if step.enabled else '⛔️ خاموش'}\n\n"
+        f"متنِ پرسش از مشتری:\n{step.question}\n"
+        f"متنِ پیش‌فرض:\n{default}\n\n"
+        f"بیشترین طولِ متن: {checkout_config_service.MAX_QUESTION_LENGTH} نویسه"
+    )
+
 # ------------------------------------------------------------------ P18 · B5: زمانِ گزارشِ دوره‌ای
 REPORT_WEEKDAY_NAMES = ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه")
 REPORT_HOUR_PRESETS = ((9, "🌅 ۰۹:۰۰"), (13, "🕐 ۱۳:۰۰"), (18, "🌆 ۱۸:۰۰"), (21, "🌙 ۲۱:۰۰"))
@@ -2480,7 +2602,3 @@ ORDER_RESTOCK_BUTTON = "📦 برگردانِ موجودی به انبار"
 ORDER_RESTOCKED = "📦 موجودیِ اقلامِ این سفارش به انبار برگشت."
 ORDER_RESTOCK_NOTHING = "چیزی برایِ برگشت به انبار نبود (محصولِ بدونِ موجودی یا قبلاً برگشته)."
 ADMIN_ASK_WALLET_COST_RECEIPT_ANALYSIS = "هزینه‌یِ هر بار تحلیلِ هوشمندِ رسید (مشورتی)، به تومان چقدر باشه؟"
-ADMIN_ASK_PAYMENT_DEADLINE_MIN = "کفِ مهلتِ پرداختی که فروشگاه‌دار می‌تونه بذاره (دقیقه، ۱ تا ۱۴۴۰)؟"
-ADMIN_ASK_PAYMENT_DEADLINE_MAX = "سقفِ مهلتِ پرداختی که فروشگاه‌دار می‌تونه بذاره (دقیقه، حداکثر ۱۰۰۸۰)؟"
-ADMIN_ASK_REVIEW_HOLD_MIN_HOURS = "کفِ مهلتِ بررسیِ رسید برایِ فروشگاه‌دار (ساعت، حداکثر ۷۲۰)؟"
-ADMIN_ASK_REVIEW_HOLD_MAX_HOURS = "سقفِ مهلتِ بررسیِ رسید برایِ فروشگاه‌دار (ساعت، حداکثر ۷۲۰)؟"

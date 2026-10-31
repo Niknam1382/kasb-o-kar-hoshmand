@@ -50,16 +50,33 @@ def shipping_fee(fee_toman: int, free_over_toman: int | None, subtotal_toman: in
     return max(0, fee_toman)
 
 
-def next_position(pos: str, *, physical: bool, ship_choice: bool, has_questions: bool) -> str:
-    """موقعیتِ بعدی (ماکرو). زیرمرحله‌هایِ آدرس همه به «addr» نگاشت می‌شن ⇒ بعدش ship/qa/note."""
-    order = [POS_NAME, POS_PHONE]
-    if physical:
+def step_order(*, physical: bool, ship_choice: bool = False, has_questions: bool = False, disabled: frozenset[str] = frozenset()) -> list[str]:
+    """ترتیبِ گام‌هایِ روشنِ همین سبد (ماکرو؛ «addr» و «ship» هم ممکن است حذف شوند). پیش‌نمایش همیشه هست."""
+    order: list[str] = []
+    if POS_NAME not in disabled:
+        order.append(POS_NAME)
+    if POS_PHONE not in disabled:
+        order.append(POS_PHONE)
+    if physical and "addr" not in disabled:
         order.append("addr")
-    if physical and ship_choice:
+    if physical and ship_choice and POS_SHIP not in disabled:
         order.append(POS_SHIP)
     if has_questions:
         order.append(POS_QA)
-    order += [POS_NOTE, POS_PREVIEW]
+    if POS_NOTE not in disabled:
+        order.append(POS_NOTE)
+    return order
+
+
+def next_position(
+    pos: str, *, physical: bool, ship_choice: bool, has_questions: bool, disabled: frozenset[str] = frozenset()
+) -> str:
+    """موقعیتِ بعدی (ماکرو). زیرمرحله‌هایِ آدرس همه به «addr» نگاشت می‌شن ⇒ بعدش ship/qa/note.
+
+    B9: `disabled` کلیدهایِ گامِ خاموشِ همان فروشگاه است. خالی ⇒ دقیقاً رفتارِ قبلی.
+    """
+    order = step_order(physical=physical, ship_choice=ship_choice, has_questions=has_questions, disabled=disabled)
+    order.append(POS_PREVIEW)
     key = "addr" if pos in _ADDRESS_POSITIONS else pos
     if key not in order:
         return POS_PREVIEW
@@ -68,8 +85,13 @@ def next_position(pos: str, *, physical: bool, ship_choice: bool, has_questions:
     return POS_ADDR_PICK if nxt == "addr" else nxt
 
 
-def first_position() -> str:
-    return POS_NAME
+def first_position(*, physical: bool = False, ship_choice: bool = False, has_questions: bool = False, disabled: frozenset[str] = frozenset()) -> str:
+    """اولین گامِ روشن؛ اگر همه خاموش باشند مستقیم پیش‌نمایش."""
+    order = step_order(physical=physical, ship_choice=ship_choice, has_questions=has_questions, disabled=disabled)
+    if not order:
+        return POS_PREVIEW
+    nxt = order[0]
+    return POS_ADDR_PICK if nxt == "addr" else nxt
 
 
 def push_history(stack: Iterable[str], pos: str | None) -> list[str]:
@@ -97,14 +119,23 @@ def build_qa_pairs(
     questions: list[str],
     answers: list[str],
     note: str | None,
+    disabled: frozenset[str] = frozenset(),
 ) -> list[tuple[str, str]]:
-    """جفت‌هایِ «پرسش ← پاسخ» که در پیش‌نمایش، اعلانِ فروشگاه‌دار و checkout_answers می‌آیند."""
-    pairs: list[tuple[str, str]] = [("نامِ تحویل‌گیرنده", name), ("شماره‌یِ تماس", phone_display)]
-    if address_text:
+    """جفت‌هایِ «پرسش ← پاسخ» که در پیش‌نمایش، اعلانِ فروشگاه‌دار و checkout_answers می‌آیند.
+
+    B9: گامِ خاموش در جفت‌ها ظاهر نمی‌شود (برچسب‌ها ثابت‌اند؛ چیزی که فروشگاه‌دار ویرایش می‌کند
+    *متنِ پرسش از مشتری* است، نه این برچسب‌هایِ داخلیِ سفارش).
+    """
+    pairs: list[tuple[str, str]] = []
+    if POS_NAME not in disabled:
+        pairs.append(("نامِ تحویل‌گیرنده", name))
+    if POS_PHONE not in disabled:
+        pairs.append(("شماره‌یِ تماس", phone_display))
+    if address_text and "addr" not in disabled:
         pairs.append(("آدرسِ تحویل", address_text))
-    if ship_label:
+    if ship_label and POS_SHIP not in disabled:
         pairs.append(("روشِ ارسال", ship_label))
     pairs.extend(zip(questions, answers))
-    if note:
+    if note and POS_NOTE not in disabled:
         pairs.append(("توضیحِ سفارش", note))
     return pairs

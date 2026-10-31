@@ -92,9 +92,10 @@ async def test_pure_payment_helpers() -> None:
     assert pss.parse_card_number("4111111111111112") is None, "Luhn"
     assert pss.parse_card_number("1111111111111111") is None and pss.parse_card_number("411") is None and pss.parse_card_number("") is None
     assert pss.mask_card(VALID_CARD) == "4111 **** **** 1111" and pss.format_card(VALID_CARD) == "4111 1111 1111 1111"
-    # W5/2.2: clampِ زمانِ استفاده حالا «سقفِ سخت» است؛ بازه‌یِ مجازِ فروشگاه‌دار از تنظیماتِ ادمین می‌آید (پیش‌فرض ۵–۱۴۴۰ دقیقه و ۶۰–۴۳۲۰)
+    # P18 · A5: بازه‌یِ مجازِ فروشگاه‌دار دیگر از پنلِ ادمین نمی‌آید؛ فقط همین بازه‌یِ ایمنیِ کد وجود دارد
+    # و clampِ زمانِ استفاده (سقفِ سخت) سرِ جایش است.
     assert pss.clamp_deadline(0) == 1 and pss.clamp_deadline(99999) == 10080 and pss.clamp_review_hold(1) == 10
-    assert pss.deadline_bounds(None) == (5, 1440) and pss.review_hold_bounds(None) == (60, 4320)
+    assert pss.deadline_bounds() == (5, 1440) and pss.review_hold_bounds() == (60, 4320)
     assert pss.parse_positive_int("۳۰", 5, 1440) == 30 and pss.parse_positive_int("4", 5, 1440) is None
     assert pss.parse_positive_int("abc", 5, 1440) is None and pss.parse_positive_int("1" * 9, 1, 10**9) is None
     for text in ("پرداخت کردم", "واریز کردم", "کارت به کارت کردم", "پول رو ریختم", "پرداخت شد"):

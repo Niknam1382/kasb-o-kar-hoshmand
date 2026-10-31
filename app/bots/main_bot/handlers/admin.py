@@ -593,27 +593,18 @@ _TEXT_FIELDS: dict[str, str] = {
 
 _INT_FIELDS: dict[str, str] = {
     "grace_period_hours": texts.ADMIN_ASK_GRACE_PERIOD_HOURS,
-    "payment_reservation_minutes": texts.ADMIN_ASK_PAYMENT_RESERVATION_MINUTES,
-    "order_reservation_minutes": texts.ADMIN_ASK_ORDER_RESERVATION_MINUTES,
-    "order_customer_confirmation_timeout_minutes": texts.ADMIN_ASK_ORDER_CONFIRMATION_TIMEOUT_MINUTES,
     "periodic_report_frequency_days": texts.ADMIN_ASK_REPORT_FREQUENCY_DAYS,
     "nightly_report_hour_utc": texts.ADMIN_ASK_NIGHTLY_REPORT_HOUR,
     "conversation_history_limit": texts.ADMIN_ASK_CONVERSATION_HISTORY_LIMIT,
-    "knowledge_items_limit": texts.ADMIN_ASK_KNOWLEDGE_ITEMS_LIMIT,
     "referral_reward_value": texts.ADMIN_ASK_REFERRAL_PERCENT,
     "wallet_cost_per_1k_tokens_toman": texts.ADMIN_ASK_WALLET_COST_PER_1K_TOKENS,
     "wallet_cost_photo_analysis_toman": texts.ADMIN_ASK_WALLET_COST_PHOTO_ANALYSIS,
     "wallet_cost_receipt_analysis_toman": texts.ADMIN_ASK_WALLET_COST_RECEIPT_ANALYSIS,
-    "payment_deadline_min_minutes": texts.ADMIN_ASK_PAYMENT_DEADLINE_MIN,
-    "payment_deadline_max_minutes": texts.ADMIN_ASK_PAYMENT_DEADLINE_MAX,
-    "review_hold_min_hours": texts.ADMIN_ASK_REVIEW_HOLD_MIN_HOURS,
-    "review_hold_max_hours": texts.ADMIN_ASK_REVIEW_HOLD_MAX_HOURS,
     "wallet_cost_voice_transcription_toman": texts.ADMIN_ASK_WALLET_COST_VOICE_TRANSCRIPTION,
     "wallet_cost_order_detection_toman": texts.ADMIN_ASK_WALLET_COST_ORDER_DETECTION,
     "wallet_topup_validity_months": texts.ADMIN_ASK_WALLET_TOPUP_VALIDITY_MONTHS,
     "wallet_trial_credit_toman": texts.ADMIN_ASK_WALLET_TRIAL_CREDIT,
     "wallet_low_balance_warning_toman": texts.ADMIN_ASK_WALLET_LOW_BALANCE_WARNING,
-    "conversation_retention_days": texts.ADMIN_ASK_CONVERSATION_RETENTION_DAYS,
     "usd_to_toman_rate": texts.ADMIN_ASK_USD_TO_TOMAN_RATE,
 }
 
@@ -626,16 +617,12 @@ _DECIMAL_FIELDS: dict[str, str] = {
 
 # این فیلدها استثنائاً اجازه‌ی صفر دارن (صفر یعنی «غیرفعال»، یا برایِ
 # nightly_report_hour_utc، یعنی نیمه‌شبِ UTC — یه ساعتِ کاملاً معتبر).
-_INT_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset({"conversation_retention_days", "referral_reward_value", "nightly_report_hour_utc"})
+_INT_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset({"referral_reward_value", "nightly_report_hour_utc"})
 
 # سقفِ مجاز برایِ بعضی فیلدهایِ عددی (مثلاً ساعت باید ۰ تا ۲۳ باشه). فیلدهایی
 # که اینجا نیستن سقف ندارن.
 _INT_FIELDS_MAX: dict[str, int] = {
     "nightly_report_hour_utc": 23,
-    "payment_deadline_min_minutes": 1440,
-    "payment_deadline_max_minutes": 10080,
-    "review_hold_min_hours": 720,
-    "review_hold_max_hours": 720,
 }
 
 # فیلدهای متنیِ قابل‌خالی‌کردن: اگه کاربر «خالی» بفرسته، به‌جای اینکه رشته‌ی
@@ -777,6 +764,9 @@ async def cb_setting_edit(callback: CallbackQuery, state: FSMContext) -> None:
         await state.update_data(field=field, field_kind="decimal")
         await callback.message.answer(_DECIMAL_FIELDS[field])
         return
+
+    # A5/A6: دکمه‌یِ کهنه از نسخه‌یِ قبلیِ منو (یا فیلدی که از پنلِ ادمین برداشته شده) ⇒ بی‌اثر نماند.
+    await callback.message.answer(texts.ADMIN_SETTING_REMOVED)
 
 
 @super_router.message(AdminSettingsStates.waiting_value, F.text)

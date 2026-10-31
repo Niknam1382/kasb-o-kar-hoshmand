@@ -33,6 +33,7 @@ from app.services import (
     payment_settings_service,
     receipt_ai_service,
     shop_owner_service,
+    shop_prefs_service,
     zarinpal_service,
 )
 from app.services.admin_settings_service import get_admin_settings
@@ -130,7 +131,10 @@ async def pm_manual(callback: CallbackQuery, session: AsyncSession, main_bot: Bo
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
     admin_settings = await get_admin_settings(session)
-    order_payment_service.set_group_deadline(rows, admin_settings.order_reservation_minutes)
+    # A5: مهلتِ پرداختِ گروه per-shop است؛ NULL یعنی همان پیش‌فرضِ سراسری.
+    order_payment_service.set_group_deadline(
+        rows, shop_prefs_service.resolve(shop_prefs_service.ORDER_RESERVATION, shop_bot, admin_settings)
+    )
     for row in rows:
         row.payment_method = payment_settings_service.METHOD_MANUAL
     await session.commit()

@@ -44,6 +44,7 @@ from app.services import (
     payment_settings_service,
     shop_bot_service,
     shop_owner_service,
+    shop_prefs_service,
     wallet_service,
 )
 from app.bots.shop_bot.handlers import payments as payment_handlers
@@ -596,7 +597,9 @@ async def _generate_and_send_reply(
         return
 
     products = await product_service.get_active_by_shop_bot(session, shop_bot_id)
-    knowledge = await channel_knowledge_service.get_recent_knowledge(session, shop_bot_id, admin_settings.knowledge_items_limit)
+    # A5: حافظه‌یِ کانالِ دانش‌افزایی per-shop است؛ NULL یعنی همان پیش‌فرضِ سراسری.
+    knowledge_limit = shop_prefs_service.resolve(shop_prefs_service.KNOWLEDGE_ITEMS, shop_bot, admin_settings)
+    knowledge = await channel_knowledge_service.get_recent_knowledge(session, shop_bot_id, knowledge_limit)
     # فازِ ۴: پرسش‌وپاسخ‌هایِ تاییدشده‌ی فروشگاه‌دار (حداکثر ۲۰ مورد) + دستورِ تشخیصِ خلأ (فقط
     # وقتی کلیدِ سراسریِ ادمین روشنه). بدونِ مورد/با کلیدِ خاموش، پرامپت دقیقاً مثلِ قبله.
     learned_answers = await knowledge_service.get_active_for_prompt(session, shop_bot_id)

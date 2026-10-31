@@ -18,6 +18,8 @@ from app.bots.main_bot.handlers import (
     payment_ops,
     products,
     profile,
+    checkout_steps,
+    shop_prefs,
     shop_settings,
     start,
 )
@@ -108,6 +110,10 @@ def build_main_router() -> Router:
     assistant.router.message.middleware(gate)
     shop_settings.router.message.middleware(gate)
     shop_settings.router.callback_query.middleware(gate)
+    shop_prefs.router.message.middleware(gate)
+    checkout_steps.router.message.middleware(gate)
+    shop_prefs.router.callback_query.middleware(gate)
+    checkout_steps.router.callback_query.middleware(gate)
     profile.router.message.middleware(gate)
     profile.router.callback_query.middleware(gate)
 
@@ -128,5 +134,7 @@ def build_main_router() -> Router:
     router.include_router(orders_manage.router)  # W5: «🧾 مدیریتِ سفارش‌ها (جاری)»
     router.include_router(assistant.router)
     router.include_router(shop_settings.router)
+    router.include_router(shop_prefs.router)  # P18 · A5: مهلت‌ها و حافظه‌یِ per-shop
+    router.include_router(checkout_steps.router)  # P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت
     router.include_router(start.router)
     return router

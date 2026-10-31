@@ -927,9 +927,89 @@ def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✍️ مقدارِ دلخواه (۲ تا ۶۰ ثانیه)", callback_data="bs_batch_custom")],
             [InlineKeyboardButton(text="↩️ پیش‌فرضِ سیستم", callback_data="bs_batch_reset")],
             [InlineKeyboardButton(text="📈 گزارشِ دوره‌ای", callback_data="rp_open")],
+            [InlineKeyboardButton(text="⏱ مهلت‌ها و حافظه", callback_data="sp_prefs_open")],
             [InlineKeyboardButton(text="📞 پشتیبانیِ مشتری‌ها", callback_data="sp_open")],
         ]
     )
+
+
+def shop_prefs_menu_keyboard(shop_bot, admin_settings, prefs) -> InlineKeyboardMarkup:
+    """A5: فهرستِ تنظیم‌هایِ per-shop با مقدارِ مؤثرِ فعلی رویِ برچسبِ هر دکمه."""
+    from app.bots.main_bot import texts
+    from app.services import shop_prefs_service
+
+    rows = []
+    for pref in prefs:
+        label, unit, _help = texts.SHOP_PREF_LABELS[pref.key]
+        effective = shop_prefs_service.resolve(pref, shop_bot, admin_settings)
+        rows.append([InlineKeyboardButton(text=f"{label}: {effective} {unit}", callback_data=f"sp_pref:{pref.key}")])
+    rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="sp_prefs_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def checkout_questions_keyboard() -> InlineKeyboardMarkup:
+    """B9: از صفحه‌یِ «📝 سوال‌هایِ چک‌اوتِ سبد» به گام‌هایِ پیش‌فرض."""
+    from app.bots.main_bot import texts
+
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=texts.CHECKOUT_STEPS_BUTTON, callback_data="cs_open")]])
+
+
+def checkout_steps_keyboard(steps) -> InlineKeyboardMarkup:
+    """B9: برایِ هر گام دو دکمه — روشن/خاموش و ویرایشِ متنِ پرسش."""
+    from app.bots.main_bot import texts
+    from app.services import checkout_config_service
+
+    rows = []
+    for key in checkout_config_service.STEP_KEYS:
+        enabled = steps[key].enabled
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=(texts.CHECKOUT_STEP_ON if enabled else texts.CHECKOUT_STEP_OFF) + " · " + texts.CHECKOUT_STEP_LABELS[key],
+                    callback_data=f"cs_toggle:{key}",
+                ),
+                InlineKeyboardButton(text=texts.CHECKOUT_STEP_QUESTION_BUTTON, callback_data=f"cs_ask:{key}"),
+            ]
+        )
+    rows.append([InlineKeyboardButton(text=texts.CHECKOUT_STEPS_BACK_BUTTON, callback_data="cs_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def checkout_step_keyboard(key: str, enabled: bool) -> InlineKeyboardMarkup:
+    from app.bots.main_bot import texts
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=(texts.CHECKOUT_STEP_ON if enabled else texts.CHECKOUT_STEP_OFF), callback_data=f"cs_toggle:{key}"
+                )
+            ],
+            [InlineKeyboardButton(text=texts.CHECKOUT_STEPS_BACK_BUTTON, callback_data="cs_back")],
+        ]
+    )
+
+
+def shop_pref_edit_keyboard(shop_bot, pref) -> InlineKeyboardMarkup:
+    """A5: پیش‌فرض‌هایِ از-پیش‌تعیین‌شده + ورودیِ عددی + بازگشت به پیش‌فرضِ سراسری (فقط اگر تنظیم شده باشد)."""
+    from app.bots.main_bot import texts
+
+    _label, unit, _help = texts.SHOP_PREF_LABELS[pref.key]
+    stored = getattr(shop_bot, pref.key, None)
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=("✅ " if stored == value else "") + f"{value} {unit}",
+                callback_data=f"sp_pref_set:{pref.key}:{value}",
+            )
+            for value in pref.presets
+        ],
+        [InlineKeyboardButton(text=texts.SHOP_PREF_CUSTOM_BUTTON, callback_data=f"sp_pref_custom:{pref.key}")],
+    ]
+    if stored is not None:
+        rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_RESET_BUTTON, callback_data=f"sp_pref_reset:{pref.key}")])
+    rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="sp_pref_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def shop_report_keyboard(shop_bot) -> InlineKeyboardMarkup:

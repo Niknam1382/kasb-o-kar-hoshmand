@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import OrderConsultation, OrderStatus, OrderType, Product
-from app.services import order_state
+from app.services import order_state, shop_prefs_service
 from app.services.admin_settings_service import get_admin_settings
 
 # وضعیت‌هایی که با دکمه‌ی «مرحله‌ی بعد» می‌شه ازشون جلو رفت، به همین ترتیب.
@@ -85,8 +85,12 @@ async def create_order(
                 admin_settings = await get_admin_settings(session)
                 product.reserved_quantity += qty
                 order.stock_reserved = True
+                # A5: مهلتِ رزروِ موجودی per-shop است؛ NULL یعنی همان پیش‌فرضِ سراسری.
+                reservation_minutes = await shop_prefs_service.resolve_for_shop(
+                    session, shop_prefs_service.ORDER_RESERVATION, shop_bot_id, admin_settings
+                )
                 order.reservation_expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
-                    minutes=admin_settings.order_reservation_minutes
+                    minutes=reservation_minutes
                 )
 
     await session.flush()
@@ -167,8 +171,12 @@ async def customer_confirm_order(session: AsyncSession, order: OrderConsultation
                 admin_settings = await get_admin_settings(session)
                 product.reserved_quantity += qty
                 order.stock_reserved = True
+                # A5: مهلتِ رزروِ موجودی per-shop است؛ NULL یعنی همان پیش‌فرضِ سراسری.
+                reservation_minutes = await shop_prefs_service.resolve_for_shop(
+                    session, shop_prefs_service.ORDER_RESERVATION, order.shop_bot_id, admin_settings
+                )
                 order.reservation_expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
-                    minutes=admin_settings.order_reservation_minutes
+                    minutes=reservation_minutes
                 )
 
     await session.flush()
@@ -185,22 +193,33 @@ async def customer_cancel_order(session: AsyncSession, order: OrderConsultation)
     await session.flush()
 
 
-async def expire_stale_customer_confirmations(session: AsyncSession, minutes: int) -> list[OrderConsultation]:
+async def expire_stale_customer_confirmations(
+    session: AsyncSession, timeout_by_shop: dict[int, int], default_minutes: int, now: datetime.datetime | None = None
+) -> list[OrderConsultation]:
     """
-    کاندیدهایی که مشتری ظرفِ minutes دقیقه جوابِ تایید/لغو نداده رو خودکار لغو
+    کاندیدهایی که مشتری ظرفِ مهلتِ *همان فروشگاه* جوابِ تایید/لغو نداده رو خودکار لغو
     می‌کنه، تا برای همیشه توی حالتِ نامشخص نمونن. برای اجرای دوره‌ای توسطِ
     زمان‌بند، کنارِ expire_stale_reservations (order_expiry_service.py).
+
+    A5: مهلت per-shop شد. کوئری با کوتاه‌ترین مهلت یک‌بار اجرا می‌شه (تا هیچ ردیفِ واجدی جا
+    نیفته) و بعد هر ردیف با مهلتِ فروشگاهِ خودش سنجیده می‌شه ⇒ وقتی همه از پیش‌فرض استفاده
+    می‌کنن، نتیجه و هزینه‌یِ کوئری دقیقاً مثلِ قبل است.
     """
-    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=minutes)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    narrowest = min([default_minutes, *timeout_by_shop.values()]) if timeout_by_shop else default_minutes
     result = await session.execute(
         select(OrderConsultation).where(
             OrderConsultation.status == OrderStatus.AWAITING_CUSTOMER_CONFIRMATION,
-            OrderConsultation.created_at < cutoff,
+            OrderConsultation.created_at < now - datetime.timedelta(minutes=narrowest),
         )
     )
-    stale = list(result.scalars().all())
-    for order in stale:
+    stale: list[OrderConsultation] = []
+    for order in result.scalars().all():
+        minutes = timeout_by_shop.get(order.shop_bot_id, default_minutes)
+        if order.created_at >= now - datetime.timedelta(minutes=minutes):
+            continue  # مهلتِ این فروشگاه هنوز تمام نشده
         order.status = OrderStatus.CANCELLED
+        stale.append(order)
     if stale:
         await session.flush()
     return stale

@@ -17,7 +17,7 @@ from app.database.models import (
     WalletCharge,
     WalletTransactionReason,
 )
-from app.services import discount_service, referral_service, subscription_service, wallet_service
+from app.services import discount_service, referral_service, shop_bot_service, shop_prefs_service, subscription_service, wallet_service
 from app.services.admin_settings_service import get_admin_settings
 
 
@@ -96,6 +96,11 @@ async def create_card_to_card_payment(
     discounted_amount = discount_service.apply_discount(base_amount, discount) if discount else base_amount
     final_amount = await _generate_unique_amount(session, discounted_amount)
 
+    # A5: مهلتِ رزروِ مبلغ per-shop است؛ NULL یعنی همان پیش‌فرضِ سراسری.
+    reservation_minutes = shop_prefs_service.resolve(
+        shop_prefs_service.PAYMENT_RESERVATION, await shop_bot_service.get_by_owner(session, owner), admin_settings
+    )
+
     payment = Payment(
         shop_owner_id=owner.id,
         purpose=purpose,
@@ -105,8 +110,7 @@ async def create_card_to_card_payment(
         method=PaymentMethod.CARD_TO_CARD,
         status=PaymentStatus.PENDING,
         discount_code_id=discount.id if discount else None,
-        reserved_until=datetime.datetime.now(datetime.timezone.utc)
-        + datetime.timedelta(minutes=admin_settings.payment_reservation_minutes),
+        reserved_until=datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=reservation_minutes),
     )
     session.add(payment)
     await session.flush()

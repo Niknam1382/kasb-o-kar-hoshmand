@@ -6,7 +6,7 @@ import logging
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import ConversationMessage
+from app.database.models import ConversationMessage, Customer
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ async def save_turn(session: AsyncSession, customer_id: int, user_message: str, 
     await session.flush()
 
 
-async def prune_old_messages(session: AsyncSession, retention_days: int) -> int:
+async def prune_old_messages(session: AsyncSession, retention_days: int, now: datetime.datetime | None = None) -> int:
     """
     پیام‌های مکالمه‌ی قدیمی‌تر از retention_days روز رو پاک می‌کنه. تعدادِ
     ردیفِ حذف‌شده رو برمی‌گردونه (برای لاگ‌کردن).
@@ -71,9 +71,45 @@ async def prune_old_messages(session: AsyncSession, retention_days: int) -> int:
     if retention_days <= 0:
         return 0
 
-    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=retention_days)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now - datetime.timedelta(days=retention_days)
     result = await session.execute(delete(ConversationMessage).where(ConversationMessage.created_at < cutoff))
     deleted_count = result.rowcount or 0
     if deleted_count:
         logger.info("پاکسازیِ خودکارِ مکالمات: %d پیامِ قدیمی‌تر از %d روز حذف شد.", deleted_count, retention_days)
     return deleted_count
+
+
+async def prune_old_messages_for_shops(
+    session: AsyncSession, retention_by_shop: dict[int, int], default_days: int, now: datetime.datetime | None = None
+) -> int:
+    """A5: نگهداریِ مکالمه per-shop شد.
+
+    `ConversationMessage` ستونِ shop_bot_id ندارد، پس هر DELETE با زیرکوئری رویِ `customers` به
+    فروشگاه‌هایِ همان گروه محدود می‌شود. فروشگاه‌ها بر اساسِ مقدارِ روز دسته‌بندی می‌شوند تا به‌ازایِ
+    هر مقدارِ *متمایز* فقط یک DELETE اجرا شود. اگر هیچ تفاوتی با پیش‌فرض نباشد، همان مسیرِ سراسریِ
+    ساده (بدونِ join) اجرا می‌شود. روزِ ≤ ۰ یعنی پاکسازیِ آن فروشگاه خاموش است.
+    """
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if not retention_by_shop or set(retention_by_shop.values()) == {default_days}:
+        return await prune_old_messages(session, default_days, now=now)
+
+    groups: dict[int, list[int]] = {}
+    for shop_bot_id, days in retention_by_shop.items():
+        groups.setdefault(int(days), []).append(int(shop_bot_id))
+
+    deleted_total = 0
+    for days, shop_ids in groups.items():
+        if days <= 0 or not shop_ids:
+            continue
+        cutoff = now - datetime.timedelta(days=days)
+        result = await session.execute(
+            delete(ConversationMessage).where(
+                ConversationMessage.created_at < cutoff,
+                ConversationMessage.customer_id.in_(select(Customer.id).where(Customer.shop_bot_id.in_(shop_ids))),
+            )
+        )
+        deleted_total += result.rowcount or 0
+    if deleted_total:
+        logger.info("پاکسازیِ خودکارِ مکالمات (per-shop): %d پیام حذف شد.", deleted_total)
+    return deleted_total

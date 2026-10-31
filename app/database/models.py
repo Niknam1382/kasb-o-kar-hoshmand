@@ -527,6 +527,17 @@ class ShopBot(Base):
     weekly_report_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     weekly_report_weekday: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     weekly_report_hour: Mapped[int] = mapped_column(Integer, default=9, server_default="9", nullable=False)
+    # P18 · A5: این پنج مقدار پیش‌تر سراسری بودند و ادمینِ پلتفرم برایِ همه تصمیم می‌گرفت. حالا per-shop اند
+    # و NULL یعنی «همان پیش‌فرضِ سراسریِ AdminSettings» ⇒ فروشگاهِ بدونِ تنظیم دقیقاً مثلِ قبل رفتار می‌کند
+    # و هیچ مهاجرتِ داده‌ای لازم نیست. ستون‌هایِ سراسری به‌عنوانِ پیش‌فرض سرِ جایشان می‌مانند.
+    payment_reservation_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    order_reservation_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    order_confirmation_timeout_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    conversation_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    knowledge_items_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # P18 · B9: روشن/خاموش‌بودن و متنِ پرسشِ پنج گامِ ثابتِ چک‌اوت. JSONِ متنی (نه ستونِ JSONB) تا با
+    # بقیه‌یِ ذخیره‌سازیِ این پروژه هم‌خوان باشد؛ NULL ⇒ همه‌یِ گام‌ها روشن با متنِ پیش‌فرض (رفتارِ امروز).
+    checkout_config: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     products: Mapped[list["Product"]] = relationship(back_populates="shop_bot", lazy="selectin")
 

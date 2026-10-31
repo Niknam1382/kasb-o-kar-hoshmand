@@ -33,6 +33,7 @@ from app.services import (
     bale_service,
     campaign_service,
     cart_service,
+    checkout_config_service,
     checkout_flow,
     customer_service,
     digital_service,
@@ -43,6 +44,7 @@ from app.services import (
     shipping_service,
     shop_bot_service,
     shop_owner_service,
+    shop_prefs_service,
 )
 from app.services.admin_settings_service import get_admin_settings
 from app.utils import validators
@@ -151,6 +153,16 @@ def _ship_label(method, fee: int) -> str:
     return f"{method.name} · {'رایگان' if fee == 0 else validators.format_toman(fee)}"
 
 
+def _disabled(data: dict) -> frozenset[str]:
+    """B9: گام‌هایِ خاموشِ همین فروشگاه (اسنپشاتِ همان لحظه‌یِ شروعِ چک‌اوت)."""
+    return frozenset(data.get("ck_disabled") or ())
+
+
+def _ask(data: dict, key: str, default: str) -> str:
+    """B9: متنِ پرسشِ گام — تنظیمِ فروشگاه‌دار اگر باشد، وگرنه متنِ پیش‌فرض."""
+    return (data.get("ck_questions") or {}).get(key) or default
+
+
 def _qa_pairs(data: dict, method, fee: int) -> list[tuple[str, str]]:
     phone = data.get("ck_phone") or ""
     return checkout_flow.build_qa_pairs(
@@ -161,6 +173,7 @@ def _qa_pairs(data: dict, method, fee: int) -> list[tuple[str, str]]:
         questions=list(data.get("questions") or []),
         answers=list(data.get("answers") or []),
         note=data.get("ck_note"),
+        disabled=_disabled(data),
     )
 
 
@@ -208,6 +221,7 @@ async def _go_next(ctx: _Ctx, data: dict, pos: str) -> None:
         physical=bool(data.get("ck_physical")),
         ship_choice=bool(data.get("ck_ship_choice")),
         has_questions=bool(data.get("questions")),
+        disabled=_disabled(data),
     )
     await _go(ctx, nxt)
 
@@ -261,16 +275,17 @@ async def _render(ctx: _Ctx, pos: str) -> None:
         full = " ".join(p for p in (ctx.customer.first_name, getattr(ctx.customer, "last_name", None)) if p)
         suggest = data.get("ck_name") or validators.clean_person_name(full)
         await ctx.state.update_data(ck_name_suggest=suggest)
-        await message.answer(ui.name_prompt(suggest), reply_markup=ui.name_keyboard(suggest))
+        prompt = ui.name_prompt(suggest) if suggest else _ask(data, "name", ui.ASK_NAME_PLAIN)
+        await message.answer(prompt, reply_markup=ui.name_keyboard(suggest))
     elif pos == checkout_flow.POS_PHONE:
         saved = validators.format_phone_display(data.get("ck_phone") or ctx.customer.phone_number)
-        await message.answer(ui.ASK_PHONE, reply_markup=ui.phone_keyboard(saved))
+        await message.answer(_ask(data, "phone", ui.ASK_PHONE), reply_markup=ui.phone_keyboard(saved))
     elif pos == checkout_flow.POS_PROV:
         await message.answer(ui.ASK_PROVINCE, reply_markup=ui.nav_keyboard())
     elif pos == checkout_flow.POS_CITY:
         await message.answer(ui.ASK_CITY, reply_markup=ui.nav_keyboard())
     elif pos == checkout_flow.POS_ADDR_TEXT:
-        await message.answer(ui.ASK_ADDRESS_TEXT, reply_markup=ui.nav_keyboard())
+        await message.answer(_ask(data, "address", ui.ASK_ADDRESS_TEXT), reply_markup=ui.nav_keyboard())
     elif pos == checkout_flow.POS_POSTAL:
         await message.answer(ui.ASK_POSTAL, reply_markup=ui.nav_keyboard(skip=True))
     elif pos == checkout_flow.POS_SHIP:
@@ -284,7 +299,7 @@ async def _render(ctx: _Ctx, pos: str) -> None:
         options = [
             (m.id, ui.shipping_option_label(m, checkout_flow.shipping_fee(m.fee_toman, m.free_over_toman, subtotal))) for m in methods
         ]
-        await message.answer(ui.ASK_SHIPPING, reply_markup=ui.shipping_keyboard(options))
+        await message.answer(_ask(data, "shipping", ui.ASK_SHIPPING), reply_markup=ui.shipping_keyboard(options))
     elif pos == checkout_flow.POS_QA:
         questions = list(data.get("questions") or [])
         index = int(data.get("ck_qa_i") or 0)
@@ -292,7 +307,7 @@ async def _render(ctx: _Ctx, pos: str) -> None:
             texts.checkout_question_prompt(questions[index], index + 1, len(questions)), reply_markup=ui.nav_keyboard()
         )
     elif pos == checkout_flow.POS_NOTE:
-        await message.answer(ui.ASK_NOTE, reply_markup=ui.nav_keyboard(skip=True))
+        await message.answer(_ask(data, "note", ui.ASK_NOTE), reply_markup=ui.nav_keyboard(skip=True))
 
 
 async def _prepare_checkout_preview(
@@ -352,6 +367,11 @@ async def cart_checkout_start(callback: CallbackQuery, session: AsyncSession, st
 
     physical = checkout_flow.is_physical_cart(items, digital_service.is_digital)
     methods = await shipping_service.list_methods(session, shop_bot.id, only_active=True) if physical else []
+    # B9: گام‌هایِ روشن/خاموش و متنِ پرسشِ همین فروشگاه یک‌بار خوانده و در state فریز می‌شوند ⇒
+    # تغییرِ تنظیم وسطِ چک‌اوت، جریانِ نیمه‌کاره را نمی‌شکند.
+    steps = checkout_config_service.parse(shop_bot.checkout_config)
+    disabled = checkout_config_service.disabled_positions(steps)
+    ship_choice = physical and bool(methods)
     # دیتایِ تلاشِ نیمه‌کاره‌یِ قبلی نباید به این چک‌اوت نشت کنه.
     await state.set_data(
         {
@@ -361,18 +381,25 @@ async def cart_checkout_start(callback: CallbackQuery, session: AsyncSession, st
             "previewed_final_total": None,
             "ck_physical": physical,
             # B8: با حتی یک روشِ فعال هم مرحله‌یِ ارسال نشان داده می‌شود (قبلاً فقط ≥۲ روش).
-            "ck_ship_choice": physical and bool(methods),
+            "ck_ship_choice": ship_choice,
             # B8: سبدِ فیزیکی بدونِ هیچ روشِ ارسالِ فعال ⇒ چک‌اوت بدونِ هزینه‌یِ ارسال ادامه می‌یابد
             # و فروشگاه‌دار در اعلانِ سفارش هشدار می‌گیرد.
             "ck_no_shipping": physical and not methods,
             "ck_stack": [],
             "ck_pos": None,
             "ck_ret": False,
+            "ck_disabled": sorted(disabled),
+            "ck_questions": checkout_config_service.questions(steps),
         }
     )
     await callback.answer()
     ctx = _Ctx(callback.message, state, session, shop_bot, customer, items)
-    await _go(ctx, checkout_flow.POS_NAME, push=False)
+    has_questions = bool(checkout_flow.custom_questions(shop_bot.checkout_questions))
+    await _go(
+        ctx,
+        checkout_flow.first_position(physical=physical, ship_choice=ship_choice, has_questions=has_questions, disabled=disabled),
+        push=False,
+    )
 
 
 # =============================================================================
@@ -840,9 +867,16 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
         return
 
     physical = bool(data.get("ck_physical"))
+    disabled = _disabled(data)
     name, phone_local = data.get("ck_name"), data.get("ck_phone")
     address_text = data.get("ck_addr_text") if physical else None
-    if not name or not phone_local or (physical and not address_text):
+    # B9: فقط گام‌هایِ روشن الزامی‌اند؛ گامِ خاموش هیچ‌وقت پرسیده نشده پس نبودش اشکالی ندارد.
+    missing = (
+        (checkout_flow.POS_NAME not in disabled and not name)
+        or (checkout_flow.POS_PHONE not in disabled and not phone_local)
+        or (physical and checkout_flow.POS_ADDR_PICK not in disabled and not address_text)
+    )
+    if missing:
         await callback.answer()
         await callback.message.edit_text(ui.STALE_STEP)
         return
@@ -878,7 +912,7 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
 
     qa_pairs = _qa_pairs(data, method, ship_fee)
     qa_text = "\n".join(f"{q}: {a}" for q, a in qa_pairs)
-    phone_e164 = validators.to_e164_iran(phone_local) or phone_local
+    phone_e164 = validators.to_e164_iran(phone_local) if phone_local else None
     group_id = secrets.token_hex(12)
     line_totals = [product.price_toman * item.quantity for item, product in items]
     # تخفیفِ سبد متناسب با مبلغِ هر ردیف پخش می‌شه؛ جمعِ سهم‌ها دقیقاً برابرِ تخفیفِ کله.
@@ -916,7 +950,13 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
     if pay_methods:
         for order in orders:
             order.status = OrderStatus.AWAITING_PAYMENT
-        order_payment_service.set_group_deadline(orders, (await get_admin_settings(session)).order_reservation_minutes)
+        # A5: مهلتِ پرداختِ گروه per-shop است؛ NULL یعنی همان پیش‌فرضِ سراسری.
+        order_payment_service.set_group_deadline(
+            orders,
+            shop_prefs_service.resolve(
+                shop_prefs_service.ORDER_RESERVATION, shop_bot, await get_admin_settings(session)
+            ),
+        )
         await order_transition_service.record_event(
             session, orders[0], None, OrderStatus.AWAITING_PAYMENT, actor_type="customer", actor_ref=str(customer.id)
         )
