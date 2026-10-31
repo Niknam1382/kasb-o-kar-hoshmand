@@ -126,6 +126,26 @@
 - **[W5] استثناهایِ قاعده‌یِ ۷ (تغییرِ عمدی؛ شمارِ تست‌ها عوض نشد):** `test_shopping_cart.py` (۳ جریان: `_quick_checkout`، جریانِ کامل با شمارشِ پیام‌هایِ مرحله‌ایِ تازه، سوال‌هایِ فروشگاه‌دار بعد از مرحله‌هایِ ثابت)؛ `test_campaign_checkout.py` (`reach_preview` + `_callbacks` دکمه‌هایِ `ck_edit:*` را کنار می‌گذارد)؛ `test_orders_w2.py` (`_Env.checkout`)؛ `test_cart_ai_editing.py` (۷ تست: AI حالا پیشنهاد می‌دهد و با `cart_ai_apply` اعمال می‌شود؛ تستِ هم‌زمانی بازنویسی شد: پیشنهادِ دوم اولی را منسوخ می‌کند)؛ `test_catalog_digital_physical.py` (تاییدِ دستیِ فیزیکی اکنون دقیقاً یک پیامِ اعلان می‌دهد)؛ `test_admin_rbac.py` (دکمه‌یِ «⏱ اعتبار و زمان» در کیبوردِ ادمینِ عملیاتی)؛ `harness.py` (پارامترِ `contact_user_id`)؛ `checkout_helpers.py` (تازه، مشترک).
 - **[W5] فایل‌هایِ تازه:** `test_checkout_c3.py` (۱۱)، `test_w5_bale_hardening.py` (۷)، `test_w5_layer2.py` (۱۲) ⇒ **۶۵ فایل / ۴۱۲ تست**.
 
+## ۵-پ۱۸) [P18] تست‌هایِ عمداً تغییرداده‌شده (استثنایِ قاعده‌یِ «تستِ قدیمی را دست نزن»)
+هر مورد زیر به‌خاطرِ **تغییرِ عمدیِ رفتارِ محصول** عوض شد، نه به‌خاطرِ شکستِ تصادفی:
+- `test_checkout_c3.py` — **B8:** با یک روشِ ارسالِ فعال هم مرحله‌یِ انتخابِ ارسال نشان داده می‌شود ⇒ جریانِ مشترکِ چک‌اوت یک مرحله بلندتر شد.
+- `test_bale_payment_foundation.py` — **A1:** منبعِ واحدِ اعتبارِ بله (`bale_credentials_service`)؛ انتظارها از «تنها env» به «پنلِ ادمین + env fallback» عوض شد.
+- `test_identity_and_profile.py` — **B7** (پشتیبانی با ثبتِ راهِ تماس خودکار روشن می‌شود) و **C1** (برچسبِ منویِ مشاوره «🗂 خدمات و بسته‌ها»).
+- `test_w5_receipt_text_and_product_photos.py` — **B2:** تستِ تازه‌یِ «دکمه‌یِ سبدِ کارتِ عکس»، شمارِ تست‌ها ۴→۵.
+- `test_admin_pricing.py` — **A6:** بازنویسیِ کامل (UIِ طرح‌هایِ اشتراک حذف؛ داده/سرویس می‌ماند؛ کدهایِ تخفیفِ همان منو سالم).
+- `test_phase6a_batching_and_settings.py:292` — **B5 + A5 + A2:** فهرستِ کالبک‌هایِ صفحه‌یِ تنظیمات با `rp_open`، `br_open`، `sp_prefs_open` بلندتر شد.
+- `test_crm.py:308` و تستِ «همه‌یِ دکمه‌هایِ پنل در مجموعه‌یِ escape» — **B4 + C2/C3:** دو دکمه‌یِ تازه رویِ کارتِ مشتری و منویِ تازه‌یِ مشاوره.
+- `test_w5_layer2.py` — **A5:** `test_admin_deadline_bounds` → `test_owner_deadline_bounds_come_from_code` (بازه‌ها فقط از کد).
+- `test_payments_w3w4.py:97` — **A5:** مهلتِ پرداختِ per-shop.
+- `test_consultation_mode.py` — **C1/C2/C3:** برچسب‌هایِ منویِ مشاوره.
+- `test_admin_settings.py` — **A5 + A4:** دو تستی که `knowledge_items_limit` و `wallet_cost_photo_analysis_toman` را از پنلِ ادمین تنظیم می‌کردند حالا `conversation_history_limit` و `wallet_cost_receipt_analysis_toman` را می‌سنجند + assertِ عمدیِ «دکمه‌یِ کهنه هیچ چیزی عوض نمی‌کند».
+- `test_conversation_retention.py` — **A5:** تستِ «ادمین retention را تنظیم می‌کند» → «retention دیگر تنظیمِ ادمین نیست» (ستون و پیش‌فرضِ سراسری می‌مانند).
+- `test_p18_per_shop_settings.py` — **A4:** فهرستِ `REMOVED_FROM_ADMIN` از خودِ محصول خوانده می‌شود (تست و کد جدا نمی‌افتند).
+- `test_card_to_card_improvements.py` + `harness.py` — **A7:** بعد از دستورالعملِ کارت یک پیامِ «رسید بفرست / ⬅️ برگشت» می‌آید ⇒ assert به پیامِ حاویِ «شماره کارت» تغییر کرد؛ `FakeSession` حالا `parse_mode` را هم ضبط می‌کند.
+- `test_photo_handling.py` — **A4:** بازنویسیِ کامل (۳ تست): عکسِ مشتری **بدونِ هیچ فراخوانیِ AI و بدونِ کسرِ هزینه** فوروارد می‌شود؛ مشتریِ بلاک‌شده عکسی نمی‌فرستد؛ `estimate_photo_cost` وجود ندارد.
+- `test_p18_sms.py` / `test_p18_bot_branding.py` — اصلاحِ خودِ تست (فلویِ تنظیمات بعد از هر ذخیره state را پاک می‌کند ⇒ برایِ «خالی» باید دوباره از منو وارد شد) و برچسبِ ماسکِ واقعی (`●●●●`).
+**فایل‌هایِ تازه‌یِ P18 (۱۲):** `test_p18_bale_credentials.py`، `test_p18_security.py`، `test_p18_topup_receipt.py`، `test_p18_weekly_report.py`، `test_p18_block_and_conversation.py`، `test_p18_per_shop_settings.py`، `test_p18_checkout_steps.py`، `test_p18_consultation_panel.py`، `test_p18_sms.py`، `test_p18_bot_branding.py`، `test_p18_ai_model_pool.py`، `test_p18_pdf_invoice.py`.
+
 ## ۶) فهرست‌هایِ مرجع (از P1-S0)
 **۶-۱) مصرف‌هایِ `OrderStatus`**  (ستونِ enum `String(32)` ⇒ مقدارِ تازه مایگریشنِ ساختاری نمی‌خواد؛ ولی *همه‌یِ* موارد زیر هم‌زمان به‌روز شن — مجموعه‌یِ مرکزیِ `order_state.py`)
 - به‌نامِ enum (۶ فایل): `database/models.py:80` (تعریف؛ پیش‌فرضِ ستون `PENDING`) · `services/order_service.py` (۱۶ خط؛ همه‌یِ گذارها: `create_order`، `create_order_awaiting_confirmation`، `customer_confirm_order`، `customer_cancel_order`، `expire_stale_customer_confirmations`، `confirm_order`، `reject_order`، `advance_status` [CONFIRMED→PROCESSING→SHIPPED→COMPLETED]، `expire_stale_reservations`) · `services/campaign_service.py:43` (`RELEASED_ORDER_STATUSES` = REJECTED/EXPIRED/CANCELLED؛ مصرف :243/:257 با `_RELEASED_STATUS_VALUES`) · `services/crm_service.py:44/:46` (`SUCCESS_STATUSES` = CONFIRMED/PROCESSING/SHIPPED/COMPLETED؛ مصرف :221/:224/:288) · `services/accounting_service.py` (:328 `PENDING`) · `services/stats_service.py:108` (`PENDING`).
