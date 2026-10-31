@@ -24,6 +24,7 @@ from shop_setup import seed_usable_shop  # noqa: E402
 from checkout_helpers import run_checkout  # noqa: E402
 
 from app.bots.common import wizard_nav  # noqa: E402
+from app.bots.main_bot import texts  # noqa: E402
 from app.database.models import CartAiProposal, Customer, OrderConsultation  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import (  # noqa: E402
@@ -223,6 +224,10 @@ async def test_full_physical_flow_saves_everything(shop_dp, main_bot) -> None:
         assert len(rows) == 1 and rows[0].is_default and rows[0].postal_code == "1234567890"
     owner_text = main_bot.session.sent_messages[0]["text"]
     assert "+989120000000" in owner_text and "علی رضایی" in owner_text
+    # B8: سبدِ فیزیکی بدونِ هیچ روشِ ارسال ⇒ هشدارِ روشن در اعلانِ فروشگاه‌دار
+    assert texts.OWNER_NO_SHIPPING_METHOD_WARNING in owner_text, "بدونِ روشِ ارسال باید به فروشگاه‌دار هشدار داد"
+    # B8: جمعِ قابلِ پرداخت همیشه در پیش‌نمایش هست (حتی بدونِ روشِ ارسال)
+    assert f"💳 مبلغِ قابلِ پرداخت: {validators.format_toman(250_000)}" in preview, preview
     print("✅ test_full_physical_flow_saves_everything PASSED")
 
 
@@ -307,13 +312,28 @@ async def test_shipping_choice_fee_free_over_and_confirm(shop_dp, main_bot) -> N
     print("✅ test_shipping_choice_fee_free_over_and_confirm PASSED")
 
 
-async def test_single_method_auto_selected_and_inactive_requires_choice(shop_dp) -> None:
+async def test_single_method_still_requires_explicit_choice(shop_dp) -> None:
+    """B8 (تغییرِ عمدی): با یک روشِ فعال هم مرحله‌یِ ارسال نشان داده می‌شود و مشتری باید تایید کند؛
+    قبلاً تنها روش بی‌صدا انتخاب می‌شد و اگر روشی تعریف نشده بود مرحله کاملاً رد می‌شد."""
     shop_bot_id, rice, tea = await _seed(shipping=[("پست", 30_000, None)])
+    async with session_scope() as session:
+        post = (await shipping_service.list_methods(session, shop_bot_id, only_active=True))[0].id
+
     s = _Shopper(shop_dp)
     await s.add(tea)
-    await run_checkout(s.tap, s.say)  # یک روش ⇒ بدونِ مرحله‌یِ انتخاب
-    assert "پست" in s.last_text and "30,000" in s.last_text and "80,000" in s.last_text
-    assert "ck_edit:ship" not in s.last_callbacks()
+    await s.tap("cart_checkout_start")
+    await s.say("علی رضایی")
+    await s.say("09120000000")
+    await s.say("تهران")
+    await s.say("تهران")
+    await s.say("خیابانِ آزادی، پلاکِ ده")
+    await s.tap("ck_skip")  # کدپستی
+    assert any(c.startswith("ck_ship:") for c in s.last_callbacks()), "با یک روشِ فعال هم باید انتخاب پرسیده شود"
+    assert "ثبت بشه؟" not in s.last_text, "بدونِ انتخابِ روشِ ارسال نباید به پیش‌نمایش برسد"
+    await s.tap(f"ck_ship:{post}")
+    await s.tap("ck_skip")  # توضیح
+    assert "پست" in s.last_text and "30,000" in s.last_text and "80,000" in s.last_text, s.last_text
+    assert "ck_edit:ship" in s.last_callbacks()
 
     # بینِ پیش‌نمایش و ثبت: هزینه‌یِ ارسال عوض می‌شه ⇒ ثبت نمی‌شه و پیش‌نمایشِ تازه می‌آید
     async with session_scope() as session:
@@ -325,7 +345,17 @@ async def test_single_method_auto_selected_and_inactive_requires_choice(shop_dp)
     await s.tap("cart_checkout_confirm")
     orders = await _orders(shop_bot_id)
     assert len(orders) == 1 and orders[0].shipping_fee_toman == 45_000
-    print("✅ test_single_method_auto_selected_and_inactive_requires_choice PASSED")
+
+    # روشِ غیرفعال ⇒ انتخابِ قبلی بی‌اثر و مرحله دوباره پرسیده می‌شود
+    async with session_scope() as session:
+        method = (await shipping_service.list_methods(session, shop_bot_id))[0]
+        method.is_active = False
+    s2 = _Shopper(shop_dp)
+    await s2.add(rice)
+    await run_checkout(s2.tap, s2.say)  # هیچ روشِ فعالی نیست ⇒ بدونِ مرحله‌یِ ارسال
+    assert "ck_edit:ship" not in s2.last_callbacks()
+    assert "ثبت بشه؟" in s2.last_text
+    print("✅ test_single_method_still_requires_explicit_choice PASSED")
 
 
 # =============================================================================
@@ -480,7 +510,7 @@ async def main() -> None:
     await test_full_physical_flow_saves_everything(shop_dp, main_bot)
     await test_saved_address_chooser_manage_and_cap(shop_dp)
     await test_shipping_choice_fee_free_over_and_confirm(shop_dp, main_bot)
-    await test_single_method_auto_selected_and_inactive_requires_choice(shop_dp)
+    await test_single_method_still_requires_explicit_choice(shop_dp)
     await test_digital_only_cart_skips_address_and_shipping(shop_dp)
     await test_invalid_inputs_back_edit_and_stale_buttons(shop_dp)
     await test_double_confirm_creates_one_order_and_contact_share(shop_dp)

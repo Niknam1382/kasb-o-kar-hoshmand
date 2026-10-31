@@ -139,9 +139,8 @@ async def _resolve_shipping(session: AsyncSession, shop_bot, data: dict, items):
     if not methods:
         return None, 0, False
     chosen = next((m for m in methods if m.id == data.get("ck_ship_id")), None)
-    if chosen is None and len(methods) == 1:
-        chosen = methods[0]
     if chosen is None:
+        # B8: حتی با یک روشِ فعال هم انتخابِ خودکار نداریم — مشتری باید هزینه‌یِ ارسال را ببیند و تایید کند.
         return None, 0, True
     subtotal = checkout_flow.physical_subtotal(items, digital_service.is_digital)
     return chosen, checkout_flow.shipping_fee(chosen.fee_toman, chosen.free_over_toman, subtotal), False
@@ -275,6 +274,11 @@ async def _render(ctx: _Ctx, pos: str) -> None:
         await message.answer(ui.ASK_POSTAL, reply_markup=ui.nav_keyboard(skip=True))
     elif pos == checkout_flow.POS_SHIP:
         methods = await shipping_service.list_methods(ctx.session, ctx.shop_bot.id, only_active=True)
+        if not methods:
+            # روشِ ارسالِ فعالی نمانده (مثلاً فروشگاه‌دار وسطِ چک‌اوت همه را خاموش کرده) ⇒ مرحله رد می‌شود.
+            await ctx.state.update_data(ck_ship_choice=False, ck_ship_id=None, ck_no_shipping=bool(data.get("ck_physical")))
+            await _advance(ctx, checkout_flow.POS_SHIP)
+            return
         subtotal = checkout_flow.physical_subtotal(ctx.items, digital_service.is_digital)
         options = [
             (m.id, ui.shipping_option_label(m, checkout_flow.shipping_fee(m.fee_toman, m.free_over_toman, subtotal))) for m in methods
@@ -355,7 +359,11 @@ async def cart_checkout_start(callback: CallbackQuery, session: AsyncSession, st
             "discount_code": None,
             "previewed_final_total": None,
             "ck_physical": physical,
-            "ck_ship_choice": physical and len(methods) >= 2,
+            # B8: با حتی یک روشِ فعال هم مرحله‌یِ ارسال نشان داده می‌شود (قبلاً فقط ≥۲ روش).
+            "ck_ship_choice": physical and bool(methods),
+            # B8: سبدِ فیزیکی بدونِ هیچ روشِ ارسالِ فعال ⇒ چک‌اوت بدونِ هزینه‌یِ ارسال ادامه می‌یابد
+            # و فروشگاه‌دار در اعلانِ سفارش هشدار می‌گیرد.
+            "ck_no_shipping": physical and not methods,
             "ck_stack": [],
             "ck_pos": None,
             "ck_ret": False,
@@ -916,6 +924,8 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
     total_toman = order_transition_service.group_total_toman(orders)  # اقلام (بعد از تخفیف) + ارسال
     # متنِ اطلاع‌رسانیِ فروشگاه‌دار رو همین‌جا، قبل از خالی‌کردنِ سبد می‌سازیم.
     owner_notification_text = main_texts.cart_order_notification(customer, items, qa_pairs, total_toman, offer=offer)
+    if data.get("ck_no_shipping"):
+        owner_notification_text = f"{owner_notification_text}\n\n{main_texts.OWNER_NO_SHIPPING_METHOD_WARNING}"
     await cart_service.clear_cart(session, cart.id)
     if offer is not None or quote.locked:
         # قفلِ ردیفِ کمپین‌ها تا commit می‌مونه؛ بقیه‌ی هندلر تماسِ شبکه‌ست ⇒ همین‌جا commit (سفارش‌ها قطعی‌ان).

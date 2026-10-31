@@ -121,7 +121,8 @@ def preview_text(items, qa_pairs: list[tuple[str, str]], offer, ship_name: str |
     if ship_name:
         fee = "رایگان" if ship_fee == 0 else format_toman(ship_fee)
         lines.append(f"🚚 ارسال ({ship_name}): {fee}")
-        lines.append(f"💳 مبلغِ قابلِ پرداخت: {format_toman(grand_total)}")
+    # B8: جمعِ قابلِ پرداخت همیشه نشان داده می‌شود (قبلاً فقط وقتی روشِ ارسال وجود داشت).
+    lines.append(f"💳 مبلغِ قابلِ پرداخت: {format_toman(grand_total)}")
     lines.append("")
     for question, answer in qa_pairs:
         lines.append(f"❔ {question}\n✏️ {answer}")

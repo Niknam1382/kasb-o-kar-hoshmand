@@ -600,6 +600,13 @@ def cart_order_notification(
     return "\n".join(lines)
 
 
+# B8: سبدِ فیزیکی بدونِ هیچ روشِ ارسالِ فعال ثبت شد ⇒ هزینه‌یِ ارسال محاسبه نشده.
+OWNER_NO_SHIPPING_METHOD_WARNING = (
+    "⚠️ روشِ ارسالِ فعالی تعریف نکرده‌ای؛ هزینه‌یِ ارسال رویِ این سفارش محاسبه نشد.\n"
+    "برایِ افزودن: «🚚 روش‌هایِ ارسال» در پنلِ فروشگاه."
+)
+
+
 def order_confirmed_stock_notification(product_name: str, remaining_stock: int) -> str:
     return f"✅ سفارش تایید شد و موجودی «{product_name}» کسر شد. موجودی باقی‌مانده: {remaining_stock} عدد."
 
@@ -2078,7 +2085,12 @@ SHIP_HINT = "ℹ️ هزینه‌یِ ارسال فقط برایِ کالایِ 
 
 def shipping_list_text(methods) -> str:
     if not methods:
-        return f"🚚 روش‌هایِ ارسال\n\n{SHIP_NONE}\n\n{SHIP_HINT}"
+        # B8: هشدارِ روشن درباره‌یِ پیامدِ نبودِ روشِ ارسال (چک‌اوتِ فیزیکی بدونِ هزینه‌یِ ارسال ادامه می‌یابد).
+        return (
+            f"⚠️ روشِ ارسال تعریف نکرده‌ای\n\n{SHIP_NONE}\n"
+            "در نتیجه سفارشِ کالایِ فیزیکی بدونِ هزینه‌یِ ارسال ثبت می‌شود و در هر سفارش هم به تو هشدار می‌دهیم.\n\n"
+            f"{SHIP_HINT}"
+        )
     lines = ["🚚 روش‌هایِ ارسال\n"]
     for method in methods:
         state = "✅" if method.is_active else "⏸"
