@@ -69,8 +69,10 @@ async def test_sending_text_instead_of_photo_gets_guided(main_dp) -> None:
     # به‌جای عکس، متن می‌فرسته (یه اشتباهِ رایج)
     await main_dp.feed_update(main_bot, make_message_update(6, text="پرداخت کردم!", user_id=OWNER_TG_ID))
 
-    assert any("عکسِ رسید" in m["text"] or "عکس رسید" in m["text"] for m in session_obj.sent_messages[-1:]), (
-        "باید راهنمایی بشه که عکس بفرسته، نه اینکه بی‌جواب بمونه"
+    # A7: متن هم رسید محسوب می‌شود؛ متنِ بدونِ رقم پذیرفته نمی‌شود ولی راهنماییِ روشن می‌گیرد
+    # (نه پیامِ «فقط عکس بفرست» که دیگر درست نیست، و نه بی‌جواب موندن).
+    assert any("به‌عنوانِ رسید پذیرفته نشد" in m["text"] for m in session_obj.sent_messages[-1:]), (
+        session_obj.sent_messages[-1:]
     )
 
     # حالا عکسِ درست رو می‌فرسته و باید عادی پردازش بشه
