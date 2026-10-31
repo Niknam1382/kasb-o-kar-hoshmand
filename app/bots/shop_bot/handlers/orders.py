@@ -187,14 +187,21 @@ async def my_order_view(callback: CallbackQuery, session: AsyncSession) -> None:
 
 
 async def send_invoice_to_customer(session: AsyncSession, shop_bot, rows, customer: Customer, target_bot: Bot, chat_id: int) -> bool:
-    """فاکتور (ایدمپوتنت: همون شماره) را به‌صورتِ پیام + فایلِ HTML می‌فرستد؛ شکستِ ارسال ⇒ False."""
+    """فاکتور (ایدمپوتنت: همون شماره) را به‌صورتِ پیام + فایل می‌فرستد؛ شکستِ ارسال ⇒ False.
+
+    P18 · B6: فایلِ PDFِ راست‌به‌چپ؛ اگر ساختِ PDF ممکن نباشد همان HTMLِ قبلی فرستاده می‌شود.
+    """
     invoice, _created = await invoice_service.ensure_invoice(session, rows, customer, f"@{shop_bot.bot_username}")
     await session.commit()
     data = invoice_service.load_data(invoice)
     try:
         await target_bot.send_message(chat_id, invoice_service.format_invoice_text(data))
-        html_bytes = invoice_service.build_invoice_html(data).encode("utf-8")
-        await target_bot.send_document(chat_id, BufferedInputFile(html_bytes, filename=f"{invoice.number}.html"))
+        pdf_bytes = invoice_service.build_invoice_pdf(data)
+        if pdf_bytes is not None:
+            await target_bot.send_document(chat_id, BufferedInputFile(pdf_bytes, filename=f"{invoice.number}.pdf"))
+        else:
+            html_bytes = invoice_service.build_invoice_html(data).encode("utf-8")
+            await target_bot.send_document(chat_id, BufferedInputFile(html_bytes, filename=f"{invoice.number}.html"))
     except TelegramAPIError:
         logger.exception("ارسالِ فاکتورِ %s ناموفق بود.", invoice.number)
         return False

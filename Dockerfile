@@ -2,6 +2,13 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+# P18 · B6: فونتِ فارسیِ پشتیبان. Vazirmatn داخلِ ایمیج باندل شده (app/assets/fonts)، ولی اگر آن
+# فایل به هر دلیلی به ایمیج نرسد، DejaVu Sans (که بلوکِ عربی/فارسی را دارد) از سیستم برداشته می‌شود.
+# عمداً قبلِ USER app نصب می‌شود؛ کاربرِ غیرroot نمی‌تواند بسته نصب کند.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # نصبِ پکیج‌های پایتون جدا از کپیِ کدِ برنامه، تا در بیلدهای بعدی (وقتی فقط کد
 # عوض شده، نه requirements.txt) این مرحله از کش استفاده کنه و سریع‌تر باشه.
 COPY requirements.txt .

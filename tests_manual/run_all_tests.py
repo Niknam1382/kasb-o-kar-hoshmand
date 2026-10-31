@@ -96,6 +96,8 @@ TEST_FILES = [
     "test_p18_consultation_panel.py",
     "test_p18_sms.py",
     "test_p18_bot_branding.py",
+    "test_p18_ai_model_pool.py",
+    "test_p18_pdf_invoice.py",
 ]
 
 
