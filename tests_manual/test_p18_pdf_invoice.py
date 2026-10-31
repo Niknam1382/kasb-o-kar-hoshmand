@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import logging
 import pathlib
 import sys
 import types
@@ -144,6 +145,40 @@ def test_pdf_survives_injection_and_huge_names() -> None:
     print("✅ test_pdf_survives_injection_and_huge_names PASSED")
 
 
+def test_no_missing_glyph_warnings() -> None:
+    """Vazirmatn (و DejaVu) جادویِ یونیکد نیستند: هر نمادِ نبودنی در PDF به جعبه‌یِ خالی تبدیل می‌شود.
+
+    fpdf2 درباره‌یِ آن warning می‌دهد ⇒ اینجا همان warning را می‌گیریم و Assert می‌کنیم رخ ندهد.
+    """
+    records: list[str] = []
+
+    class _Catch(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record.getMessage())
+
+    logger = logging.getLogger("fpdf.output")
+    handler = _Catch()
+    logger.addHandler(handler)
+    level = logger.level
+    logger.setLevel(logging.DEBUG)
+    try:
+        for data in (
+            _data([_row(shipping_fee_toman=20_000, shipping_method_name="پست", discount_toman=5_000)],
+                  {1: Row(name="شالِ نخی", kind="physical")}),
+            _data([_row(product_id=2)], {2: Row(name="فایلِ PDF", kind="digital")}),
+            _data([_row(payment_method="bale", status="confirmed")], {1: Row(name="کتاب", kind="physical")}),
+            _data([_row(payment_method="zarinpal", status="pending")], {1: Row(name="qeymat", kind="physical")}),
+        ):
+            assert invoice_service.build_invoice_pdf(data) is not None
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(level)
+
+    missing = [m for m in records if "missing the following glyphs" in m]
+    assert not missing, f"نمادهایی که فونت ندارد و در PDF جعبه می‌شوند: {missing}"
+    print("✅ test_no_missing_glyph_warnings PASSED")
+
+
 # ============================================================================= ۳ — مسیرِ برگشت به HTML
 def test_pdf_returns_none_without_font_or_library() -> None:
     data = _data([_row()], {1: Row(name="کالا", kind="physical")})
@@ -224,6 +259,7 @@ async def main() -> None:
     test_shape_text_reorders_and_presents()
     test_pdf_for_digital_physical_group_and_discounted()
     test_pdf_survives_injection_and_huge_names()
+    test_no_missing_glyph_warnings()
     test_pdf_returns_none_without_font_or_library()
     _main_dp, _shop_dp, _bot_manager, main_bot = build_test_dispatchers()
     await test_handler_prefers_pdf_and_falls_back_to_html(main_bot)

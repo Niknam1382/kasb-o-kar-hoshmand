@@ -52,6 +52,10 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logging.getLogger("aiogram.event").setLevel(logging.WARNING)  # هر آپدیت یک خطِ INFO می‌ساخت؛ لاگِ اصلی را می‌پوشاند
+# B6: fpdf2 هنگامِ امبدکردنِ فونت، ده‌ها خطِ INFO از fontTools.subset می‌سازد (هر فاکتور).
+# این لاگ‌ها هیچ اطلاعاتِ عملیاتی ندارند و حجمِ لاگِ Docker را بالا می‌برند ⇒ فقط هشدارها.
+logging.getLogger("fontTools").setLevel(logging.WARNING)
+logging.getLogger("fontTools.subset").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

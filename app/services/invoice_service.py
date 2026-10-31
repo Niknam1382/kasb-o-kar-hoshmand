@@ -296,7 +296,7 @@ def build_invoice_pdf(data: dict) -> bytes | None:
         # --- جمع‌ها
         row([(_COL_NAME + _COL_QTY, "جمعِ اقلام"), (_COL_PRICE, format_toman(int(data.get("list_total") or 0)))])
         if data.get("discount"):
-            row([(_COL_NAME + _COL_QTY, "تخفیف"), (_COL_PRICE, "− " + format_toman(int(data["discount"])))])
+            row([(_COL_NAME + _COL_QTY, "تخفیف"), (_COL_PRICE, "- " + format_toman(int(data["discount"])))])
         if data.get("shipping"):
             method = f" — {data['shipping_method']}" if data.get("shipping_method") else ""
             row([(_COL_NAME + _COL_QTY, f"هزینه‌یِ ارسال{method}"), (_COL_PRICE, format_toman(int(data["shipping"])))])
@@ -307,7 +307,7 @@ def build_invoice_pdf(data: dict) -> bytes | None:
         # --- وضعیتِ پرداخت
         method_label = PAYMENT_METHOD_LABELS.get(data.get("payment_method") or "manual", "—")
         if data.get("paid"):
-            line_text(f"پرداخت‌شده ✓ ({method_label})", 10.5)
+            line_text(f"پرداخت‌شده ({method_label})", 10.5)
         elif (data.get("payment_method") or "manual") == "manual":
             line_text("ثبت‌شده — پرداخت در محل/هماهنگی با فروشگاه", 10.5)
         else:
