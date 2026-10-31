@@ -13,7 +13,7 @@ from app.bots.main_bot.handlers.owner_common import safe_edit
 from app.bots.main_bot.states import ProfileStates as PS
 from app.config import AuthMode, settings
 from app.database.models import AuditEventType, ShopOwner
-from app.services import audit_log_service, email_service, order_service, otp_service, shop_bot_service, shop_owner_service, sms_service
+from app.services import audit_log_service, email_service, order_service, otp_service, shop_bot_service, shop_owner_service
 from app.services.admin_settings_service import get_admin_settings
 from app.utils.validators import is_valid_email, mask_phone, normalize_iran_phone, validate_person_name
 
@@ -146,15 +146,16 @@ async def pf_phone(message: Message, session: AsyncSession, state: FSMContext) -
         await shop_owner_service.update_phone(session, owner, phone, settings.auth_mode == AuthMode.TEST)
         await _finish(message, session, state, owner, f"phone → {mask_phone(phone)}")
         return
-    code = await otp_service.generate_otp(session, owner.id, "profile_phone")
     row = await get_admin_settings(session)
-    try:
-        if not row.sms_api_key:
-            raise sms_service.SmsServiceError("no key")
-        await sms_service.get_sms_service(row.sms_api_key).send_otp(phone, code)
-        await message.answer(texts.otp_sent_sms(phone))
-    except sms_service.SmsServiceError:
-        await message.answer(texts.test_mode_otp_notice(code))
+    # A3: همان منطقِ واحدِ ثبت‌نام — درِ پیامک، سقفِ ساعتی و جایگزینِ «کد در چت».
+    delivery = await otp_service.send_phone_code(
+        session, shop_owner_id=owner.id, purpose="profile_phone", phone=phone, admin_settings=row
+    )
+    if delivery.reason == "rate_limited":
+        await state.clear()
+        await message.answer(texts.OTP_RATE_LIMITED)
+        return
+    await message.answer(texts.otp_sent_sms(phone) if delivery.delivered else texts.test_mode_otp_notice(delivery.code))
     await message.answer(texts.PROFILE_OTP_NOTE)
     await state.update_data(new_phone=phone)
     await state.set_state(PS.waiting_phone_otp)

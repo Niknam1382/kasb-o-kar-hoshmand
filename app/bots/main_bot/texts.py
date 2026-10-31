@@ -574,15 +574,20 @@ PAYMENT_HISTORY_EMPTY = "هنوز هیچ پرداختی ثبت نکردی."
 # =============================================================================
 # آمار (مرحله ۹)
 # =============================================================================
-def shop_stats_text(stats: dict) -> str:
+def shop_stats_text(stats: dict, consultation: bool = False) -> str:
+    """C1: در مودِ مشاوره‌ای هیچ خطِ «سفارش» نمایش داده نمی‌شود؛ عددش هم برایِ مشاور معنایی ندارد."""
+    title = "📊 آمار مخاطبان و مشاوره‌های تو:\n" if consultation else "📊 آمار فروشگاهت:\n"
     lines = [
-        "📊 آمار فروشگاهت:\n",
+        title,
         f"پیام‌های امروز: {stats['messages_today']}",
         f"پیام‌های هفته‌ی اخیر: {stats['messages_week']}",
         f"پیام‌های ماه اخیر: {stats['messages_month']}",
-        f"\n🛒 سفارش‌ها: {stats['orders_count']}",
-        f"💬 مشاوره‌ها: {stats['consultations_count']}",
     ]
+    if consultation:
+        lines.append(f"\n💬 مشاوره‌ها: {stats['consultations_count']}")
+    else:
+        lines.append(f"\n🛒 سفارش‌ها: {stats['orders_count']}")
+        lines.append(f"💬 مشاوره‌ها: {stats['consultations_count']}")
     if stats.get("success_rate") is not None:
         lines.append(f"\n✅ نرخ پاسخ‌گویی موفق: {stats['success_rate']:.1f}٪")
     if stats.get("top_products"):
@@ -802,23 +807,23 @@ def wallet_expiry_reminder(days_left: int, amount_toman: int) -> str:
 # =============================================================================
 # گزارش دوره‌ای (مرحله ۱۰)
 # =============================================================================
-def periodic_report_text(stats: dict, freq_days: int) -> str:
-    return f"📈 گزارش دوره‌ای ({freq_days} روز اخیر):\n\n" + shop_stats_text(stats)
+def periodic_report_text(stats: dict, freq_days: int, consultation: bool = False) -> str:
+    return f"📈 گزارش دوره‌ای ({freq_days} روز اخیر):\n\n" + shop_stats_text(stats, consultation)
 
 
-def nightly_report_text(stats: dict) -> str:
-    lines = [
-        "🌙 گزارش شبانه‌ی امروز:\n",
-        f"🛒 سفارش‌های جدید: {stats['new_orders_today']}",
-        f"💬 مشاوره‌های جدید: {stats['new_consultations_today']}",
-        f"👥 مشتریان جدید: {stats['new_customers_today']}",
-    ]
+def nightly_report_text(stats: dict, consultation: bool = False) -> str:
+    """C1: در مودِ مشاوره‌ای «سفارش» و «مشتری» به «مشاوره» و «مخاطب» تبدیل می‌شوند."""
+    lines = ["🌙 گزارش شبانه‌ی امروز:\n"]
+    if not consultation:
+        lines.append(f"🛒 سفارش‌های جدید: {stats['new_orders_today']}")
+    lines.append(f"💬 مشاوره‌های جدید: {stats['new_consultations_today']}")
+    lines.append(("👥 مخاطبان جدید: " if consultation else "👥 مشتریان جدید: ") + str(stats["new_customers_today"]))
     if stats["confirmed_revenue_today_toman"] > 0:
         lines.append(f"💰 برآوردِ فروشِ تاییدشده‌ی امروز: {format_toman(stats['confirmed_revenue_today_toman'])}")
     # فازِ ۴: فقط وقتی >۰ باشه؛ با N=۰ خروجی دقیقاً مثلِ قبله. .get = دیکشنری‌هایِ قدیمی هم کار می‌کنن.
     if stats.get("new_knowledge_gaps", 0) > 0:
         lines.append(f"🧩 {stats['new_knowledge_gaps']} سوالِ بی‌جوابِ جدید (از «🧩 سوال‌هایِ بی‌جواب» جوابشون رو بده)")
-    if stats["pending_orders_count"] > 0:
+    if stats["pending_orders_count"] > 0 and not consultation:
         lines.append(f"\n⏳ {stats['pending_orders_count']} سفارش هنوز منتظرِ بررسیِ شماست.")
     return "\n".join(lines)
 
@@ -1080,6 +1085,63 @@ def admin_discount_code_saved(code: str) -> str:
 # --- تنظیمات کلیدها ---
 ADMIN_SETTINGS_MENU_INTRO = "🔑 تنظیمات کلیدها و پیکربندی پلتفرم:"
 ADMIN_ASK_SMS_API_KEY = "کلید API سرویس پیامک (کاوه‌نگار) رو بفرست:"
+ADMIN_ASK_SMS_SENDER = "سرشماره‌یِ پیامک (خطِ سرویسِ کاوه‌نگار) رو بفرست. برایِ پاک کردن «خالی» بنویس:"
+ADMIN_ASK_SMS_TEMPLATE = "نامِ قالبِ OTP در کاوه‌نگار رو بفرست. برایِ پاک کردن «خالی» بنویس تا «registerotp» استفاده بشه:"
+ADMIN_INVALID_SMS_SENDER = "سرشماره نامعتبره. فقط رقم (با + اولِ آن) و ۵ تا ۲۰ نویسه."
+ADMIN_INVALID_SMS_TEMPLATE = "نامِ قالب نامعتبره. فقط حروفِ لاتین، رقم، _ و -، حداکثر ۶۴ نویسه."
+SMS_ENABLED_WITHOUT_KEY = (
+    "⚠️ پیامک روشن شد ولی هنوز کلیدِ API تنظیم نشده. تا وقتی کل نگذاری، کد در همان چت نشان داده "
+    "می‌شود و ثبت‌نام نمی‌خوابد."
+)
+SMS_SENT_VOLUME_LINE = "📮 حجمِ پیامک‌هایِ ارسالی در {days} روز اخیر: {count} پیامک"
+
+# ------------------------------------------------------------------ P18 · A2: بیوگرافی/برندینگِ رباتِ فروشگاه
+ADMIN_ASK_BRANDING_TEXT = (
+    "متنِ برندینگِ بیوگرافیِ همه‌یِ ربات‌هایِ فروشگاهی رو بنویس (حداکثر ۶۰ نویسه). "
+    "برایِ پاک کردن «خالی» بنویس."
+)
+ADMIN_INVALID_BRANDING_TEXT = "این متن باید ۱ تا ۶۰ نویسه باشد."
+BRANDING_SAVED_WITH_BOTS = "✅ ذخیره شد. بیوگرافیِ {count} رباتِ فروشگاهی بررسی و در صورتِ نیاز به‌روز شد."
+BRANDING_SAVED_NO_BOTS = "✅ ذخیره شد. ربات‌هایی که بعداً وصل بشن هم همین متن را می‌گیرند."
+BRANDING_SYNC_RESULT = "🧴 بیوگرافی: {applied} تنظیم‌شده · {tampered} بازگردانی‌شده · {unchanged} درست · {error} خطا"
+BRANDING_SYNC_FAILED = "🧴 {error} ربات به‌دلیلِ خطایِ شبکه در پاسِ بعدی دوباره تلاش می‌شود."
+BOT_BIO_TAMPERED_ALERT = (
+    "🧴 بیوگرافیِ رباتت دستکاری شده بود و ما آن را به «متنِ خودت — متنِ پلتفرم» برگرداندیم.\n"
+    "اگر خودت آن را عوض کرده‌ای، در بازرسیِ بعدی هم دوباره همین متن جایگزین می‌شود."
+)
+BRANDING_OWNER_BUTTON = "🧴 بیوگرافیِ ربات"
+BRANDING_OWNER_ASK = (
+    "متنِ خودت برایِ بیوگرافیِ ربات رو بنویس (حداکثر ۱۲۰ نویسه؛ کنارِ متنِ پلتفرم نمایش داده می‌شود).\n"
+    "برایِ پاک کردن «خالی» بنویس. برایِ انصراف /cancel رو بزن."
+)
+BRANDING_OWNER_INVALID = "متنِ بیوگرافی نباید بیشتر از ۱۲۰ نویسه باشد."
+BRANDING_OWNER_SAVED = "✅ ذخیره شد؛ بیوگرافیِ رباتت همین الان به‌روز شد."
+BRANDING_NOT_CONFIGURED = (
+    "پلتفرم هنوز متنِ برندینگِ اجباری را تنظیم نکرده، پس بیوگرافیِ ربات دست‌نخورده می‌ماند.\n"
+    "متنِ خودت ذخیره می‌شود و به‌محضِ تنظیمِ متنِ پلتفرم اعمال می‌گردد."
+)
+
+
+def branding_owner_text(shop_bot, admin_text: str | None) -> str:
+    from app.services import bot_branding_service
+
+    composed = bot_branding_service.compose(shop_bot.branding_owner_text, admin_text)
+    lines = ["🧴 بیوگرافیِ ربات (short description)", ""]
+    if admin_text:
+        lines.append(f"متنِ پلتفرم (اجباری): {admin_text}")
+        owner = (shop_bot.branding_owner_text or "").strip()
+        lines.append(f"متنِ خودت: {owner or '—'}")
+        lines.append(f"متنِ نهایی: {composed or '—'}")
+        lines.append(f"جایِ باقی‌مانده از سقفِ {bot_branding_service.BIO_LIMIT}: {max(0, bot_branding_service.BIO_LIMIT - len(composed))} نویسه")
+        lines.append("")
+        lines.append("اگر جا نشود، متنِ خودت کوتاه می‌شود — متنِ پلتفرم همیشه کامل می‌ماند.")
+        if shop_bot.branding_tamper_count:
+            lines.append(f"⚠️ {shop_bot.branding_tamper_count} بار بیوگرافی دستکاری شده و خودکار برگردانده شد.")
+    else:
+        lines.append(BRANDING_NOT_CONFIGURED)
+    return "\n".join(lines)
+OTP_RATE_LIMITED = "📮 برایِ این شماره اخیراً پیامکِ زیادی رفته. حدودِ یک ساعتِ دیگر دوباره شماره را بفرست."
+
 ADMIN_ASK_AI_API_KEY = "کلید API هوش مصنوعی رو بفرست:"
 ADMIN_ASK_AI_MODEL = "نام مدل هوش مصنوعی رو بفرست:"
 ADMIN_ASK_AI_BASE_URL = "آدرس Base URL سرویس هوش مصنوعی رو بفرست (سازگار با فرمت OpenAI):"
@@ -1274,11 +1336,15 @@ def _mask_secret(value: str | None) -> str:
 
 
 def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
+    from app.services.sms_service import DEFAULT_OTP_TEMPLATE
+
     global_prompt_label = "تنظیم‌شده ✅" if admin_settings.global_ai_system_prompt else "خالی"
     reference_channel_label = admin_settings.reference_channel_link or "تنظیم‌نشده"
 
     return [
         ("sms_api_key", f"📲 کلید پیامک (کاوه‌نگار): {_mask_secret(admin_settings.sms_api_key)}"),
+        ("sms_sender_number", f"📲 سرشماره‌یِ پیامک: {admin_settings.sms_sender_number or 'تنظیم‌نشده'}"),
+        ("sms_otp_template", f"📲 قالبِ OTP: {admin_settings.sms_otp_template or DEFAULT_OTP_TEMPLATE + ' (پیش‌فرض)'}"),
         ("ai_api_key", f"🤖 کلید هوش مصنوعی: {_mask_secret(admin_settings.ai_api_key)}"),
         ("ai_model", f"🧠 مدل هوش مصنوعی: {admin_settings.ai_model}"),
         ("ai_base_url", f"🌐 آدرس سرویس هوش مصنوعی: {admin_settings.ai_base_url}"),
@@ -2194,6 +2260,28 @@ def shop_pref_ask(pref) -> str:
 def shop_pref_invalid(pref) -> str:
     _label, unit, _help = SHOP_PREF_LABELS[pref.key]
     return f"عدد نامعتبره. یه عددِ صحیح بینِ {pref.low} تا {pref.high} {unit} بنویس."
+
+
+# ------------------------------------------------------------------ P18 · C2: «💬 گفتگوها و کاربران» (مشاوره)
+CONSULT_CONTACTS_BUTTON = "💬 گفتگوها و کاربران"
+CONSULT_NO_CATALOG = "🗂 در مودِ مشاوره‌ای کاتالوگِ محصول/خدمت نداریم؛ مخاطب همین‌جا در چت سوالش را می‌پرسد."
+CONSULT_CONTACTS_EMPTY = "💬 هنوز کسی با رباتِ مشاوره‌ای تو چت نکرده."
+CONSULT_CONTACTS_STALE = "این مخاطب پیدا نشد. دوباره «💬 گفتگوها و کاربران» رو بزن."
+CONSULT_BLOCK_DONE = "🚫 بلاک شد؛ ربات از این پس فقط یک پیامِ ادبی به او می‌دهد."
+CONSULT_UNBLOCK_DONE = "✅ رفعِ بلاک شد."
+CONSULT_CONTACT_BACK = "↩️ برگشت به فهرست"
+CONSULT_CONTACTS_SALES_HINT = "👥 در مودِ فروشگاهی همین اطلاعات را با بخش‌بندی و یادداشت در «👥 مشتری‌ها» داری."
+
+
+def consult_contacts_text(members, total: int, page: int, total_pages: int) -> str:
+    lines = [f"💬 گفتگوها و کاربران — {total} مخاطب (صفحه‌ی {page + 1} از {total_pages})\n"]
+    for index, customer in enumerate(members, start=1):
+        lines.append(f"{index}. {crm_customer_label(customer)}")
+    lines.append("\nروی هر کدام بزنی گفتگو و بلاک/رفعِ بلاک را می‌بینی.")
+    return "\n".join(lines)
+
+
+CONSULT_CONTACTS_PAGE_SIZE = 10
 
 
 # ------------------------------------------------------------------ P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت

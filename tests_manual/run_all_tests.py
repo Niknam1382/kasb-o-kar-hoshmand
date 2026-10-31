@@ -93,6 +93,9 @@ TEST_FILES = [
     "test_p18_block_and_conversation.py",
     "test_p18_per_shop_settings.py",
     "test_p18_checkout_steps.py",
+    "test_p18_consultation_panel.py",
+    "test_p18_sms.py",
+    "test_p18_bot_branding.py",
 ]
 
 

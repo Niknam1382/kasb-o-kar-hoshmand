@@ -252,7 +252,7 @@ async def test_business_mode_change_flow(main_dp) -> None:
     assert stored.business_mode == "consultation"
     async with session_scope() as session:
         assert (await session.execute(select(ShopBot.tenant_mode).where(ShopBot.id == shop_bot_id))).scalar_one() == TenantMode.CONSULTATION
-    assert "🗂 خدمات و بسته‌ها" in _button_texts(owner.last_markup), "منوی تازه با مودِ جدید ساخته می‌شه"
+    assert "💬 گفتگوها و کاربران" in _button_texts(owner.last_markup), "منوی تازه با مودِ جدید ساخته می‌شه"  # P18 · C1/C2
     assert len(await _audit_events(AuditEventType.OWNER_BUSINESS_MODE_CHANGED)) == 1
 
     # سفارشِ باز ← تغییر مسدود (هم از مسیرِ منو، هم callbackِ مستقیم)

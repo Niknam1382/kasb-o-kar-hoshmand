@@ -12,15 +12,16 @@ import sys
 sys.path.insert(0, ".")
 sys.path.insert(0, "tests_manual")
 
-from harness import FakeSession, build_test_dispatchers, make_callback_update, make_message_update, reset_database  # noqa: E402
+from harness import FakeSession, build_test_dispatchers, make_callback_update, reset_database  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
 
 from aiogram import Bot  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
+from app.bots.main_bot import texts  # noqa: E402
 from app.database.models import Customer, ConversationMessage  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
-from app.services import conversation_service  # noqa: E402
+from app.services import conversation_service, shop_prefs_service  # noqa: E402
 from app.services.admin_settings_service import get_admin_settings  # noqa: E402
 
 OWNER_TG_ID = 999601
@@ -82,34 +83,30 @@ async def test_zero_retention_disables_pruning() -> None:
     print("✅ test_zero_retention_disables_pruning PASSED")
 
 
-async def test_admin_can_set_retention_days_via_settings_menu(main_dp) -> None:
-    """مسیرِ end-to-endِ واقعی: ادمین از منوی «🔑 تنظیمات کلیدها» مقدار رو تغییر می‌ده."""
+async def test_retention_is_no_longer_an_admin_setting(main_dp) -> None:
+    """P18 · A5: مدتِ نگهداریِ مکالمه per-shop شد؛ پنلِ ادمین دیگر آن را تنظیم نمی‌کند."""
     await reset_database()
     await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID + 1)
 
     main_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
+    session_obj: FakeSession = main_bot.session  # type: ignore[assignment]
     await main_dp.feed_update(main_bot, make_callback_update(1, data="admin_setting_edit:conversation_retention_days", user_id=ADMIN_TG_ID))
-    await main_dp.feed_update(main_bot, make_message_update(2, text="45", user_id=ADMIN_TG_ID))
+    assert session_obj.sent_messages[-1]["text"] == texts.ADMIN_SETTING_REMOVED
 
+    # جابِ سراسری همان پیش‌فرض را برایِ فروشگاه‌هایِ بدونِ override به کار می‌برد
     async with session_scope() as session:
         admin_settings = await get_admin_settings(session)
-        assert admin_settings.conversation_retention_days == 45
-
-    # صفر هم باید مجاز باشه (برخلافِ بقیه‌ی فیلدهای عددی که باید مثبت باشن)
-    await main_dp.feed_update(main_bot, make_callback_update(3, data="admin_setting_edit:conversation_retention_days", user_id=ADMIN_TG_ID))
-    await main_dp.feed_update(main_bot, make_message_update(4, text="0", user_id=ADMIN_TG_ID))
-    async with session_scope() as session:
-        admin_settings = await get_admin_settings(session)
-        assert admin_settings.conversation_retention_days == 0
-
-    print("✅ test_admin_can_set_retention_days_via_settings_menu PASSED")
+        assert admin_settings.conversation_retention_days == 90, "پیش‌فرضِ سراسری دست‌نخورده می‌ماند (ستون و مقدار)"
+        retention = await shop_prefs_service.retention_by_shop(session, admin_settings)
+        assert set(retention.values()) == {90}, retention
+    print("✅ test_retention_is_no_longer_an_admin_setting PASSED")
 
 
 async def main() -> None:
     await test_prune_deletes_only_older_than_retention()
     await test_zero_retention_disables_pruning()
     main_dp, _shop_dp, _bot_manager, _main_bot = build_test_dispatchers()
-    await test_admin_can_set_retention_days_via_settings_menu(main_dp)
+    await test_retention_is_no_longer_an_admin_setting(main_dp)
 
 
 if __name__ == "__main__":

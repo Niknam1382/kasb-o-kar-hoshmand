@@ -25,7 +25,7 @@ from app.bots.main_bot.states import (
     ShopBotTokenStates,
 )
 from app.config import settings
-from app.database.models import Customer, DiscountCode, OrderConsultation, PaymentPurpose, PaymentStatus
+from app.database.models import Customer, DiscountCode, OrderConsultation, PaymentPurpose, PaymentStatus, TenantMode
 from app.services import (
     admin_role_service,
     ai_context,
@@ -33,6 +33,7 @@ from app.services import (
     ai_service,
     bale_credentials_service,
     bale_service,
+    bot_branding_service,
     channel_knowledge_service,
     customer_service,
     digital_service,
@@ -131,6 +132,14 @@ async def save_shop_bot_token(message: Message, state: FSMContext, session: Asyn
         await bot_manager.register(shop_bot)
     except Exception:
         logger.exception("ثبتِ ربات فروشگاهی %s در ShopBotManager ناموفق بود.", shop_bot.id)
+
+    # A2: به‌محضِ وصل شدنِ یک رباتِ فروشگاهی، بیوگرافیِ اجباری رویِ خودش اعمال می‌شود.
+    try:
+        new_bot = bot_manager.get_bot(shop_bot.id)
+        if new_bot is not None:
+            await bot_branding_service.apply_for_bot(new_bot, session, shop_bot)
+    except Exception:
+        logger.warning("اعمالِ بیوگرافی رویِ رباتِ تازه ثبت‌شده ناموفق بود.", exc_info=True)
 
 
 
@@ -308,6 +317,11 @@ async def channel_knowledge_proof(message: Message, state: FSMContext, session: 
     await message.answer(texts.channel_knowledge_linked(channel_title or channel_id))
 
 
+def _is_consultation(shop_bot) -> bool:
+    """C1/C2/C3: مشاوره‌ای = بدونِ محصول، بدونِ CRMِ فروشگاهی، بدونِ حسابداری و بدونِ واژه‌یِ «سفارش»."""
+    return shop_bot is not None and shop_bot.tenant_mode == TenantMode.CONSULTATION
+
+
 # =============================================================================
 # آمار
 # =============================================================================
@@ -320,7 +334,7 @@ async def open_stats(message: Message, session: AsyncSession) -> None:
         return
 
     stats = await stats_service.get_shop_stats(session, shop_bot.id)
-    await message.answer(texts.shop_stats_text(stats))
+    await message.answer(texts.shop_stats_text(stats, consultation=_is_consultation(shop_bot)))
 
 
 # =============================================================================
@@ -716,7 +730,9 @@ async def open_excel_export(message: Message, session: AsyncSession) -> None:
     if shop_bot is None:
         await message.answer(texts.SHOP_BOT_NOT_SET_UP)
         return
-    await message.answer(texts.CHOOSE_EXCEL_EXPORT, reply_markup=keyboards.excel_export_choice_keyboard())
+    await message.answer(
+        texts.CHOOSE_EXCEL_EXPORT, reply_markup=keyboards.excel_export_choice_keyboard(_is_consultation(shop_bot))
+    )
 
 
 @router.callback_query(F.data.startswith("export_excel:"))
@@ -731,14 +747,14 @@ async def cb_export_excel(callback: CallbackQuery, session: AsyncSession) -> Non
         if not count:
             await callback.message.answer(texts.EXCEL_EXPORT_EMPTY)
             return
-        content = await excel_export_service.build_customers_workbook(session, shop_bot.id)
+        content = await excel_export_service.build_customers_workbook(session, shop_bot.id, consultation=_is_consultation(shop_bot))
         filename = "customers.xlsx"
     else:
         count = await session.scalar(select(func.count()).select_from(OrderConsultation).where(OrderConsultation.shop_bot_id == shop_bot.id))
         if not count:
             await callback.message.answer(texts.EXCEL_EXPORT_EMPTY)
             return
-        content = await excel_export_service.build_orders_workbook(session, shop_bot.id)
+        content = await excel_export_service.build_orders_workbook(session, shop_bot.id, consultation=_is_consultation(shop_bot))
         filename = "orders.xlsx"
 
     await callback.message.answer_document(BufferedInputFile(content, filename=filename), caption=texts.EXCEL_EXPORT_READY)

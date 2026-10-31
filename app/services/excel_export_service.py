@@ -64,7 +64,7 @@ def _fmt(dt) -> str:
     return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
 
 
-async def build_customers_workbook(session: AsyncSession, shop_bot_id: int) -> bytes:
+async def build_customers_workbook(session: AsyncSession, shop_bot_id: int, consultation: bool = False) -> bytes:
     result = await session.execute(select(Customer).where(Customer.shop_bot_id == shop_bot_id).order_by(Customer.id))
     customers = result.scalars().all()
 
@@ -88,40 +88,33 @@ async def build_customers_workbook(session: AsyncSession, shop_bot_id: int) -> b
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "مشتریان"
-    ws.append(
-        [
-            "نام",
-            "یوزرنیم",
-            "آیدی تلگرام",
-            "اولین پیام",
-            "آخرین پیام",
-            "تعداد سفارش",
-            "تعداد مشاوره",
-            "مجموع ارزش تخمینی (تومان)",
-        ]
-    )
+    # C1: در مودِ مشاوره‌ای نه ستون «تعداد سفارش» و نه واژه‌یِ «سفارش» جایی دارد.
+    ws.title = "مخاطبان" if consultation else "مشتریان"
+    headers = ["نام", "یوزرنیم", "آیدی تلگرام", "اولین پیام", "آخرین پیام"]
+    if not consultation:
+        headers.append("تعداد سفارش")
+    headers += ["تعداد مشاوره", "مجموع ارزش تخمینی (تومان)"]
+    ws.append(headers)
 
     for c in customers:
         stats = per_customer.get(c.id, {"order": 0, "consultation": 0, "value": 0})
-        ws.append(
-            [
-                c.first_name or "",
-                f"@{c.username}" if c.username else "",
-                c.telegram_id,
-                _fmt(c.first_seen_at),
-                _fmt(c.last_message_at),
-                stats["order"],
-                stats["consultation"],
-                stats["value"],
-            ]
-        )
+        row = [
+            c.first_name or "",
+            f"@{c.username}" if c.username else "",
+            c.telegram_id,
+            _fmt(c.first_seen_at),
+            _fmt(c.last_message_at),
+        ]
+        if not consultation:
+            row.append(stats["order"])
+        row += [stats["consultation"], stats["value"]]
+        ws.append(row)
 
     _style_sheet(ws)
     return _workbook_bytes(wb)
 
 
-async def build_orders_workbook(session: AsyncSession, shop_bot_id: int) -> bytes:
+async def build_orders_workbook(session: AsyncSession, shop_bot_id: int, consultation: bool = False) -> bytes:
     result = await session.execute(
         select(OrderConsultation, Customer, Product, Campaign)
         .join(Customer, OrderConsultation.customer_id == Customer.id)
@@ -134,7 +127,7 @@ async def build_orders_workbook(session: AsyncSession, shop_bot_id: int) -> byte
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "سفارش‌ها و مشاوره‌ها"
+    ws.title = "مشاوره‌ها" if consultation else "سفارش‌ها و مشاوره‌ها"
     ws.append(
         [
             "تاریخ",
@@ -153,7 +146,7 @@ async def build_orders_workbook(session: AsyncSession, shop_bot_id: int) -> byte
         ]
     )
 
-    type_labels = {"order": "سفارش", "consultation": "مشاوره"}
+    type_labels = {"order": "—", "consultation": "مشاوره"} if consultation else {"order": "سفارش", "consultation": "مشاوره"}
     for order, customer, product, campaign in rows:
         order_type = order.type.value if hasattr(order.type, "value") else order.type
         if order_type == OrderType.ORDER.value or product is not None:

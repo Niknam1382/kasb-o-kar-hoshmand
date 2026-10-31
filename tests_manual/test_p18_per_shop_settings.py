@@ -66,17 +66,8 @@ CUSTOMER_TG_ID = 999_853
 MAIN_TOKEN = "000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS"
 UTC = datetime.timezone.utc
 
-REMOVED_KEYS = (
-    "payment_reservation_minutes",
-    "order_reservation_minutes",
-    "order_customer_confirmation_timeout_minutes",
-    "conversation_retention_days",
-    "knowledge_items_limit",
-    "payment_deadline_min_minutes",
-    "payment_deadline_max_minutes",
-    "review_hold_min_hours",
-    "review_hold_max_hours",
-)
+# فهرستِ «از پنلِ ادمین برداشته شد» را از خودِ محصول می‌خوانیم تا تست و کد جدا افتادنِ معنی‌دار نداشته باشن.
+REMOVED_KEYS = tuple(sorted(prefs.REMOVED_FROM_ADMIN))
 
 
 def _datas(markup) -> list[str]:

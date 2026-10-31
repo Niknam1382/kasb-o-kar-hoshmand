@@ -25,6 +25,7 @@ from app.database.models import OrderPayment, PaymentPurpose, PaymentStatus
 from app.database.session import session_scope
 from app.services import (
     admin_alert_service,
+    bot_branding_service,
     ai_service,
     bale_credentials_service,
     bale_service,
@@ -72,11 +73,17 @@ def create_shop_dispatcher(main_bot: Bot) -> Dispatcher:
     return dispatcher
 
 
-async def _load_active_shop_bots(bot_manager: ShopBotManager) -> None:
+async def _load_active_shop_bots(bot_manager: ShopBotManager, main_bot: Bot) -> None:
     async with session_scope() as session:
         shop_bots = await shop_bot_service.get_all_active(session)
     await bot_manager.load_all(shop_bots)
     logger.info("%d ربات فروشگاهی‌ِ فعال بارگذاری شد.", len(shop_bots))
+    # A2: بیوگرافی/برندینگِ اجباری موقعِ بالا آمدنِ هر ربات فروشگاهی اعمال می‌شود.
+    try:
+        async with session_scope() as session:
+            await bot_branding_service.sync_all(session, bot_manager, main_bot)
+    except Exception:
+        logger.warning("همگام‌سازیِ بیوگرافیِ ربات‌ها در بالا آمدن ناموفق بود.", exc_info=True)
 
 
 async def _refresh_bale_credentials() -> str:
@@ -133,7 +140,7 @@ async def run_polling() -> None:
     bot_manager = ShopBotManager(shop_dispatcher)
     main_dispatcher = create_main_dispatcher(bot_manager)
 
-    await _load_active_shop_bots(bot_manager)
+    await _load_active_shop_bots(bot_manager, main_bot)
 
     stop_event = asyncio.Event()
     scheduler_task = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, stop_event))
@@ -203,7 +210,7 @@ async def on_startup() -> None:
     _state["bot_manager"] = bot_manager
     _state["stop_event"] = asyncio.Event()
 
-    await _load_active_shop_bots(bot_manager)
+    await _load_active_shop_bots(bot_manager, main_bot)
 
     if settings.run_mode == RunMode.WEBHOOK:
         webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/main"

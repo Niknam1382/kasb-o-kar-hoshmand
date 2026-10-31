@@ -12,11 +12,13 @@ from app.services import (
     job_gate_service,
     order_expiry_service,
     payment_expiry_service,
+    bot_branding_service,
     report_service,
     shop_prefs_service,
     time_freeze_service,
     wallet_expiry_service,
 )
+from app.services import admin_settings_service
 from app.services.admin_settings_service import get_admin_settings
 
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ logger = logging.getLogger(__name__)
 CHECK_INTERVAL_SECONDS = 30 * 60
 
 
-async def run_periodic_pass(main_bot: Bot) -> None:
+async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
     """یک دورِ کاملِ جاب‌هایِ دوره‌ای (قابلِ تست). K3: ازسرگیریِ خودکارِ توقفِ زمان؛ K4: هر گروه جدا قابلِ توقف است (فقط رد می‌شه)."""
     async with session_scope() as session:
         await time_freeze_service.auto_resume_due(session)  # حتی با جاب‌هایِ متوقف؛ تاریخ‌ها باید جبران بشن
@@ -44,6 +46,12 @@ async def run_periodic_pass(main_bot: Bot) -> None:
     if not job_gate_service.is_paused(admin_settings, "orders"):
         async with session_scope() as session:
             await order_expiry_service.process_order_expiry(session, main_bot)
+    # A2: بازرسیِ دوره‌ایِ بیوگرافی (هر ۶ ساعت) — دست‌کاری را برمی‌گرداند. بی‌خطر اگر bot_manager نباشد.
+    if bot_manager is not None and not job_gate_service.is_paused(admin_settings, "branding"):
+        async with session_scope() as session:
+            fresh = await admin_settings_service.get_admin_settings(session)
+            if bot_branding_service.is_due(fresh.branding_synced_at):
+                await bot_branding_service.sync_all(session, bot_manager, main_bot)
     if not job_gate_service.is_paused(admin_settings, "prune"):
         async with session_scope() as session:
             # A5: مدتِ نگهداریِ مکالمه per-shop است؛ نگاشتِ همه‌یِ فروشگاه‌ها یک‌بار ساخته می‌شود.

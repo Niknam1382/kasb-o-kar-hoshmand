@@ -56,6 +56,10 @@ async def open_products(message: Message, session: AsyncSession, state: FSMConte
     shop_bot = await _require_shop_bot(message, session)
     if shop_bot is None:
         return
+    # C1: مودِ مشاوره‌ای کاتالوگِ محصول/خدمت ندارد — دکمه از منو حذف شده؛ این محافظِ متن/دکمه‌یِ کهنه است.
+    if not _sales(shop_bot):
+        await message.answer(texts.CONSULT_NO_CATALOG)
+        return
 
     products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
     if not products:
@@ -101,7 +105,14 @@ async def cb_product_view(callback: CallbackQuery, session: AsyncSession) -> Non
 
 
 @router.callback_query(F.data == "product_add")
-async def cb_product_add(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_product_add(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    # C1: دکمه از کیبوردِ مشاوره حذف شده؛ این هم محافظِ کالبکِ کهنه/دستکاری‌شده است.
+    shop_bot = await _require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    if not _sales(shop_bot):
+        await callback.answer(texts.CONSULT_NO_CATALOG, show_alert=True)
+        return
     await callback.answer()
     await state.set_state(ProductStates.waiting_name)
     await callback.message.answer(texts.ASK_PRODUCT_NAME)
@@ -221,6 +232,9 @@ async def _finalize_new_product(
 async def cb_product_bulk_import(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     shop_bot = await _require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not _sales(shop_bot):  # C1
+        await callback.answer(texts.CONSULT_NO_CATALOG, show_alert=True)
         return
 
     await callback.answer()

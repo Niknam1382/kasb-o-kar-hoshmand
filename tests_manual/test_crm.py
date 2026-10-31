@@ -543,10 +543,20 @@ async def test_menu_buttons_escape_crm_states(main_dp) -> None:
 
 def test_all_panel_buttons_are_in_menu_escape_set() -> None:
     owner_buttons: set[str] = set()
+    # P18 · C2/C3: «👥 مشتری‌ها» (CRMِ فروش) و «🧮 حسابداری» فقط در پنلِ فروشگاهی‌اند؛
+    # پنلِ مشاوره به‌جایشان «💬 گفتگوها و کاربران» را دارد.
+    shared_buttons = {"🧩 سوال‌هایِ بی‌جواب", "📚 پرسش‌وپاسخ‌هایِ تاییدشده", "💬 دستیارِ مدیریتی"}
+    sales_only_buttons = {"👥 مشتری‌ها", "🧮 حسابداری"}
     for mode in (TenantMode.SALES, TenantMode.CONSULTATION, None):
         mode_buttons = reply_keyboard_texts(keyboards.shop_owner_panel_keyboard(mode))
-        assert PHASE4_BUTTONS <= mode_buttons, "دکمه‌هایِ فازِ ۴ باید توی پنلِ هر دو نوعِ کسب‌وکار باشن"
+        assert shared_buttons <= mode_buttons, "دکمه‌هایِ مشترکِ پنلِ هر دو مود"
+        if mode == TenantMode.CONSULTATION:
+            assert "💬 گفتگوها و کاربران" in mode_buttons
+            assert not sales_only_buttons & mode_buttons, "این دو دکمه نباید در مشاوره باشن"
+        else:
+            assert "👥 مشتری‌ها" in mode_buttons and "🧮 حسابداری" in mode_buttons
         owner_buttons |= mode_buttons
+    assert PHASE4_BUTTONS <= reply_keyboard_texts(keyboards.shop_owner_panel_keyboard(TenantMode.SALES))
     admin_buttons = reply_keyboard_texts(keyboards.admin_panel_keyboard(True)) | reply_keyboard_texts(keyboards.admin_panel_keyboard(False))
 
     missing = (owner_buttons | admin_buttons) - set(main_router._KNOWN_MENU_BUTTONS)

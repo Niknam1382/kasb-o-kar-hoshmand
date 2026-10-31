@@ -44,6 +44,16 @@ class EncryptedToken(TypeDecorator):
         except Exception:  # noqa: BLE001 — مقدارِ قدیمیِ خام
             return value
 
+
+class EncryptedText(EncryptedToken):
+    """مثلِ `EncryptedToken` ولی با `impl = Text` ⇒ نوعِ ستون در دیتابیس عوض نمی‌شود.
+
+    برایِ کلیدهایی که ستونشان از قبل Text است (کاوه‌نگار، AI) تا رمزنگاریِ P18 · د(۴) بدونِ
+    تغییرِ نوعِ ستون و بدونِ مهاجرتِ داده انجام شود.
+    """
+
+    impl = Text
+
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
     "uq": "uq_%(table_name)s_%(column_0_name)s",
@@ -205,6 +215,8 @@ class AuditEventType(str, enum.Enum):
     OWNER_PROFILE_UPDATED = "owner_profile_updated"
     OWNER_BUSINESS_MODE_CHANGED = "owner_business_mode_changed"
     CUSTOMER_BLOCK_CHANGED = "customer_block_changed"  # P18 · B4
+    BOT_BIO_TAMPERED = "bot_bio_tampered"  # P18 · A2
+    BRANDING_TEXT_CHANGED = "branding_text_changed"  # P18 · A2
 
 
 class AdminRoleType(str, enum.Enum):
@@ -222,13 +234,15 @@ class AdminSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
 
-    sms_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ai_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # P18 · د(۴): کلیدها رویِ `EncryptedText` (همان Fernet، نوعِ ستون Text می‌ماند ⇒ بدونِ مهاجرت).
+    # مقدارِ قدیمیِ رمزنگاری‌نشده هم خوانده می‌شود و با اولین نوشتن رمز می‌شود؛ در پنل فقط ماسک‌شده.
+    sms_api_key: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    ai_api_key: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     ai_model: Mapped[str] = mapped_column(String(100), default="grok-4-1-fast-non-reasoning", nullable=False)
     ai_base_url: Mapped[str] = mapped_column(String(255), default="https://api.x.ai/v1/chat/completions", nullable=False)
     # کلید/مدل/آدرسِ پشتیبان (اختیاری) — اگه پر باشه، وقتی سرویسِ اصلی حتی بعد
     # از تلاشِ مجدد هم شکست بخوره، یه‌بار با این تنظیمات امتحان می‌شه.
-    ai_fallback_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_fallback_api_key: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     ai_fallback_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ai_fallback_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     zarinpal_merchant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -319,6 +333,14 @@ class AdminSettings(Base):
     jobs_paused_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     jobs_paused_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     jobs_paused_groups: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # P18 · A3: سرویسِ پیامک (کاوه‌نگار) صریح روشن/خاموش می‌شود؛ خاموش = همان مسیرِ بدونِ پیامکِ امروز
+    # (ثبت‌نام هیچ‌وقت گیر نمی‌کند). فرستنده و نامِ قالب هم از پنلِ ادمین (رمزنگاری‌شده).
+    sms_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    sms_sender_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    sms_otp_template: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # P18 · A2: متنِ اجباریِ برندینگِ بیوگرافیِ ربات‌هایِ فروشگاهی (≤۶۰). خالی ⇒ هیچ کاری نمی‌شود.
+    branding_text: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    branding_synced_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     wallet_cost_voice_transcription_toman: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     wallet_cost_order_detection_toman: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     wallet_low_balance_warning_toman: Mapped[int] = mapped_column(Integer, default=20_000, nullable=False)
@@ -395,6 +417,11 @@ class OtpCode(Base):
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
     code: Mapped[str] = mapped_column(String(10), nullable=False)
     purpose: Mapped[str] = mapped_column(String(32), nullable=False)
+    # P18 · A3: شماره‌ای که پیامک به آن رفته (برایِ سقفِ ساعتی به‌ازایِ هر شماره) و وضعیت/زمانِ ارسال.
+    # در لاگ‌ها فقط ماسک‌شده نمایش داده می‌شود، هرگز خودِ شماره.
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    provider_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     consumed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
@@ -538,6 +565,10 @@ class ShopBot(Base):
     # P18 · B9: روشن/خاموش‌بودن و متنِ پرسشِ پنج گامِ ثابتِ چک‌اوت. JSONِ متنی (نه ستونِ JSONB) تا با
     # بقیه‌یِ ذخیره‌سازیِ این پروژه هم‌خوان باشد؛ NULL ⇒ همه‌یِ گام‌ها روشن با متنِ پیش‌فرض (رفتارِ امروز).
     checkout_config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # P18 · A2: متنِ خودِ فروشگاه‌دار که *کنارِ* متنِ ادمین در بیو می‌آید + ردِ دست‌کاری.
+    branding_owner_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    branding_tamper_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    branding_set_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     products: Mapped[list["Product"]] = relationship(back_populates="shop_bot", lazy="selectin")
 

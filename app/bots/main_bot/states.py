@@ -212,6 +212,7 @@ class ShopSettingsStates(StatesGroup):
     waiting_report_hour = State()
     waiting_pref_value = State()
     waiting_checkout_step_question = State()
+    waiting_branding_text = State()
 
 
 class OrderOpsStates(StatesGroup):

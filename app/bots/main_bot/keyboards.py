@@ -111,10 +111,8 @@ def shop_owner_panel_keyboard(tenant_mode=None) -> ReplyKeyboardMarkup:
     """منویِ فروشگاه‌دار (A4): مشاوره‌ای = بدونِ پرداختِ آنلاین/چک‌اوتِ سبد/کمپین (چیزهایِ مخصوصِ فروش)."""
     mode_value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     consultation = mode_value == "consultation"
-    products_label = "🗂 خدمات و بسته‌ها" if consultation else "📦 محصولات"
-    rows = [
-        ["🔑 ثبت/ویرایش توکن ربات", products_label],
-    ]
+    # C1: مودِ مشاوره‌ای کاتالوگِ محصول/خدمت ندارد (افزودنِ محصول در مشاوره معنا ندارد).
+    rows = [["🔑 ثبت/ویرایش توکن ربات"]] if consultation else [["🔑 ثبت/ویرایش توکن ربات", "📦 محصولات"]]
     if not consultation:
         rows.append(["🧾 مدیریتِ سفارش‌ها (جاری)"])  # W5: سفارش‌هایِ باز یک‌جا (اعلان‌ها دیگه گم نمی‌شن)
     rows += [
@@ -125,16 +123,15 @@ def shop_owner_panel_keyboard(tenant_mode=None) -> ReplyKeyboardMarkup:
         ["👤 پروفایل من", "📞 پشتیبانی"],
         ["📣 پیام به مشتری‌ها"] + ([] if consultation else ["💳 پرداختِ آنلاینِ سفارش‌ها"]),
     ]
-    if not consultation:
+    if consultation:
+        # C2: CRMِ فروشگاهی جای خود را به «💬 گفتگوها و کاربران» می‌دهد؛ C3: حسابداری هم نیست.
+        rows.append(["💬 گفتگوها و کاربران"])
+    else:
         rows.append(["📝 سوال‌هایِ چک‌اوتِ سبد"])
         rows.append(["🎯 کمپین‌ها", "👥 مشتری‌ها"])
-    else:
-        rows.append(["👥 مشتری‌ها"])
-    rows += [
-        ["🧩 سوال‌هایِ بی‌جواب", "📚 پرسش‌وپاسخ‌هایِ تاییدشده"],
-        ["🧮 حسابداری", "💬 دستیارِ مدیریتی"],
-        ["⚙️ تنظیماتِ ربات فروشگاه"],
-    ]
+    rows.append(["🧩 سوال‌هایِ بی‌جواب", "📚 پرسش‌وپاسخ‌هایِ تاییدشده"])
+    rows.append(["💬 دستیارِ مدیریتی"] if consultation else ["🧮 حسابداری", "💬 دستیارِ مدیریتی"])
+    rows.append(["⚙️ تنظیماتِ ربات فروشگاه"])
     return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=label) for label in row] for row in rows], resize_keyboard=True)
 
 def profile_keyboard() -> InlineKeyboardMarkup:
@@ -176,12 +173,13 @@ def products_list_keyboard(products, page: int = 0, sales_mode: bool = True) -> 
     nav = _pagination_row(page, total_pages, "product_list")
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="➕ افزودن محصول جدید", callback_data="product_add")])
+    # C1: افزودنِ محصول (تکی و گروهی) فقط مودِ فروشگاهی — مشاوره نباید «محصول» بسازد.
     if sales_mode:
-        # فازِ ۱ · P1-S3 (B2): فقط در مودِ فروشگاهی (مشاوره = بدونِ کالایِ دیجیتال/ارسال)
+        # فازِ ۱ · P1-S3 (B2): کالایِ دیجیتال/ارسال هم فقط مودِ فروشگاهی
+        rows.append([InlineKeyboardButton(text="➕ افزودن محصول جدید", callback_data="product_add")])
         rows.append([InlineKeyboardButton(text="💾 افزودنِ محصولِ دیجیتال", callback_data="product_add_digital")])
         rows.append([InlineKeyboardButton(text="🚚 روش‌هایِ ارسال", callback_data="shipping_list")])
-    rows.append([InlineKeyboardButton(text="📥 افزودن گروهی از اکسل", callback_data="product_bulk_import")])
+        rows.append([InlineKeyboardButton(text="📥 افزودن گروهی از اکسل", callback_data="product_bulk_import")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -376,11 +374,14 @@ def admin_payment_approval_keyboard(payment_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def excel_export_choice_keyboard() -> InlineKeyboardMarkup:
+def excel_export_choice_keyboard(consultation: bool = False) -> InlineKeyboardMarkup:
+    # C1: در مودِ مشاوره‌ای برچسبِ خروجی هم نباید «سفارش» بگوید.
+    first = "👥 فهرست مخاطبان" if consultation else "👥 فهرست مشتریان"
+    second = "🧾 فهرست مشاوره‌ها" if consultation else "🧾 سفارش‌ها و مشاوره‌ها"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="👥 فهرست مشتریان", callback_data="export_excel:customers")],
-            [InlineKeyboardButton(text="🧾 سفارش‌ها و مشاوره‌ها", callback_data="export_excel:orders")],
+            [InlineKeyboardButton(text=first, callback_data="export_excel:customers")],
+            [InlineKeyboardButton(text=second, callback_data="export_excel:orders")],
         ]
     )
 
@@ -483,6 +484,8 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
 
     zarinpal_label = "🙈 پنهان‌کردنِ زرین‌پال از فروشگاه‌دارها" if admin_settings.zarinpal_enabled else "👁 نمایشِ دوباره‌ی زرین‌پال"
     bale_pay_label = "🙈 پنهان‌کردنِ بله‌پی از فروشگاه‌دارها" if admin_settings.bale_pay_enabled else "👁 فعال‌کردنِ بله‌پی"
+    sms_label = "📩 خاموش‌کردنِ پیامکِ احراز" if admin_settings.sms_enabled else "📩 روشن‌کردنِ پیامکِ احراز"
+    branding_label = "🧴 همگام‌سازیِ بیوگرافیِ ربات‌ها"
     registrations_label = "⛔️ بستنِ ثبت‌نامِ کاربرانِ جدید" if admin_settings.allow_new_registrations else "✅ بازکردنِ ثبت‌نامِ کاربرانِ جدید"
     topups_label = "⛔️ غیرفعال‌کردنِ شارژِ کیف‌پول" if admin_settings.allow_wallet_topups else "✅ فعال‌کردنِ شارژِ کیف‌پول"
     maintenance_label = "🚧 فعال‌کردنِ حالتِ تعمیر (کلِ پلتفرم)" if not admin_settings.maintenance_mode else "✅ خروج از حالتِ تعمیر"
@@ -495,6 +498,8 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=zarinpal_label, callback_data="admin_toggle_zarinpal")],
         [InlineKeyboardButton(text=bale_pay_label, callback_data="admin_toggle_bale_pay")],
+        [InlineKeyboardButton(text=sms_label, callback_data="admin_toggle_sms")],
+        [InlineKeyboardButton(text=branding_label, callback_data="admin_branding_sync")],
         [InlineKeyboardButton(text="🧮 محاسبه‌ی خودکارِ هزینه از فرمول", callback_data="admin_recalc_wallet_cost")],
         [InlineKeyboardButton(text=registrations_label, callback_data="admin_toggle_registrations")],
         [InlineKeyboardButton(text=topups_label, callback_data="admin_toggle_topups")],
@@ -913,6 +918,40 @@ def assistant_keyboard() -> ReplyKeyboardMarkup:
 # =============================================================================
 # فازِ ۶-الف — تنظیماتِ رباتِ فروشگاه
 # =============================================================================
+def consult_contacts_keyboard(members, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """C2: فهرستِ مخاطبانِ رباتِ مشاوره‌ای + صفحه‌بندی."""
+    from app.bots.main_bot import texts
+
+    rows = []
+    for index, customer in enumerate(members, start=1):
+        badge = " 🚫" if customer.is_blocked else ""
+        rows.append([InlineKeyboardButton(text=f"{index}. {texts.crm_customer_label(customer)}{badge}", callback_data=f"cc_card:{customer.id}:0")])
+    nav = _pagination_row(page, total_pages, "cc_list")
+    if nav:
+        rows.append(nav)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def consult_contact_keyboard(customer_id: int, is_blocked: bool, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """C2 + B4: گفتگویِ همان مخاطب + بلاک/رفعِ بلاک (دو کالبکِ جدا ⇒ دابل‌تپ بی‌اثر)."""
+    from app.bots.main_bot import texts
+
+    rows = []
+    nav = _pagination_row(page, total_pages, f"cc_card:{customer_id}")
+    if nav:
+        rows.append(nav)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="✅ رفعِ بلاک" if is_blocked else "🚫 بلاک",
+                callback_data=f"cc_unblock:{customer_id}" if is_blocked else f"cc_block:{customer_id}",
+            )
+        ]
+    )
+    rows.append([InlineKeyboardButton(text=texts.CONSULT_CONTACT_BACK, callback_data="cc_list:0")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
     from app.bots.main_bot import texts
 
@@ -927,6 +966,7 @@ def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✍️ مقدارِ دلخواه (۲ تا ۶۰ ثانیه)", callback_data="bs_batch_custom")],
             [InlineKeyboardButton(text="↩️ پیش‌فرضِ سیستم", callback_data="bs_batch_reset")],
             [InlineKeyboardButton(text="📈 گزارشِ دوره‌ای", callback_data="rp_open")],
+            [InlineKeyboardButton(text="🧴 بیوگرافیِ ربات", callback_data="br_open")],
             [InlineKeyboardButton(text="⏱ مهلت‌ها و حافظه", callback_data="sp_prefs_open")],
             [InlineKeyboardButton(text="📞 پشتیبانیِ مشتری‌ها", callback_data="sp_open")],
         ]
@@ -1009,6 +1049,17 @@ def shop_pref_edit_keyboard(shop_bot, pref) -> InlineKeyboardMarkup:
     if stored is not None:
         rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_RESET_BUTTON, callback_data=f"sp_pref_reset:{pref.key}")])
     rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="sp_pref_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def shop_branding_keyboard(shop_bot) -> InlineKeyboardMarkup:
+    """A2: متنِ خودِ فروشگاه‌دار برایِ بیوگرافی + بازگشت."""
+    from app.bots.main_bot import texts
+
+    rows = [
+        [InlineKeyboardButton(text="✏️ متنِ خودت", callback_data="br_edit")],
+        [InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="br_back")],
+    ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

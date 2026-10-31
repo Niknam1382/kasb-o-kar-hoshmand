@@ -18,7 +18,6 @@ from app.services import (
     email_service,
     otp_service,
     shop_owner_service,
-    sms_service,
     wallet_service,
 )
 from app.services.admin_settings_service import get_admin_settings
@@ -331,18 +330,18 @@ async def reg_email(message: Message, state: FSMContext, session: AsyncSession) 
 async def _send_phone_otp(message: Message, state: FSMContext, session: AsyncSession) -> None:
     data = await state.get_data()
     owner = await shop_owner_service.get_or_create_shop_owner(session, message.from_user.id, data.get("referred_by_code"))
-    code = await otp_service.generate_otp(session, owner.id, "registration_phone")
-
     admin_settings_row = await get_admin_settings(session)
-    if admin_settings_row.sms_api_key:
-        try:
-            await sms_service.get_sms_service(admin_settings_row.sms_api_key).send_otp(data["phone_number"], code)
-            await message.answer(texts.otp_sent_sms(data["phone_number"]))
-        except sms_service.SmsServiceError:
-            logger.exception("ارسال پیامکِ OTP ناموفق بود.")
-            await message.answer(texts.test_mode_otp_notice(code))
-    else:
-        await message.answer(texts.test_mode_otp_notice(code))
+    phone = data["phone_number"]
+    # A3: درِ سرویسِ پیامک، سقفِ ساعتیِ هر شماره و جایگزینِ روشنِ «کد در چت» همه در یک نقطه.
+    delivery = await otp_service.send_phone_code(
+        session, shop_owner_id=owner.id, purpose="registration_phone", phone=phone, admin_settings=admin_settings_row
+    )
+    if delivery.reason == "rate_limited":
+        # سقفِ ساعتی خوردیم: کد را نشان نمی‌دهیم (وگرنه سقف بی‌معناست) و کاربر به گامِ شماره برمی‌گردد.
+        await state.set_state(RS.waiting_phone)
+        await message.answer(texts.OTP_RATE_LIMITED)
+        return
+    await message.answer(texts.otp_sent_sms(phone) if delivery.delivered else texts.test_mode_otp_notice(delivery.code))
 
     await message.answer(texts.REG_OTP_HINT)
     await state.set_state(RS.waiting_phone_otp)

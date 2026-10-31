@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 from decimal import Decimal, InvalidOperation
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -33,16 +34,19 @@ from app.services import (
     audit_log_service,
     bale_credentials_service,
     bale_service,
+    bot_branding_service,
     channel_service,
     discount_service,
     excel_export_service,
     moderation_service,
+    otp_service,
     payment_event_service,
     payment_service,
     prompt_defaults,
     shop_bot_service,
     identity_service,
     shop_owner_service,
+    sms_service,
     stats_service,
     wallet_service,
 )
@@ -372,6 +376,34 @@ async def cb_pricing_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_text(texts.ADMIN_PRICING_MENU_INTRO, reply_markup=keyboards.admin_pricing_menu_keyboard())
 
 
+@super_router.callback_query(F.data == "admin_toggle_sms")
+async def cb_toggle_sms(callback: CallbackQuery, session: AsyncSession) -> None:
+    """A3: درِ سرویسِ پیامک. خاموش ⇒ همان مسیرِ بدونِ پیامکِ امروز (ثبت‌نام هیچ‌وقت نمی‌خوابد)."""
+    admin_settings = await get_admin_settings(session)
+    admin_settings.sms_enabled = not admin_settings.sms_enabled
+    await session.flush()
+    sent = await otp_service.sent_count_within(session)
+    await callback.answer(texts.SMS_SENT_VOLUME_LINE.format(days=otp_service.COST_WINDOW_DAYS, count=sent))
+    if admin_settings.sms_enabled and not (admin_settings.sms_api_key or "").strip():
+        await callback.message.answer(texts.SMS_ENABLED_WITHOUT_KEY)
+    await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
+
+
+@super_router.callback_query(F.data == "admin_branding_sync")
+async def cb_branding_sync(callback: CallbackQuery, session: AsyncSession, bot_manager, bot: Bot) -> None:
+    """A2: «همین الان» همگام‌سازیِ بیوگرافیِ همه‌یِ ربات‌هایِ فروشگاهی."""
+    await callback.answer()
+    counts = await bot_branding_service.sync_all(session, bot_manager, bot)
+    if not counts["total"]:
+        await callback.message.answer(texts.BRANDING_SAVED_NO_BOTS)
+        return
+    await callback.message.answer(
+        texts.BRANDING_SYNC_RESULT.format(**{key: counts[key] for key in ("applied", "tampered", "unchanged", "error")})
+    )
+    if counts["error"]:
+        await callback.message.answer(texts.BRANDING_SYNC_FAILED.format(error=counts["error"]))
+
+
 @super_router.callback_query(F.data == "admin_toggle_zarinpal")
 async def cb_toggle_zarinpal(callback: CallbackQuery, session: AsyncSession) -> None:
     admin_settings = await get_admin_settings(session)
@@ -628,6 +660,9 @@ _INT_FIELDS_MAX: dict[str, int] = {
 # فیلدهای متنیِ قابل‌خالی‌کردن: اگه کاربر «خالی» بفرسته، به‌جای اینکه رشته‌ی
 # «خالی» ذخیره بشه، مقدار None ذخیره می‌شه (یعنی واقعاً پاک می‌شه).
 _NULLABLE_TEXT_FIELDS: dict[str, str] = {
+    "branding_text": texts.ADMIN_ASK_BRANDING_TEXT,
+    "sms_sender_number": texts.ADMIN_ASK_SMS_SENDER,
+    "sms_otp_template": texts.ADMIN_ASK_SMS_TEMPLATE,
     "global_ai_system_prompt": texts.ADMIN_ASK_GLOBAL_SYSTEM_PROMPT,
     "global_ai_prompt_sales": texts.ADMIN_ASK_PROMPT_SALES,
     "global_ai_prompt_consultation": texts.ADMIN_ASK_PROMPT_CONSULTATION,
@@ -641,6 +676,23 @@ _NULLABLE_TEXT_FIELDS: dict[str, str] = {
 }
 
 # P18 · A1: بعدِ ذخیره‌یِ این فیلدها کشِ اعتبارهایِ بله تازه می‌شود ⇒ تغییر بدونِ ری‌استارت اعمال می‌شود.
+# P18 · A3: اعتبارسنجیِ فرمتِ سرشماره و نامِ قالبِ کاوه‌نگار؛ مقدارِ نرمال‌شده را برمی‌گردانند.
+_SMS_FORMAT_FIELDS = {
+    "sms_sender_number": sms_service.normalize_sender_digits,
+    "sms_otp_template": lambda v: v.strip(),
+}
+_SMS_SENDER_RE = re.compile(r"^\+?[0-9]{4,19}$")
+_SMS_TEMPLATE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def _sms_value_error(field: str, raw: str) -> str | None:
+    """None ⇒ معتبر. پیامِ فارسی و بدونِ هیچ رازِ فنی."""
+    if field == "sms_sender_number":
+        candidate = sms_service.normalize_sender_digits(raw) or ""
+        return None if _SMS_SENDER_RE.match(candidate) else texts.ADMIN_INVALID_SMS_SENDER
+    return None if _SMS_TEMPLATE_RE.match(raw.strip()) else texts.ADMIN_INVALID_SMS_TEMPLATE
+
+
 _BALE_TOKEN_FIELDS: frozenset[str] = frozenset({"bale_bot_token", "bale_provider_token"})
 
 
@@ -770,7 +822,9 @@ async def cb_setting_edit(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @super_router.message(AdminSettingsStates.waiting_value, F.text)
-async def setting_value_entered(message: Message, state: FSMContext, session: AsyncSession) -> None:
+async def setting_value_entered(
+    message: Message, state: FSMContext, session: AsyncSession, bot_manager, bot: Bot
+) -> None:
     data = await state.get_data()
     field = data["field"]
     raw = message.text.strip()
@@ -810,6 +864,45 @@ async def setting_value_entered(message: Message, state: FSMContext, session: As
         value = None if raw in ("خالی", "پاک کن", "-") else raw
     else:
         value = raw
+
+    if field == "branding_text":
+        # A2: متنِ ادمین حداکثر ۶۰ نویسه؛ اگر عوض شد، بیویِ همه‌یِ ربات‌ها در پس‌زمینه همگام می‌شود.
+        cleaned = bot_branding_service.normalize_admin_text(None if value is None else str(value))
+        if value is not None and cleaned is None:
+            await message.answer(texts.ADMIN_INVALID_BRANDING_TEXT)
+            return
+        if cleaned is not None and not bot_branding_service.valid_admin_text(str(value)):
+            await message.answer(texts.ADMIN_INVALID_BRANDING_TEXT)
+            return
+        previous = (await admin_settings_service.get_admin_settings(session)).branding_text
+        await admin_settings_service.update_setting(session, field, cleaned)
+        await audit_log_service.log(
+            session,
+            AuditEventType.BRANDING_TEXT_CHANGED,
+            actor_telegram_id=message.from_user.id,
+            details="تنظیم شد" if cleaned is None else f"قدیمی: {(previous or '—')[:60]} → جدید: {cleaned[:60]}",
+        )
+        await state.clear()
+        counts = await bot_branding_service.sync_all(session, bot_manager, bot)
+        if counts["total"]:
+            await message.answer(
+                texts.BRANDING_SAVED_WITH_BOTS.format(count=counts["total"])
+                + "\n"
+                + texts.BRANDING_SYNC_RESULT.format(**{key: counts[key] for key in ("applied", "tampered", "unchanged", "error")})
+            )
+            if counts["error"]:
+                await message.answer(texts.BRANDING_SYNC_FAILED.format(error=counts["error"]))
+        else:
+            await message.answer(texts.BRANDING_SAVED_NO_BOTS)
+        await _refresh_settings_menu(message, session)
+        return
+
+    if field in _SMS_FORMAT_FIELDS and value is not None:
+        error = _sms_value_error(field, value)
+        if error is not None:
+            await message.answer(error)  # state همان «منتظرِ مقدار» می‌ماند و دوباره می‌پرسد
+            return
+        value = _SMS_FORMAT_FIELDS[field](value)
 
     if field in _BALE_TOKEN_FIELDS:
         if value is not None and not bale_credentials_service.valid_token_input(value):

@@ -11,9 +11,10 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
+from app.services.admin_settings_service import get_admin_settings  # noqa: E402
 from app.bots.main_bot.handlers.owner_common import parse_suffix_int, require_shop_bot, require_shop_bot_cb, safe_edit
 from app.bots.main_bot.states import ShopSettingsStates
-from app.services import shop_bot_service
+from app.services import bot_branding_service, shop_bot_service
 from app.utils.validators import normalize_telegram_username, to_e164_iran
 
 router = Router(name="shop_settings")
@@ -181,6 +182,70 @@ async def report_hour_custom_received(message: Message, session: AsyncSession, s
     await state.clear()
     await message.answer(texts.REPORT_SCHEDULE_SAVED)
     text, keyboard = _report_screen(shop_bot)
+    await message.answer(text, reply_markup=keyboard)
+
+
+# ------------------------------------------------------------------ P18 · A2: بیوگرافیِ ربات (متنِ خودِ فروشگاه‌دار)
+def _branding_screen(shop_bot, admin_settings):
+    return (
+        texts.branding_owner_text(shop_bot, admin_settings.branding_text),
+        keyboards.shop_branding_keyboard(shop_bot),
+    )
+
+
+@router.callback_query(F.data == "br_open")
+async def branding_open(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    text, keyboard = _branding_screen(shop_bot, await get_admin_settings(session))
+    await safe_edit(callback, text, keyboard)
+
+
+@router.callback_query(F.data == "br_back")
+async def branding_back(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    text, keyboard = _screen(shop_bot)
+    await safe_edit(callback, text, keyboard)
+
+
+@router.callback_query(F.data == "br_edit")
+async def branding_edit(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.clear()
+    await state.set_state(ShopSettingsStates.waiting_branding_text)
+    await callback.answer()
+    await callback.message.answer(texts.BRANDING_OWNER_ASK)
+
+
+@router.message(ShopSettingsStates.waiting_branding_text, F.text)
+async def branding_text_received(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await require_shop_bot(message, session)
+    if shop_bot is None:
+        await state.clear()
+        return
+    raw = message.text.strip()
+    if raw in {"خالی", "پاک کن", "-"}:
+        shop_bot.branding_owner_text = None
+    elif bot_branding_service.valid_owner_text(raw):
+        shop_bot.branding_owner_text = raw.strip()
+    else:
+        await message.answer(texts.BRANDING_OWNER_INVALID)  # state می‌ماند تا کوتاه‌تر بنویسد
+        return
+    await session.flush()
+    await state.clear()
+    admin_settings = await get_admin_settings(session)
+    applied = await bot_branding_service.apply_for_bot(message.bot, session, shop_bot)
+    await message.answer(texts.BRANDING_OWNER_SAVED if applied else texts.BRANDING_NOT_CONFIGURED)
+    text, keyboard = _branding_screen(shop_bot, admin_settings)
     await message.answer(text, reply_markup=keyboard)
 
 

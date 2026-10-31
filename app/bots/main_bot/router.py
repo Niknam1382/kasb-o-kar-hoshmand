@@ -19,6 +19,7 @@ from app.bots.main_bot.handlers import (
     products,
     profile,
     checkout_steps,
+    consult_contacts,
     shop_prefs,
     shop_settings,
     start,
@@ -54,6 +55,7 @@ _KNOWN_MENU_BUTTONS = {
     "🧩 سوال‌هایِ بی‌جواب",
     "📚 پرسش‌وپاسخ‌هایِ تاییدشده",
     "👥 مشتری‌ها",
+    "💬 گفتگوها و کاربران",  # P18 · C2 (پنلِ مشاوره‌ای)
     "🧮 حسابداری",
     "💬 دستیارِ مدیریتی",
     "⚙️ تنظیماتِ ربات فروشگاه",
@@ -114,6 +116,8 @@ def build_main_router() -> Router:
     checkout_steps.router.message.middleware(gate)
     shop_prefs.router.callback_query.middleware(gate)
     checkout_steps.router.callback_query.middleware(gate)
+    consult_contacts.router.message.middleware(gate)
+    consult_contacts.router.callback_query.middleware(gate)
     profile.router.message.middleware(gate)
     profile.router.callback_query.middleware(gate)
 
@@ -136,5 +140,6 @@ def build_main_router() -> Router:
     router.include_router(shop_settings.router)
     router.include_router(shop_prefs.router)  # P18 · A5: مهلت‌ها و حافظه‌یِ per-shop
     router.include_router(checkout_steps.router)  # P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت
+    router.include_router(consult_contacts.router)  # P18 · C2: گفتگوها و کاربرانِ مشاوره
     router.include_router(start.router)
     return router

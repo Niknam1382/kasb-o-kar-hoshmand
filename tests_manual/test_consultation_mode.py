@@ -63,9 +63,11 @@ def test_panel_keyboard_label_matches_mode() -> None:
     consultation_kb = keyboards.shop_owner_panel_keyboard(TenantMode.CONSULTATION)
     sales_labels = {btn.text for row in sales_kb.keyboard for btn in row}
     consultation_labels = {btn.text for row in consultation_kb.keyboard for btn in row}
-    assert "📦 محصولات" in sales_labels
-    assert "🗂 خدمات و بسته‌ها" in consultation_labels
-    assert "📦 محصولات" not in consultation_labels
+    assert "📦 محصولات" in sales_labels and "👥 مشتری‌ها" in sales_labels and "🧮 حسابداری" in sales_labels
+    # P18 · C1/C2/C3: مودِ مشاوره کاتالوگ، CRMِ فروشگاهی و حسابداری ندارد؛ جایش «💬 گفتگوها و کاربران» است.
+    for gone in ("📦 محصولات", "🗂 خدمات و بسته‌ها", "👥 مشتری‌ها", "🧮 حسابداری"):
+        assert gone not in consultation_labels, gone
+    assert "💬 گفتگوها و کاربران" in consultation_labels
     print("✅ test_panel_keyboard_label_matches_mode PASSED")
 
 

@@ -30,6 +30,29 @@ async def count_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> int:
     return result.scalar_one()
 
 
+async def list_recent_paged(
+    session: AsyncSession, shop_bot_id: int, page: int = 0, page_size: int = 10
+) -> tuple[list[Customer], int, int, int]:
+    """C2 (پنلِ مشاوره‌ای): فهرستِ مخاطبان، تازه‌ترین فعالیت اول. صفحه‌بندی در SQL.
+
+    (مخاطب، صفحه، تعدادِ کلِ صفحه‌ها، تعدادِ کلِ مخاطبان). NULLهایِ `last_message_at` آخر می‌نشینند.
+    """
+    page_size = max(1, int(page_size))
+    total = int(
+        await session.scalar(select(func.count()).select_from(Customer).where(Customer.shop_bot_id == shop_bot_id)) or 0
+    )
+    total_pages = max(1, -(-total // page_size))
+    page = max(0, min(int(page), total_pages - 1))
+    result = await session.execute(
+        select(Customer)
+        .where(Customer.shop_bot_id == shop_bot_id)
+        .order_by(Customer.last_message_at.desc().nullslast(), Customer.id.desc())
+        .limit(page_size)
+        .offset(page * page_size)
+    )
+    return list(result.scalars().all()), page, total_pages, total
+
+
 async def get_or_create_customer(
     session: AsyncSession, shop_bot_id: int, telegram_id: int, first_name: str | None, username: str | None,
     last_name: str | None = None,
