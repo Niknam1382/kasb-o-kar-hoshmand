@@ -421,10 +421,16 @@ async def test_support_settings_admin_and_owner(main_dp) -> None:
     await owner.say("bad name")
     assert owner.last_text == texts.INVALID_SUPPORT_USERNAME
     await owner.say("@shop_help")
-    assert (await shop()).support_contact_username == "shop_help" and owner.last_text.startswith("📞 پشتیبانیِ مشتری‌ها")
-    await owner.tap("sp_toggle")
+    # B7 (تغییرِ عمدی): ثبتِ هر راهِ تماس ⇒ پشتیبانی خودکار فعال است و دکمه‌اش به مشتری نشان داده می‌شود
+    # (قبلاً فروشگاه‌دار باید جداگانه «✅ فعال‌کردن» را می‌زد و چون نمی‌دانست، مشتری هیچ‌وقت دکمه را نمی‌دید).
     bot = await shop()
-    assert bot.support_enabled is True and bot.support_mode == "direct"
+    assert bot.support_contact_username == "shop_help" and bot.support_enabled is True and bot.support_mode == "direct"
+    assert owner.last_text.startswith("📞 پشتیبانیِ مشتری‌ها")
+    # خاموش/روشنِ دستی همچنان کار می‌کند
+    await owner.tap("sp_toggle")
+    assert (await shop()).support_enabled is False
+    await owner.tap("sp_toggle")
+    assert (await shop()).support_enabled is True
     await owner.tap("sp_edit:phone")
     await owner.say("09123334444")
     assert (await shop()).support_contact_phone == "+989123334444"

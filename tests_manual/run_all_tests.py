@@ -88,6 +88,7 @@ TEST_FILES = [
     # P18
     "test_p18_bale_credentials.py",
     "test_p18_security.py",
+    "test_p18_topup_receipt.py",
 ]
 
 

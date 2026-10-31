@@ -573,7 +573,12 @@ async def cb_topup_pay_resume(callback: CallbackQuery, state: FSMContext, sessio
         await state.clear()
         await callback.message.answer(texts.TOPUP_PAYMENT_GONE)
         return
-    await state.update_data(payment_id=payment.id, purpose=payment.purpose.value)
+    # ستونِ purpose از نوعِ String است، پس مقدارِ خوانده‌شده از دیتابیس رشته‌یِ خام است نه عضوِ Enum.
+    purpose = payment.purpose
+    await state.update_data(
+        payment_id=payment.id,
+        purpose=purpose.value if isinstance(purpose, PaymentPurpose) else purpose,
+    )
     await state.set_state(PaymentStates.waiting_receipt)
     await callback.answer()
     await callback.message.answer(texts.topup_receipt_resume_text(payment), reply_markup=keyboards.topup_receipt_keyboard(payment.id))

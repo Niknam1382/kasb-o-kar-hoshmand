@@ -200,9 +200,17 @@ async def _safe_edit(callback: CallbackQuery, text: str, reply_markup=None) -> N
     """edit_text ـی که «message is not modified» رو بی‌صدا نادیده می‌گیره — یه
     دابل‌تپِ سریع (یا دو کلیکِ پشتِ‌هم رویِ یه دکمه‌ی کهنه) می‌تونه همون محتوای
     فعلی رو دوباره ویرایش کنه و تلگرام برایِ این حالت خطا می‌ده، که برایِ ما
-    اصلاً خطا نیست."""
+    اصلاً خطا نیست.
+
+    B2: اگه پیامِ رویِ دکمه متنی نباشه (مثلاً دکمه‌یِ «🛒 دیدنِ سبدِ خرید» رویِ *کارتِ عکسِ* محصول)،
+    `edit_text` از سمتِ تلگرام رد می‌شه و دکمه بی‌اثر می‌مونه ⇒ در این حالت پیامِ تازه می‌فرستیم."""
+    message = callback.message
+    if message is None or getattr(message, "text", None) is None:
+        chat_id = message.chat.id if message is not None else callback.from_user.id
+        await callback.bot.send_message(chat_id, text, reply_markup=reply_markup)
+        return
     try:
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+        await message.edit_text(text, reply_markup=reply_markup)
     except TelegramBadRequest as exc:
         if "message is not modified" not in str(exc).lower():
             raise

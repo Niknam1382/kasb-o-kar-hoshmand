@@ -16,9 +16,9 @@ sys.path.insert(0, "tests_manual")
 
 from sqlalchemy import select  # noqa: E402
 
-from harness import build_test_dispatchers  # noqa: E402
+from harness import build_test_dispatchers, make_callback_update  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
-from test_orders_w2 import OTHER_OWNER, OTHER_SHOP_TG, _Env, _seed  # noqa: E402
+from test_orders_w2 import CUSTOMER, OTHER_OWNER, OTHER_SHOP_TG, _Env, _seed  # noqa: E402
 from test_payments_w3w4 import _configure, _datas, _payments  # noqa: E402
 
 from app.bots.shop_bot import texts as shop_texts  # noqa: E402
@@ -173,12 +173,42 @@ async def test_product_photo_flow(shop_dp, main_dp, bot_manager, main_bot) -> No
     print("✅ test_product_photo_flow PASSED")
 
 
+async def test_cart_button_on_photo_card_works(shop_dp, main_dp, bot_manager, main_bot) -> None:
+    """B2: «🛒 دیدنِ سبدِ خرید» رویِ *کارتِ عکسِ* محصول قبلاً بی‌اثر بود — پیامِ عکسی با `edit_text`
+    ویرایش نمی‌شود و استثنا بی‌صدا می‌مرد. حالا هندلر پیامِ تازه می‌فرستد و سبد واقعاً نشان داده می‌شود."""
+    shop_bot_id, p1, p2 = await _seed()
+    env = _Env(shop_dp, main_dp, bot_manager, main_bot, shop_bot_id, p1, p2)
+    await env.cust_cb(f"cart_add:{p1}")
+
+    sent_before = len(env.shop_bot.session.sent_messages)
+    edits_before = len(env.shop_bot.session.edited_texts)
+    await shop_dp.feed_update(
+        env.shop_bot,
+        make_callback_update(
+            env._next(), data="cart_view", user_id=CUSTOMER, message_text=None, message_caption="برنج — ۲۰۰٬۰۰۰ تومان"
+        ),
+    )
+    sent = env.shop_bot.session.sent_messages
+    assert len(sent) == sent_before + 1, "دکمه رویِ پیامِ عکسی باید پیامِ تازه بفرستد، نه اینکه بی‌اثر بماند"
+    assert len(env.shop_bot.session.edited_texts) == edits_before, "پیامِ عکسی نباید ویرایش شود"
+    assert "برنج" in sent[-1]["text"], sent[-1]["text"]
+    assert _datas(sent[-1]["reply_markup"]), "سبد باید دکمه‌هایِ خودش را داشته باشد"
+
+    # رویِ پیامِ متنی همچنان ویرایش می‌شود (بدونِ پیامِ اضافه)
+    edits_before_text = len(env.shop_bot.session.edited_texts)
+    await env.cust_cb("cart_view")
+    assert len(env.shop_bot.session.edited_texts) == edits_before_text + 1, "رویِ پیامِ متنی باید ویرایش شود"
+    assert len(env.shop_bot.session.sent_messages) == sent_before + 1, "رویِ پیامِ متنی پیامِ اضافه نمی‌رود"
+    print("✅ test_cart_button_on_photo_card_works PASSED")
+
+
 async def main() -> None:
     main_dp, shop_dp, bot_manager, main_bot = build_test_dispatchers()
     await test_parse_receipt_text_pure()
     await test_text_receipt_flow(shop_dp, main_dp, bot_manager, main_bot)
     await test_photo_pure_helpers()
     await test_product_photo_flow(shop_dp, main_dp, bot_manager, main_bot)
+    await test_cart_button_on_photo_card_works(shop_dp, main_dp, bot_manager, main_bot)
 
 
 if __name__ == "__main__":

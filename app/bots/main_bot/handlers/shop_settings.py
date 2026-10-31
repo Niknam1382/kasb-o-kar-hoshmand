@@ -172,8 +172,9 @@ async def _support_value_received(message: Message, session: AsyncSession, state
     else:
         value = raw
     setattr(shop_bot, f"support_contact_{field}", value)
-    if not (shop_bot.support_contact_username or shop_bot.support_contact_phone):
-        shop_bot.support_enabled = False  # بدونِ هیچ راهِ تماسی، پشتیبانی نباید «فعال» بمونه
+    # B7: ثبتِ هر راهِ تماس ⇒ دکمه‌یِ پشتیبانی برایِ مشتری همیشه هست (قبلاً فروشگاه‌دار باید جداگانه
+    # «✅ فعال‌کردن» را می‌زد و چون نمی‌دانست، مشتری هیچ‌وقت دکمه را نمی‌دید).
+    shop_bot.support_enabled = bool(shop_bot.support_contact_username or shop_bot.support_contact_phone)
     await session.flush()
     await state.clear()
     await message.answer(texts.ADMIN_SETTING_SAVED)
