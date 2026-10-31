@@ -1985,6 +1985,32 @@ CRM_TAGS_CLEARED = "🗑 برچسب‌ها پاک شد."
 CRM_BROADCAST_EMPTY = "این بخش الان مشتری‌ای نداره؛ چیزی برایِ ارسال نیست."
 
 
+# ------------------------------------------------------------------ P18 · B4: بلاکِ مشتری و خواندنِ گفتگو
+CRM_BLOCKED_BADGE = (
+    "🚫 این مشتری بلاک است: ربات فقط یک پیامِ ادبی به او می‌دهد و هیچ هزینه‌یِ AI/سفارش/پرداختی برایت ندارد."
+)
+CRM_BLOCK_DONE = "🚫 بلاک شد."
+CRM_UNBLOCK_DONE = "✅ رفعِ بلاک شد؛ ربات دوباره جوابش را می‌دهد."
+CRM_CONVERSATION_EMPTY = "💬 این مشتری هنوز گفتگویی با ربات نداشته."
+# محتوایِ گفتگو متنِ خودِ کاربر است: کوتاه می‌شود تا از سقفِ تلگرام رد نشود و همیشه بدونِ parse_mode می‌رود.
+CONVERSATION_MESSAGE_MAX_CHARS = 400
+CONVERSATION_TEXT_MAX_CHARS = 3500
+
+
+def crm_conversation_text(customer_name: str, messages, page: int, total_pages: int, total: int) -> str:
+    lines = [f"💬 گفتگو با {customer_name}", f"صفحه‌یِ {page + 1} از {total_pages} — در مجموع {total} پیام", ""]
+    for item in messages:
+        who = "👤 مشتری" if item.role == "user" else "🤖 ربات"
+        body = " ".join((item.content or "").split())
+        if len(body) > CONVERSATION_MESSAGE_MAX_CHARS:
+            body = body[: CONVERSATION_MESSAGE_MAX_CHARS - 1] + "…"
+        lines.append(f"{who} · {_crm_datetime(item.created_at)}\n{body}")
+    text = "\n\n".join(lines).strip()
+    if len(text) > CONVERSATION_TEXT_MAX_CHARS:
+        text = text[: CONVERSATION_TEXT_MAX_CHARS - 1] + "…"
+    return text
+
+
 def crm_overview_text(counts: dict, total: int, truncated: bool) -> str:
     lines = [f"👥 مشتری‌هایِ فروشگاهت — کل: {total} نفر\n"]
     for key, label in CRM_SEGMENT_LABELS.items():
@@ -2001,10 +2027,23 @@ def crm_customer_name(stat) -> str:
     return f"{name} (@{stat.username})" if stat.username else name
 
 
+def crm_customer_label(customer) -> str:
+    """همان قاعده‌یِ `crm_customer_name` ولی از رویِ خودِ ردیفِ `Customer` (B4: سرصفحه‌یِ گفتگو)."""
+    name = " ".join(part for part in ((customer.first_name or "").strip(), (customer.last_name or "").strip()) if part)
+    name = name or "بدونِ نام"
+    return f"{name} (@{customer.username})" if customer.username else name
+
+
 def _crm_date(moment) -> str:
     from app.utils.jalali import format_jalali_date
 
     return format_jalali_date(moment) if moment else "—"
+
+
+def _crm_datetime(moment) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    return format_jalali_datetime(moment) if moment else "—"
 
 
 def crm_segment_text(segment_key: str, members, total: int, page: int, total_pages: int, page_size: int) -> str:
@@ -2028,6 +2067,8 @@ def crm_card_text(stat, customer, orders) -> str:
         "🏷 برچسب‌ها: " + (" ".join(f"#{tag}" for tag in tags) if tags else "—"),
         "📝 یادداشت: " + (customer.crm_notes if customer.crm_notes else "—"),
     ]
+    if customer.is_blocked:
+        lines.append(CRM_BLOCKED_BADGE)
     if orders:
         lines.append("\nآخرین سفارش‌ها:")
         for index, order in enumerate(orders, start=1):

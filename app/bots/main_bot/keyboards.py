@@ -849,17 +849,37 @@ def crm_segment_keyboard(segment_key: str, members, page: int, total_pages: int,
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def crm_card_keyboard(customer_id: int, segment_key: str) -> InlineKeyboardMarkup:
+def crm_card_keyboard(customer_id: int, segment_key: str, is_blocked: bool = False) -> InlineKeyboardMarkup:
+    # P18 · B4: بلاک/رفعِ بلاک دو کالبکِ جدا دارند (نه یک تلگلِ کور) تا دابل‌تپ وضعیت را برنگرداند.
+    block_row = (
+        InlineKeyboardButton(text="✅ رفعِ بلاک", callback_data=f"crm_unblock:{customer_id}")
+        if is_blocked
+        else InlineKeyboardButton(text="🚫 بلاک", callback_data=f"crm_block:{customer_id}")
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="✍️ یادداشت", callback_data=f"crm_note:{customer_id}"),
                 InlineKeyboardButton(text="🏷 برچسب‌ها", callback_data=f"crm_tags:{customer_id}"),
             ],
+            [
+                InlineKeyboardButton(text="💬 دیدنِ گفتگو", callback_data=f"crm_conv:{customer_id}:0"),
+                block_row,
+            ],
             [InlineKeyboardButton(text="🧠 خلاصه‌یِ هوشمند", callback_data=f"crm_sum:{customer_id}")],
             [InlineKeyboardButton(text="↩️ برگشت به فهرست", callback_data=f"crm_seg:{segment_key}:0")],
         ]
     )
+
+
+def crm_conversation_keyboard(customer_id: int, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """B4: صفحه‌بندیِ گفتگو با همان سبکِ `_pagination_row` بقیه‌یِ فهرست‌ها."""
+    rows = []
+    nav = _pagination_row(page, total_pages, f"crm_conv:{customer_id}")
+    if nav:  # تک‌صفحه ⇒ `_pagination_row` خالی برمی‌گرداند و تلگرام ردیفِ خالی را قبول نمی‌کند
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="↩️ برگشت به مشتری", callback_data=f"crm_card:{customer_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def crm_clear_keyboard(kind: str, customer_id: int) -> InlineKeyboardMarkup:

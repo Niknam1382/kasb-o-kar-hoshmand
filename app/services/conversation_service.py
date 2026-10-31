@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import logging
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ConversationMessage
@@ -11,6 +11,7 @@ from app.database.models import ConversationMessage
 logger = logging.getLogger(__name__)
 
 DEFAULT_HISTORY_LIMIT = 20
+CONVERSATION_PAGE_SIZE = 10
 
 
 async def get_recent_history(session: AsyncSession, customer_id: int, limit: int = DEFAULT_HISTORY_LIMIT) -> list[dict[str, str]]:
@@ -22,6 +23,34 @@ async def get_recent_history(session: AsyncSession, customer_id: int, limit: int
     )
     messages = list(reversed(result.scalars().all()))
     return [{"role": m.role, "content": m.content} for m in messages]
+
+
+async def get_history_page(
+    session: AsyncSession, customer_id: int, page: int = 0, page_size: int = CONVERSATION_PAGE_SIZE
+) -> tuple[list[ConversationMessage], int, int, int]:
+    """(پیام‌هایِ صفحه — کهنه‌ترین اول، صفحه‌یِ معتبر، تعدادِ کلِ صفحه‌ها، تعدادِ کلِ پیام‌ها).
+
+    صفحه‌یِ ۰ = تازه‌ترین‌ها. B4: صفحه‌بندی در SQL انجام می‌شود نه با خواندنِ کلِ تاریخچه در پایتون،
+    چون گفتگویِ یک مشتریِ پرحرف می‌تواند هزاران ردیف باشد.
+    """
+    page_size = max(1, int(page_size))
+    total = int(
+        (
+            await session.execute(
+                select(func.count()).select_from(ConversationMessage).where(ConversationMessage.customer_id == customer_id)
+            )
+        ).scalar_one()
+    )
+    total_pages = max(1, -(-total // page_size))
+    page = max(0, min(int(page), total_pages - 1))
+    result = await session.execute(
+        select(ConversationMessage)
+        .where(ConversationMessage.customer_id == customer_id)
+        .order_by(ConversationMessage.id.desc())
+        .limit(page_size)
+        .offset(page * page_size)
+    )
+    return list(reversed(result.scalars().all())), page, total_pages, total
 
 
 async def save_turn(session: AsyncSession, customer_id: int, user_message: str, assistant_reply: str) -> None:

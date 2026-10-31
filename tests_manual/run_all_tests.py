@@ -90,6 +90,7 @@ TEST_FILES = [
     "test_p18_security.py",
     "test_p18_topup_receipt.py",
     "test_p18_weekly_report.py",
+    "test_p18_block_and_conversation.py",
 ]
 
 

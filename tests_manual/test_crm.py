@@ -305,7 +305,15 @@ async def test_overview_segment_screens_card_and_pagination(main_dp) -> None:
     ):
         assert expected in card_text, f"کارت باید «{expected}» رو داشته باشه:\n{card_text}"
     loyal_id = ids["loyal"]
-    assert callbacks(card_keyboard) == [f"crm_note:{loyal_id}", f"crm_tags:{loyal_id}", f"crm_sum:{loyal_id}", "crm_seg:loyal:0"]
+    # P18 · B4: «💬 دیدنِ گفتگو» و «🚫 بلاک» به کارتِ مشتری اضافه شدند
+    assert callbacks(card_keyboard) == [
+        f"crm_note:{loyal_id}",
+        f"crm_tags:{loyal_id}",
+        f"crm_conv:{loyal_id}:0",
+        f"crm_block:{loyal_id}",
+        f"crm_sum:{loyal_id}",
+        "crm_seg:loyal:0",
+    ]
     assert missing is None
 
     # صفحه‌بندی: ۲۰ مشتریِ «بدونِ خرید» دیگه → ۲۲ نفر = ۳ صفحه

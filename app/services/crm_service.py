@@ -330,3 +330,10 @@ async def set_tags(session: AsyncSession, customer: Customer, raw: str | None) -
     customer.crm_tags = ",".join(tags) if tags else None
     await session.flush()
     return tags
+
+
+async def set_blocked(session: AsyncSession, customer: Customer, blocked: bool) -> bool:
+    """B4: بلاک/رفعِ بلاک. وضعیتِ مقصد صریح پاس داده می‌شود (نه تلگلِ کور) ⇒ دابل‌تپ بی‌اثر است."""
+    customer.is_blocked = bool(blocked)
+    await session.flush()
+    return customer.is_blocked

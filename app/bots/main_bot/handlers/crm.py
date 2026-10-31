@@ -18,11 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.handlers.owner_common import parse_suffix_int, require_shop_bot, require_shop_bot_cb, safe_edit
 from app.bots.main_bot.states import CrmStates, CustomerBroadcastStates
-from app.database.models import ShopBot, WalletTransactionReason
+from app.database.models import AuditEventType, ShopBot, WalletTransactionReason
 from app.services import (
     ai_billing,
     ai_pool_service,
     ai_service,
+    audit_log_service,
     conversation_service,
     crm_service,
     crm_summary_service,
@@ -115,7 +116,10 @@ async def _card_payload(session: AsyncSession, shop_bot: ShopBot, customer_id: i
     if not stats:
         return None
     orders = await crm_service.recent_orders(session, shop_bot.id, customer.id)
-    return texts.crm_card_text(stats[0], customer, orders), keyboards.crm_card_keyboard(customer.id, stats[0].segment)
+    return (
+        texts.crm_card_text(stats[0], customer, orders),
+        keyboards.crm_card_keyboard(customer.id, stats[0].segment, customer.is_blocked),
+    )
 
 
 @router.callback_query(F.data.startswith("crm_card:"))
@@ -130,6 +134,79 @@ async def crm_card(callback: CallbackQuery, session: AsyncSession, state: FSMCon
         return
     await callback.answer()
     await safe_edit(callback, payload[0], payload[1])
+
+
+# =============================================================================
+# P18 · B4 — بلاک/رفعِ بلاک و خواندنِ گفتگو
+# =============================================================================
+def _parse_conversation_callback(data: str | None) -> tuple[int, int] | None:
+    """«crm_conv:12:2» → (12, 2)؛ هر چیزِ نامعتبر → None (همان قاعده‌یِ `_parse_segment_callback`)."""
+    parts = (data or "").split(":")
+    if len(parts) != 3 or parts[0] != "crm_conv" or not parts[1].isdecimal() or not parts[2].isdecimal():
+        return None
+    return int(parts[1]), int(parts[2])
+
+
+@router.callback_query(F.data.startswith("crm_conv:"))
+async def crm_conversation(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    """گفتگویِ *همان* مشتری، صفحه‌به‌صفحه. شناسه از callback_data می‌آید ⇒ مالکیت همیشه چک می‌شود
+    و داده‌یِ مشتریِ فروشگاهِ دیگر هرگز بیرون نمی‌آید."""
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.clear()
+    parsed = _parse_conversation_callback(callback.data)
+    if parsed is None:
+        await callback.answer(texts.CRM_STALE_BUTTON, show_alert=True)
+        return
+    customer = await crm_service.get_owned_customer(session, parsed[0], shop_bot.id)
+    if customer is None:
+        await callback.answer(texts.CRM_NOT_FOUND, show_alert=True)
+        return
+    messages, page, total_pages, total = await conversation_service.get_history_page(session, customer.id, parsed[1])
+    if not total:
+        await callback.answer()
+        await safe_edit(callback, texts.CRM_CONVERSATION_EMPTY, keyboards.crm_back_to_card_keyboard(customer.id))
+        return
+    await callback.answer()
+    await safe_edit(
+        callback,
+        texts.crm_conversation_text(texts.crm_customer_label(customer), messages, page, total_pages, total),
+        keyboards.crm_conversation_keyboard(customer.id, page, total_pages),
+    )
+
+
+async def _set_customer_blocked(callback: CallbackQuery, session: AsyncSession, prefix: str, blocked: bool) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    customer = await crm_service.get_owned_customer(session, parse_suffix_int(callback.data, prefix), shop_bot.id)
+    if customer is None:
+        await callback.answer(texts.CRM_NOT_FOUND, show_alert=True)
+        return
+    # دو کالبکِ جدا به‌جایِ یک تلگلِ کور ⇒ دابل‌تپ وضعیت را برنمی‌گرداند.
+    await crm_service.set_blocked(session, customer, blocked)
+    await audit_log_service.log(
+        session,
+        AuditEventType.CUSTOMER_BLOCK_CHANGED,
+        shop_bot_id=shop_bot.id,
+        actor_telegram_id=callback.from_user.id,
+        details=f"customer={customer.id} blocked={blocked}",
+    )
+    payload = await _card_payload(session, shop_bot, customer.id)
+    await callback.answer(texts.CRM_BLOCK_DONE if blocked else texts.CRM_UNBLOCK_DONE)
+    if payload is not None:
+        await safe_edit(callback, payload[0], payload[1])
+
+
+@router.callback_query(F.data.startswith("crm_block:"))
+async def crm_block(callback: CallbackQuery, session: AsyncSession) -> None:
+    await _set_customer_blocked(callback, session, "crm_block:", True)
+
+
+@router.callback_query(F.data.startswith("crm_unblock:"))
+async def crm_unblock(callback: CallbackQuery, session: AsyncSession) -> None:
+    await _set_customer_blocked(callback, session, "crm_unblock:", False)
 
 
 # =============================================================================

@@ -204,6 +204,7 @@ class AuditEventType(str, enum.Enum):
     WALLET_LEDGER_EXPORTED = "wallet_ledger_exported"
     OWNER_PROFILE_UPDATED = "owner_profile_updated"
     OWNER_BUSINESS_MODE_CHANGED = "owner_business_mode_changed"
+    CUSTOMER_BLOCK_CHANGED = "customer_block_changed"  # P18 · B4
 
 
 class AdminRoleType(str, enum.Enum):
@@ -582,6 +583,9 @@ class Customer(Base):
     # می‌نویسه و می‌بینه؛ هیچ‌وقت به پرامپتِ رباتِ مشتری یا دستیارِ مدیریتی داده نمی‌شه.
     crm_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     crm_tags: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # P18 · B4: مشتریِ بلاک‌شده ⇒ رباتِ فروشگاه پیامش را بی‌هزینه رد می‌کند (بدونِ AI/سفارش/پرداخت)
+    # و فقط یک پیامِ ادبی می‌دهد. در آمار و گزارش‌ها همچنان لحاظ می‌شود.
+    is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
 
 class Product(Base, CreatedAtMixin):
