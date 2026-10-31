@@ -85,6 +85,9 @@ TEST_FILES = [
     "test_catalog_digital_physical.py",
     "test_orders_w2.py",
     "test_payments_w3w4.py",
+    # P18
+    "test_p18_bale_credentials.py",
+    "test_p18_security.py",
 ]
 
 

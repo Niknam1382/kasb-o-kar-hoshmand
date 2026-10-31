@@ -124,12 +124,23 @@ def get_card_number(row: ShopPaymentSettings | None) -> str | None:
         return None
 
 
-def online_methods(row: ShopPaymentSettings | None, shop_bot: ShopBot | None = None) -> list[str]:
-    """روش‌هایِ **آنلاین/کارتیِ فعال و کامل‌تنظیم** (بدونِ manual). ترتیبِ نمایش: بله‌پی، زرین‌پال، کارت."""
+def online_methods(
+    row: ShopPaymentSettings | None, shop_bot: ShopBot | None = None, *, bale_available: bool | None = None
+) -> list[str]:
+    """روش‌هایِ **آنلاین/کارتیِ فعال و کامل‌تنظیم** (بدونِ manual). ترتیبِ نمایش: بله‌پی، زرین‌پال، کارت.
+
+    `bale_available` نتیجه‌یِ `bale_credentials_service.shop_status` است (توکنِ ربات + توکنِ درگاهِ فروشگاه
+    یا سراسری + کلیدِ ادمین + کلیدِ فروشگاه). هر مصرف‌کننده‌یِ واقعی باید آن را پاس بدهد تا «دکمه‌یِ نمایش‌داده‌شده»
+    و «پرداختِ واقعاً ممکن» هرگز از هم جدا نیفتند (B11). بدونِ آن، ملاکِ قدیمیِ فقط‌فروشگاهی استفاده می‌شود."""
     if row is None:
         return []
     methods: list[str] = []
-    if row.bale_enabled and shop_bot is not None and shop_bot.bale_provider_token:
+    bale_ok = (
+        bool(bale_available)
+        if bale_available is not None
+        else bool(row.bale_enabled and shop_bot is not None and shop_bot.bale_provider_token)
+    )
+    if bale_ok:
         methods.append(METHOD_BALE)
     if row.zarinpal_enabled and row.zarinpal_merchant_id_enc:
         methods.append(METHOD_ZARINPAL)
@@ -138,9 +149,11 @@ def online_methods(row: ShopPaymentSettings | None, shop_bot: ShopBot | None = N
     return methods
 
 
-def checkout_methods(row: ShopPaymentSettings | None, shop_bot: ShopBot | None = None) -> list[str]:
+def checkout_methods(
+    row: ShopPaymentSettings | None, shop_bot: ShopBot | None = None, *, bale_available: bool | None = None
+) -> list[str]:
     """روش‌هایِ قابلِ انتخاب در چک‌اوت: آنلاین‌ها + «دستی» (اگه روشن). حداقلِ یک روش (fallbackِ دستی)."""
-    methods = online_methods(row, shop_bot)
+    methods = online_methods(row, shop_bot, bale_available=bale_available)
     if not methods:
         return []  # هیچ روشِ آنلاینی ⇒ جریانِ قدیمی (سفارش مستقیم pending)
     if row is None or row.manual_enabled or not methods:

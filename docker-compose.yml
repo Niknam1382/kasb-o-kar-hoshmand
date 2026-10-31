@@ -3,15 +3,17 @@ services:
     image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: kasbokar
+      # د(ج): رمز از متغیرِ محیطی/.env خوانده می‌شود؛ پیش‌فرضِ `postgres` فقط برایِ توسعه‌یِ محلی است
+      # و با استقرارِ فعلی سازگار می‌ماند. روی سرورِ واقعی حتماً POSTGRES_PASSWORD و DATABASE_URL را عوض کن.
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-kasbokar}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "127.0.0.1:5432:5432"  # فقط لوکال؛ هرگز روی اینترنت باز نشه (رمزِ پیش‌فرض postgres است)
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 10

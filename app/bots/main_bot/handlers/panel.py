@@ -25,12 +25,13 @@ from app.bots.main_bot.states import (
     ShopBotTokenStates,
 )
 from app.config import settings
-from app.database.models import Customer, DiscountCode, OrderConsultation, PaymentPurpose
+from app.database.models import Customer, DiscountCode, OrderConsultation, PaymentPurpose, PaymentStatus
 from app.services import (
     admin_role_service,
     ai_context,
     ai_pool_service,
     ai_service,
+    bale_credentials_service,
     bale_service,
     channel_knowledge_service,
     customer_service,
@@ -39,8 +40,10 @@ from app.services import (
     excel_export_service,
     knowledge_service,
     order_service,
+    order_payment_service,
     order_transition_service,
     payment_service,
+    payment_settings_service,
     prompt_defaults,
     product_service,
     referral_service,
@@ -462,33 +465,128 @@ async def cb_payment_method_card(callback: CallbackQuery, state: FSMContext, ses
         ),
         parse_mode="HTML",
     )
+    # A7: رسیدِ عکسی یا متنی پذیرفته می‌شود و «⬅️ برگشت» پرداخت را از بین نمی‌برد.
+    await callback.message.answer(texts.ASK_TOPUP_RECEIPT, reply_markup=keyboards.topup_receipt_keyboard(payment.id))
 
 
-@router.message(PaymentStates.waiting_receipt, F.text)
-async def payment_receipt_wrong_type(message: Message) -> None:
-    await message.answer(texts.ASK_RECEIPT_PHOTO_NOT_TEXT)
+async def _notify_admins_new_payment(message: Message, payment, owner) -> None:
+    """A7: رسید (عکس یا متن) + پرچمِ تکراری برایِ ادمین؛ شکستِ ارسال فقط لاگ می‌شود."""
+    notification = texts.admin_new_payment_notification(payment, owner)
+    reply_markup = keyboards.admin_payment_approval_keyboard(payment.id)
+    for admin_id in settings.admin_ids:
+        try:
+            if payment.receipt_file_id:
+                await message.bot.send_photo(admin_id, payment.receipt_file_id, caption=notification, reply_markup=reply_markup)
+            else:
+                await message.bot.send_message(admin_id, notification, reply_markup=reply_markup)
+        except TelegramAPIError:
+            logger.exception("اطلاع‌رسانیِ پرداختِ جدید به ادمین %s ناموفق بود.", admin_id)
 
 
 @router.message(PaymentStates.waiting_receipt, F.photo)
 async def payment_receipt_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
     data = await state.get_data()
-    payment = await payment_service.get_by_id(session, data["payment_id"])
-    await payment_service.attach_receipt(session, payment, message.photo[-1].file_id)
-
     owner = await _current_owner(message, session)
+    payment = await _owned_topup_payment(session, owner, data.get("payment_id"))
+    if payment is None:
+        await state.clear()
+        await message.answer(texts.TOPUP_PAYMENT_GONE)
+        return
+    await payment_service.attach_receipt(session, payment, message.photo[-1].file_id)
     await state.clear()
     await message.answer(texts.RECEIPT_RECEIVED_PENDING_APPROVAL)
+    await _notify_admins_new_payment(message, payment, owner)
 
-    for admin_id in settings.admin_ids:
-        try:
-            await message.bot.send_photo(
-                admin_id,
-                message.photo[-1].file_id,
-                caption=texts.admin_new_payment_notification(payment, owner),
-                reply_markup=keyboards.admin_payment_approval_keyboard(payment.id),
-            )
-        except TelegramAPIError:
-            logger.exception("اطلاع‌رسانیِ پرداختِ جدید به ادمین %s ناموفق بود.", admin_id)
+
+@router.message(PaymentStates.waiting_receipt, F.text)
+async def payment_receipt_text_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    """A7: رسیدِ متنیِ شارژِ اعتبار (مثلِ سمتِ فروشگاه): متنِ آزادِ اپِ بانک/پیامک یا فقط شماره‌یِ پیگیری.
+    تکراری بودن فقط پرچم می‌خورد و تصمیم با ادمین است."""
+    raw = (message.text or "").strip()
+    tracking = order_payment_service.extract_tracking_ref(raw)
+    parsed = None if tracking is not None else order_payment_service.parse_receipt_text(raw)
+    if tracking is None and parsed is None:
+        await message.answer(texts.TOPUP_RECEIPT_TEXT_INVALID)
+        return
+    receipt_text = raw if tracking is not None else parsed[0]
+    tracking_ref = tracking if tracking is not None else parsed[1]
+
+    data = await state.get_data()
+    owner = await _current_owner(message, session)
+    payment = await _owned_topup_payment(session, owner, data.get("payment_id"))
+    if payment is None:
+        await state.clear()
+        await message.answer(texts.TOPUP_PAYMENT_GONE)
+        return
+    await payment_service.attach_text_receipt(session, payment, receipt_text, tracking_ref)
+    await state.clear()
+    await message.answer(texts.RECEIPT_RECEIVED_PENDING_APPROVAL)
+    await _notify_admins_new_payment(message, payment, owner)
+
+
+async def _owned_topup_payment(session: AsyncSession, owner, payment_id):
+    """مالکیت: فقط پرداختِ در انتظارِ رسیدِ خودِ این فروشگاه‌دار (IDOR بسته)."""
+    if not isinstance(payment_id, int):
+        return None
+    payment = await payment_service.get_by_id(session, payment_id)
+    if payment is None or payment.shop_owner_id != owner.id or payment.status != PaymentStatus.PENDING:
+        return None
+    if payment.receipt_file_id or payment.receipt_text:
+        return None  # رسید قبلاً ثبت شده ⇒ دابل‌تپ/کیبوردِ کهنه
+    return payment
+
+
+@router.callback_query(F.data.startswith("topup_pay_back:"))
+async def cb_topup_pay_back(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """A7: «⬅️ برگشت» در انتظارِ رسید — state پاک می‌شود ولی ردیفِ پرداخت می‌ماند و بعداً قابلِ ادامه است."""
+    raw = callback.data.split(":", 1)[1]
+    payment_id = int(raw) if raw.isascii() and raw.isdecimal() else None
+    owner = await _current_owner(callback, session)
+    payment = await payment_service.get_by_id(session, payment_id) if payment_id else None
+    await callback.answer()
+    await state.clear()
+    if payment is None or payment.shop_owner_id != owner.id:
+        await callback.message.answer(texts.TOPUP_PAYMENT_GONE)
+        return
+    await callback.message.answer(texts.topup_receipt_back_text(payment), reply_markup=keyboards.wallet_topup_action_keyboard())
+
+
+@router.callback_query(F.data == "topup_open_list")
+async def cb_topup_open_list(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    owner = await _current_owner(callback, session)
+    await state.clear()
+    payments = await payment_service.get_open_receipt_payments(session, owner.id)
+    await callback.answer()
+    await callback.message.answer(
+        texts.open_topup_payments_text(payments), reply_markup=keyboards.open_topup_payments_keyboard(payments)
+    )
+
+
+@router.callback_query(F.data.startswith("topup_pay_resume:"))
+async def cb_topup_pay_resume(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    raw = callback.data.split(":", 1)[1]
+    payment_id = int(raw) if raw.isascii() and raw.isdecimal() else None
+    owner = await _current_owner(callback, session)
+    payment = await _owned_topup_payment(session, owner, payment_id)
+    if payment is None:
+        await callback.answer()
+        await state.clear()
+        await callback.message.answer(texts.TOPUP_PAYMENT_GONE)
+        return
+    await state.update_data(payment_id=payment.id, purpose=payment.purpose.value)
+    await state.set_state(PaymentStates.waiting_receipt)
+    await callback.answer()
+    await callback.message.answer(texts.topup_receipt_resume_text(payment), reply_markup=keyboards.topup_receipt_keyboard(payment.id))
+
+
+@router.callback_query(F.data == "wallet_status")
+async def cb_wallet_status(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    owner = await _current_owner(callback, session)
+    await state.clear()
+    await callback.answer()
+    await callback.message.answer(
+        texts.wallet_status_text(owner.wallet_balance_toman), reply_markup=keyboards.wallet_topup_action_keyboard()
+    )
 
 
 @router.callback_query(F.data == "payment_method:zarinpal")
@@ -539,9 +637,10 @@ async def cb_payment_method_bale(callback: CallbackQuery, state: FSMContext, ses
     data = await state.get_data()
     admin_settings = await get_admin_settings(session)
 
-    if not admin_settings.bale_pay_enabled or not admin_settings.bale_provider_token or not settings.bale_bot_token:
+    _platform_ok, missing = bale_credentials_service.platform_status(admin_settings)
+    if missing:
         await callback.answer()
-        await callback.message.answer(texts.BALE_PAY_ERROR)
+        await callback.message.answer(texts.bale_platform_not_ready(missing))
         return
 
     purpose = PaymentPurpose(data.get("purpose", PaymentPurpose.WALLET_TOPUP.value))
@@ -551,7 +650,7 @@ async def cb_payment_method_bale(callback: CallbackQuery, state: FSMContext, ses
     amount_rial = bale_service.toman_to_rial(data["final_amount"])
     try:
         pay_url = await bale_service.create_invoice_link(
-            settings.bale_bot_token,
+            bale_credentials_service.bot_token(),
             admin_settings.bale_provider_token,
             title="شارژ کیف‌پول" if purpose == PaymentPurpose.WALLET_TOPUP else "خرید اشتراک",
             description=description,
@@ -759,24 +858,33 @@ async def open_bale_provider_token(message: Message, session: AsyncSession, stat
         await message.answer(texts.SHOP_BOT_NOT_SET_UP)
         return
 
-    await message.answer(texts.bale_provider_token_current(shop_bot), reply_markup=keyboards.payments_entry_keyboard())
+    row = await payment_settings_service.get(session, shop_bot.id)
+    status = await bale_credentials_service.shop_status(session, shop_bot, row)
+    # B11: قبلاً دو پیامِ پشتِ‌هم می‌رفت (وضعیت + «کد را بفرست») که «پیامِ اضافه» به نظر می‌رسید؛
+    # حالا یک پیامِ واحد، با وضعیتِ واقعی و آنچه کم است.
     await state.set_state(BaleProviderTokenStates.waiting_token)
-    await message.answer(texts.ASK_BALE_PROVIDER_TOKEN)
+    await message.answer(
+        texts.bale_provider_token_current(shop_bot, status.missing), reply_markup=keyboards.payments_entry_keyboard()
+    )
 
 
 @router.message(BaleProviderTokenStates.waiting_token, F.text)
 async def save_bale_provider_token(message: Message, state: FSMContext, session: AsyncSession) -> None:
     owner = await _current_owner(message, session)
     shop_bot = await shop_bot_service.get_by_owner(session, owner)
-    await state.clear()
-
     raw = message.text.strip()
     if raw == "حذف":
+        await state.clear()
         shop_bot.bale_provider_token = None
         await session.flush()
         await message.answer(texts.BALE_PROVIDER_TOKEN_REMOVED)
         return
 
+    if not bale_credentials_service.valid_token_input(raw):
+        await message.answer(texts.BALE_PROVIDER_TOKEN_INVALID)  # state می‌ماند تا دوباره بفرستد
+        return
+
+    await state.clear()
     shop_bot.bale_provider_token = raw
     await session.flush()
     await message.answer(texts.BALE_PROVIDER_TOKEN_SAVED)

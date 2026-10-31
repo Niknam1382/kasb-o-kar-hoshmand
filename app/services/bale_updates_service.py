@@ -20,6 +20,7 @@ IDLE_SLEEP_SECONDS = 1.0
 
 Handler = Callable[[dict], Awaitable[None]]
 Fetcher = Callable[[str, int | None], Awaitable[list[dict]]]
+TokenProvider = Callable[[], Awaitable[str]]
 
 
 def backoff_seconds(consecutive_failures: int) -> float:
@@ -63,12 +64,36 @@ async def _sleep_or_stop(stop_event: asyncio.Event, seconds: float) -> bool:
         return stop_event.is_set()
 
 
-async def run_loop(bot_token: str, handler: Handler, stop_event: asyncio.Event, fetch: Fetcher) -> None:
+async def run_loop(
+    bot_token: str,
+    handler: Handler,
+    stop_event: asyncio.Event,
+    fetch: Fetcher,
+    token_provider: TokenProvider | None = None,
+) -> None:
+    """`token_provider` (A1): در هر گردش توکنِ تازه از پنل/.env خوانده می‌شود ⇒ تغییرِ توکن بدونِ ری‌استارت اعمال
+    می‌شود. چون offset به ازایِ هر ربات معنا دارد، با عوض‌شدنِ توکن offset صفر می‌شود (ایدمپوتنسیِ هندلرها جلویِ
+    اثرِ آپدیتِ تکراری را می‌گیرد — B10)."""
     offset: int | None = None
     failures = 0
+    current_token = bot_token
     while not stop_event.is_set():
+        if token_provider is not None:
+            try:
+                fresh = await token_provider()
+            except Exception:  # noqa: BLE001 — نبودِ DB نباید حلقه‌یِ دریافتِ پرداخت را بخواباند
+                logger.warning("خواندنِ توکنِ تازه‌یِ بله ناموفق بود؛ همان توکنِ قبلی استفاده می‌شود.", exc_info=True)
+                fresh = current_token
+            if fresh and fresh != current_token:
+                current_token = fresh
+                offset = None
+                logger.info("توکنِ رباتِ بله عوض شد؛ حلقه‌یِ getUpdates با توکنِ تازه و offsetِ صفر ادامه می‌دهد.")
+        if not current_token:
+            if await _sleep_or_stop(stop_event, BACKOFF_MAX_SECONDS):
+                return
+            continue
         try:
-            offset, processed = await poll_once(bot_token, offset, handler, fetch)
+            offset, processed = await poll_once(current_token, offset, handler, fetch)
             failures = 0
             if processed == 0 and await _sleep_or_stop(stop_event, IDLE_SLEEP_SECONDS):
                 return

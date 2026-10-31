@@ -183,7 +183,11 @@ async def test_admin_selftest_and_events_buttons(main_dp) -> None:
     try:
         settings.bale_bot_token = ""
         await admin.tap("admin_bale_selftest")
-        assert admin.last_text == texts.BALE_SELFTEST_NO_TOKEN
+        # A1(د): بدونِ توکن، خودتشخیصی هر پیش‌نیاز را جدا و با راهنمایِ عملی نشان می‌دهد و به شبکه نمی‌رود.
+        report = admin.last_text
+        assert "❌ توکنِ رباتِ بله" in report, report
+        assert "🔑 تنظیمات کلیدها" in report, "پیامِ خطا باید عملی باشد و مسیرِ پنل را نشان دهد"
+        assert "getMe" not in report, "بدونِ توکن نباید مرحله‌یِ شبکه‌ای اجرا شود"
 
         settings.bale_bot_token = "123:TEST"
 

@@ -454,12 +454,58 @@ def card_to_card_payment_instructions(card_number: str, holder_name: str, amount
         f"به‌نام: {safe_name}\n"
         f"مبلغ دقیق: <code>{amount:,}</code> تومان\n\n"
         "👆 روی شماره کارت یا مبلغ بزن تا کپی بشه.\n\n"
-        "⚠️ توجه: مبلغ باید دقیقاً همین عدد باشه (چون چند تومن اختلاف برای تشخیص خودکار پرداختته).\n"
-        "بعد از واریز، عکس رسید رو همینجا بفرست."
+        # A7: چند تومانِ آخرِ مبلغ برایِ راحت‌تر شدنِ بررسیِ واریزها توسطِ مدیر است، نه «تشخیصِ خودکار».
+        "⚠️ مبلغ را دقیقاً همین عدد واریز کن؛ این چند تومانِ اختلاف برایِ راحت‌تر شدنِ بررسیِ واریزها توسطِ مدیر است.\n"
+        "بعد از واریز، عکسِ رسید یا متنِ رسید را همین‌جا بفرست."
     )
 
 
-ASK_RECEIPT_PHOTO_NOT_TEXT = "لطفاً عکسِ رسیدِ واریز رو بفرست (نه متن) تا برای بررسی ثبت بشه 🙏"
+TOPUP_PAYMENT_GONE = (
+    "این پرداخت دیگر در انتظارِ رسید نیست (یا پیدا نشد).\n"
+    "برایِ دیدنِ پرداخت‌هایِ باز: «💰 کیف‌پول › 📂 پرداخت‌هایِ باز»."
+)
+ASK_TOPUP_RECEIPT = (
+    "📎 رسیدِ واریز را بفرست:\n"
+    "• عکسِ رسید، یا\n"
+    "• متنِ رسید (کپی از اپِ بانک یا پیامک؛ دستِ‌کم ۸ نویسه و ۴ رقم)، یا\n"
+    "• فقط شماره‌یِ پیگیری (دستِ‌کم ۶ رقم).\n\n"
+    "اگر الان رسید را نداری، «⬅️ برگشت» را بزن؛ پرداختِ در انتظار می‌ماند و بعداً از «📂 پرداخت‌هایِ باز» ادامه می‌دهی."
+)
+TOPUP_RECEIPT_TEXT_INVALID = (
+    "این متن به‌عنوانِ رسید پذیرفته نشد.\n"
+    "متنِ رسید باید دستِ‌کم ۸ نویسه و ۴ رقم (مبلغ/تاریخ/پیگیری) داشته باشد، یا فقط شماره‌یِ پیگیریِ ۶رقمی یا بیشتر بفرست."
+)
+OPEN_TOPUP_PAYMENTS_EMPTY = "پرداختِ بازی (در انتظارِ رسید) نداری."
+
+
+def open_topup_payments_text(payments) -> str:
+    from app.utils.validators import format_toman
+
+    if not payments:
+        return OPEN_TOPUP_PAYMENTS_EMPTY
+    lines = ["📂 پرداخت‌هایِ باز (در انتظارِ رسید)\n"]
+    for payment in payments:
+        lines.append(f"• {format_toman(payment.final_amount)} — کدِ پرداخت {payment.id}")
+    lines.append("\nروی هر کدام بزن تا رسیدِ همان را بفرستی.")
+    return "\n".join(lines)
+
+
+def topup_receipt_back_text(payment) -> str:
+    from app.utils.validators import format_toman
+
+    return (
+        f"⬅️ برگشتی. پرداختِ {format_toman(payment.final_amount)} (کدِ {payment.id}) در انتظارِ رسید باقی ماند و از بین نرفت.\n"
+        "هر وقت واریز کردی، از «💰 کیف‌پول › 📂 پرداخت‌هایِ باز» رسیدش را بفرست."
+    )
+
+
+def topup_receipt_resume_text(payment) -> str:
+    from app.utils.validators import format_toman
+
+    return (
+        f"📎 رسیدِ پرداختِ {format_toman(payment.final_amount)} (کدِ {payment.id}) را بفرست:\n"
+        "عکسِ رسید، یا متنِ رسید، یا فقط شماره‌یِ پیگیری."
+    )
 
 
 ASK_PAYMENT_RECEIPT = "لطفاً عکس رسید پرداخت رو بفرست."
@@ -468,12 +514,23 @@ RECEIPT_RECEIVED_PENDING_APPROVAL = "✅ رسیدت دریافت شد و برا�
 
 def admin_new_payment_notification(payment, owner) -> str:
     owner_name = display_user(owner, "full")
-    return (
-        "🧾 درخواست پرداخت جدید:\n\n"
-        f"فروشگاه‌دار: {owner_name}\n"
-        f"مدت: {payment.duration_months} ماه\n"
-        f"مبلغ: {format_toman(payment.final_amount)}"
-    )
+    lines = [
+        "🧾 درخواست پرداخت جدید:\n",
+        f"فروشگاه‌دار: {owner_name}",
+        f"مدت: {payment.duration_months} ماه",
+        f"مبلغ: {format_toman(payment.final_amount)}",
+    ]
+    # A7: رسیدِ متنی و پرچمِ تکراری هم برایِ ادمین نمایش داده می‌شود (تصمیم همیشه با ادمین است).
+    if getattr(payment, "receipt_tracking_ref", None):
+        lines.append(f"شماره‌یِ پیگیری: {payment.receipt_tracking_ref}")
+    if getattr(payment, "receipt_text", None):
+        lines.append(f"\n📄 رسیدِ متنی:\n{payment.receipt_text}")
+    if getattr(payment, "receipt_flags", None):
+        labels = {"dup_file": "رسیدِ تکراری", "dup_tracking": "پیگیریِ تکراری"}
+        found = [labels.get(flag, flag) for flag in str(payment.receipt_flags).split(",") if flag]
+        if found:
+            lines.append(f"\n⚠️ پرچم: {'، '.join(found)} — بررسی کن، خودکار رد نمی‌شود.")
+    return "\n".join(lines)
 
 
 def payment_approved_notification(is_wallet_topup: bool, wallet_amount_toman: int | None = None) -> str:
@@ -805,20 +862,35 @@ def customer_broadcast_sent_confirmation(sent: int, total: int) -> str:
 # =============================================================================
 # پرداختِ آنلاینِ سفارش از طریقِ بله‌پیِ خودِ فروشگاه (فازِ ۳)
 # =============================================================================
-def bale_provider_token_current(shop_bot) -> str:
-    return (
-        f"وضعیتِ فعلی: {_mask_secret(shop_bot.bale_provider_token)}\n\n"
-        "این کد (Provider Token) مخصوصِ درگاهِ بله‌پیِ خودِ توئه، نه پلتفرم — وقتی "
-        "تنظیم باشه، بعدِ تاییدِ هر سفارش توسطِ مشتری، گزینه‌ی «پرداختِ آنلاین» "
-        "هم بهش نشون داده می‌شه و پول مستقیم می‌ره تو حسابِ خودت (پلتفرم هیچ نقشی "
-        "تو این پول نداره). این کد رو از بانک/سرویس‌دهنده‌ی درگاهِ بله‌پیت می‌گیری.\n\n"
-        "⚠️ این روشِ پرداخت هنوز با یه تراکنشِ واقعی روی این پلتفرم تست نشده — "
-        "قبل از تکیه‌کردنِ بهش برای سفارش‌هایِ واقعی، حتماً یه‌بار خودت با یه "
-        "مبلغِ کوچیک امتحانش کن."
-    )
+def bale_provider_token_current(shop_bot, missing=()) -> str:
+    """A1/B11: یک پیامِ واحد و عملی — هم وضعیتِ فعلی، هم اینکه دقیقاً چه چیزی کم است و چه باید بفرستی."""
+    lines = [
+        "💳 پرداختِ آنلاینِ سفارش‌ها (بله‌پی)",
+        "",
+        f"توکنِ درگاهِ فروشگاهِ تو: {_mask_secret(shop_bot.bale_provider_token)}",
+    ]
+    if missing:
+        lines += ["", "⚠️ بله‌پی الان برایِ مشتریِ تو فعال نیست:"]
+        lines += bale_missing_lines(missing)
+    else:
+        lines += ["", "✅ بله‌پی برایِ مشتری‌هایِ تو فعال است."]
+    lines += [
+        "",
+        "«توکنِ درگاه» همان کدی است که از پنلِ پذیرندگانِ بله‌پی (یا @botfather در بله) می‌گیری و اجازه‌یِ ساختِ "
+        "لینکِ پرداخت می‌دهد. اگر مدیرِ پلتفرم توکنِ سراسری گذاشته باشد، بدونِ آن هم کار می‌کند.",
+        "پول مستقیم به حسابِ خودت می‌رود (پلتفرم نقشی در آن ندارد).",
+        "",
+        "👈 توکنِ درگاهِ خودت را بفرست، یا برایِ حذف بنویس «حذف».",
+        "⚠️ این روش هنوز با تراکنشِ واقعی رویِ این پلتفرم تست نشده؛ اول با مبلغِ کوچک امتحانش کن.",
+    ]
+    return "\n".join(lines)
 
 
-ASK_BALE_PROVIDER_TOKEN = "کدِ درگاهِ بله‌پیِ خودت رو بفرست. اگه می‌خوای حذفش کنی، فقط بنویس «حذف»."
+BALE_PROVIDER_TOKEN_INVALID = (
+    "❌ این مقدار شبیهِ توکنِ درگاه نیست.\n"
+    "باید یک تکه باشد (بدونِ فاصله و خطِ جدید) و دستِ‌کم ۲۰ نویسه.\n"
+    "دوباره بفرست، یا برایِ حذف بنویس «حذف»."
+)
 BALE_PROVIDER_TOKEN_SAVED = "✅ ذخیره شد. از این به بعد، بعدِ تاییدِ سفارش توسطِ مشتری، گزینه‌ی پرداختِ آنلاین هم بهش نشون داده می‌شه."
 BALE_PROVIDER_TOKEN_REMOVED = "کدِ درگاه حذف شد. دیگه گزینه‌ی پرداختِ آنلاین به مشتری‌ها نشون داده نمی‌شه."
 
@@ -1019,9 +1091,23 @@ ADMIN_ASK_AI_FALLBACK_API_KEY = (
 ADMIN_ASK_AI_FALLBACK_MODEL = "نامِ مدلِ سرویسِ پشتیبان رو بفرست. برای پاک‌کردن، «خالی» بفرست:"
 ADMIN_ASK_AI_FALLBACK_BASE_URL = "آدرسِ Base URLِ سرویسِ پشتیبان رو بفرست. برای پاک‌کردن، «خالی» بفرست:"
 ADMIN_ASK_ZARINPAL_MERCHANT_ID = "مرچنت آیدی زرین‌پال رو بفرست:"
+ADMIN_INVALID_BALE_TOKEN = (
+    "❌ این مقدار شبیهِ توکن نیست.\n"
+    "توکن باید یک تکه باشد (بدونِ فاصله و خطِ جدید) و دستِ‌کم ۲۰ نویسه.\n"
+    "اگر می‌خواهی پاکش کنی، «خالی» بفرست."
+)
 ADMIN_ASK_BALE_PROVIDER_TOKEN = (
-    "provider_tokenِ بله‌پی رو بفرست (از پنلِ بله‌پی یا @botfather در بله می‌گیری — "
-    "دقیقِ این مقدار هنوز از سمتِ ما تاییدنشده، جزئیات در changelog پروژه‌ست):"
+    "🔵 توکنِ درگاهِ بله‌پی (provider_token) رو بفرست.\n"
+    "این را از پنلِ پذیرندگانِ بله‌پی یا از @botfather در بله می‌گیری و مجوزِ ساختِ لینکِ پرداخت است.\n"
+    "اگر فروشگاه‌دار توکنِ درگاهِ خودش را ثبت کرده باشد، اولویت با همان است و این مقدار پشتیبانِ سراسری می‌شود.\n"
+    "برای پاک‌کردن، «خالی» بفرست:"
+)
+ADMIN_ASK_BALE_BOT_TOKEN = (
+    "🔵 توکنِ رباتِ بله را بفرست.\n"
+    "این توکنِ خودِ رباتِ بله‌ی پلتفرم است (همان چیزی که در .env با نامِ BALE_BOT_TOKEN می‌آمد) و برایِ "
+    "ساختِ لینکِ پرداخت و دریافتِ رویدادهایِ پرداخت لازم است.\n"
+    "مقدارِ همین پنل بر .env اولویت دارد و بدونِ ری‌استارتِ برنامه اعمال می‌شود.\n"
+    "برای پاک‌کردن، «خالی» بفرست (در آن صورت از .env خوانده می‌شود):"
 )
 ADMIN_ASK_PLATFORM_CARD_NUMBER = "شماره کارت پلتفرم برای دریافت پرداخت‌های کارت‌به‌کارت رو بفرست:"
 ADMIN_ASK_PLATFORM_CARD_HOLDER = "نام صاحب کارت رو بفرست:"
@@ -1058,8 +1144,43 @@ ADMIN_ASK_GLOBAL_SYSTEM_PROMPT = (
 )
 ADMIN_ASK_REFERENCE_CHANNEL_LINK = "لینک کانال مرجع (که قبل از فعال‌سازی آزمایشی نمایش داده می‌شه) رو بفرست. برای پاک کردنش، بنویس «خالی»."
 ADMIN_SETTING_SAVED = "✅ ذخیره شد."
-BALE_SELFTEST_NO_TOKEN = "❌ توکنِ رباتِ بله (BALE_BOT_TOKEN) در .env تنظیم نشده."
 PAYMENT_EVENTS_EMPTY = "هنوز هیچ رویدادِ پرداختی ثبت نشده."
+
+# P18 · A1/B11: کدِ داخلیِ «چه چیزی کم است» ← راهنمایِ عملیِ کاربرپسند.
+BALE_MISSING_HINTS: dict[str, str] = {
+    "bot_token": "توکنِ رباتِ بله تنظیم نشده — «🔑 تنظیمات کلیدها › 🔵 توکنِ رباتِ بله».",
+    "provider_token": "توکنِ درگاهِ بله‌پی (provider) ثبت نشده — «🔑 تنظیمات کلیدها › 🔵 توکنِ درگاهِ بله‌پی».",
+    "admin_disabled": "کلیدِ سراسریِ بله‌پی خاموش است — «⚙️ تنظیمات › 🔵 فعال/غیرفعالِ بله‌پی».",
+    "shop_disabled": "کلیدِ بله‌پیِ خودِ فروشگاه خاموش است — «💳 پرداختِ آنلاینِ سفارش‌ها › 🔵 بله‌پی».",
+}
+
+
+def bale_missing_lines(missing) -> list[str]:
+    return [f"• {BALE_MISSING_HINTS[code]}" for code in missing if code in BALE_MISSING_HINTS]
+
+
+def bale_misconfigured_notice(missing) -> str:
+    """B11: وقتی مشتری بله‌پی را زد و پیکربندی ناقص بود، *فروشگاه‌دار* این پیامِ روشن را می‌گیرد (نه مشتری)."""
+    lines = ["⚠️ مشتریِ فروشگاهِ تو پرداختِ بله‌پی خواست، ولی پیکربندی کامل نیست:", ""]
+    lines.extend(bale_missing_lines(missing))
+    lines += ["", "تا این موارد کامل نشوند، دکمه‌یِ بله‌پی به مشتری نشان داده نمی‌شود و پیامِ فنی هم نمی‌بیند."]
+    return "\n".join(lines)
+
+
+def bale_platform_not_ready(missing) -> str:
+    """A1: مسیرِ سراسری (شارژِ کیفِ پولِ فروشگاه‌دار نزدِ پلتفرم) — مخاطب خودِ فروشگاه‌دار/ادمین است، پس دلیل دقیق می‌آید."""
+    lines = ["⚠️ پرداختِ بله‌پیِ پلتفرم آماده نیست:", ""]
+    lines.extend(bale_missing_lines(missing))
+    return "\n".join(lines)
+
+
+BALE_ENABLED_WITHOUT_GLOBAL_PROVIDER = (
+    "ℹ️ بله‌پی فعال شد، ولی توکنِ درگاهِ سراسری (provider) در پنلِ تو ثبت نشده.\n"
+    "در این حالت فقط فروشگاه‌هایی بله‌پی دارند که توکنِ درگاهِ خودشان را در "
+    "«💳 پرداختِ آنلاینِ سفارش‌ها» ثبت کرده باشند.\n"
+    "برایِ سراسری‌کردنش: «🔑 تنظیمات کلیدها › 🔵 توکنِ درگاهِ بله‌پی»."
+)
+
 
 
 def bale_selftest_report(steps: list[tuple[str, bool, str]]) -> str:
@@ -1071,6 +1192,47 @@ def bale_selftest_report(steps: list[tuple[str, bool, str]]) -> str:
     else:
         lines.append("\nاولین ❌ رو رفع کن؛ متنِ خطا کامل در «🔎 آخرین رویدادهایِ پرداخت» هست.")
     return "\n".join(lines)
+
+
+def bale_selftest_config_steps(
+    *, bot_token_set: bool, bot_token_source: str, provider_set: bool, updates_mode: str, webhook_secret_set: bool
+) -> list[tuple[str, bool, str]]:
+    """A1(د): خودتشخیصی، هر پیش‌نیاز جدا. هیچ مقدارِ خامی نمایش داده نمی‌شود — فقط «تنظیم شده/نشده» و منبعش."""
+    steps: list[tuple[str, bool, str]] = [
+        (
+            "توکنِ رباتِ بله",
+            bot_token_set,
+            f"منبع: {bot_token_source}"
+            if bot_token_set
+            else "در «🔑 تنظیمات کلیدها › 🔵 توکنِ رباتِ بله» بگذار (یا BALE_BOT_TOKEN در .env).",
+        ),
+        (
+            "توکنِ درگاهِ بله‌پی (provider)",
+            provider_set,
+            "منبع: پنلِ ادمین (پشتیبانِ سراسری). فروشگاه‌دار هم می‌تواند توکنِ خودش را بگذارد که اولویت دارد."
+            if provider_set
+            else "در «🔑 تنظیمات کلیدها › 🔵 توکنِ درگاهِ بله‌پی» بگذار.",
+        ),
+    ]
+    if updates_mode == "webhook":
+        steps.append(
+            (
+                "رازِ وب‌هوکِ بله",
+                webhook_secret_set,
+                "خودکار ساخته و ذخیره شده — نیازی نیست دستی واردش کنی."
+                if webhook_secret_set
+                else "باید خودکار ساخته شود؛ یک‌بار دیگر این آزمایش را بزن.",
+            )
+        )
+    else:
+        steps.append(
+            (
+                "حالتِ دریافتِ رویدادها: polling",
+                True,
+                "در این حالت به رازِ وب‌هوک و آدرسِ عمومیِ HTTPS نیاز نداری.",
+            )
+        )
+    return steps
 
 
 def payment_events_text(events) -> str:
@@ -1132,7 +1294,8 @@ def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
         ("ai_fallback_model", f"🛟 مدلِ پشتیبان: {admin_settings.ai_fallback_model or 'تنظیم‌نشده'}"),
         ("ai_fallback_base_url", f"🛟 آدرسِ سرویسِ پشتیبان: {admin_settings.ai_fallback_base_url or 'تنظیم‌نشده'}"),
         ("zarinpal_merchant_id", f"🏦 مرچنت آیدی زرین‌پال: {_mask_secret(admin_settings.zarinpal_merchant_id)}"),
-        ("bale_provider_token", f"🔵 provider_tokenِ بله‌پی: {_mask_secret(admin_settings.bale_provider_token)}"),
+        ("bale_bot_token", f"🔵 توکنِ رباتِ بله: {_mask_secret(admin_settings.bale_bot_token)}"),
+        ("bale_provider_token", f"🔵 توکنِ درگاهِ بله‌پی: {_mask_secret(admin_settings.bale_provider_token)}"),
         ("platform_card_number", f"💳 شماره کارت پلتفرم: {_mask_secret(admin_settings.platform_card_number)}"),
         ("platform_card_holder_name", f"👤 صاحب کارت: {admin_settings.platform_card_holder_name or 'تنظیم‌نشده'}"),
         ("referral_reward_value", f"🎁 پورسانتِ معرف: {admin_settings.referral_reward_value}٪ از اولین شارژ"),
@@ -2170,24 +2333,37 @@ PAYS_INVALID_MERCHANT = "مرچنت‌کد باید ۳۶ نویسه باشه (ح
 PAYS_NEEDS_SALES_MODE = "این بخش فقط برایِ فروشگاهِ فروشگاهی است."
 
 
-def payments_menu_text(row, shop_bot) -> str:
+def payments_menu_text(row, shop_bot, bale_missing=()) -> str:
+    """`bale_missing` نتیجه‌یِ `bale_credentials_service.shop_status` است تا وضعیتِ نشان‌داده‌شده به فروشگاه‌دار
+    دقیقاً همان چیزی باشد که مشتری تجربه می‌کند (B11: هرگز «✅ روشن» در حالی که مسیرِ مشتری بسته است)."""
+    from app.services import bale_credentials_service as bale_creds
     from app.services import payment_settings_service as pss
 
     def flag(value) -> str:
         return "✅ روشن" if value else "⛔️ خاموش"
 
     card_number = pss.get_card_number(row)
+    own_token = bool(shop_bot.bale_provider_token)
+    using_global_provider = not own_token and bale_creds.MISSING_PROVIDER_TOKEN not in tuple(bale_missing)
+    bale_line = (
+        f"بله‌پی: {flag(not bale_missing)} — توکنِ درگاهِ فروشگاه: {'تنظیم شده' if own_token else 'تنظیم نشده'}"
+        f"{' (توکنِ سراسریِ مدیر استفاده می‌شود)' if using_global_provider else ''}"
+        f" — مهلت: {row.bale_deadline_minutes} دقیقه"
+    )
     lines = [
         "💳 روش‌هایِ پرداختِ مشتری",
         "",
         f"کارت‌به‌کارت: {flag(row.card_enabled and bool(card_number))} — کارت: {pss.mask_card(card_number)} — مهلت: {row.card_deadline_minutes} دقیقه — نگهداریِ بررسیِ رسید: {row.receipt_review_hold_minutes} دقیقه",
-        f"بله‌پی: {flag(row.bale_enabled and bool(shop_bot.bale_provider_token))} — توکنِ بله‌پی: {'تنظیم شده' if shop_bot.bale_provider_token else 'تنظیم نشده'} — مهلت: {row.bale_deadline_minutes} دقیقه",
+        bale_line,
         f"زرین‌پال: {flag(row.zarinpal_enabled and bool(row.zarinpal_merchant_id_enc))} — مرچنت: {'تنظیم شده' if row.zarinpal_merchant_id_enc else 'تنظیم نشده'} — مهلت: {row.zarinpal_deadline_minutes} دقیقه",
         f"پرداختِ دستی/هماهنگی: {flag(row.manual_enabled)}",
         f"تاییدِ خودکارِ پرداختِ آنلاین: {flag(row.auto_accept_online)}",
         "",
         "اگه هیچ روشِ آنلاین/کارتی فعال نباشه، سفارش‌ها مثلِ قبل مستقیم برایِ تاییدِ دستیِ تو می‌آن.",
     ]
+    if bale_missing:
+        lines += ["", "⚠️ بله‌پی برایِ مشتری فعال نیست:"]
+        lines += bale_missing_lines(bale_missing)
     return "\n".join(lines)
 
 

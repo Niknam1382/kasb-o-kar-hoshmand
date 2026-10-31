@@ -31,6 +31,7 @@ from app.services import (
     admin_settings_service,
     ai_pool_service,
     audit_log_service,
+    bale_credentials_service,
     bale_service,
     channel_service,
     discount_service,
@@ -396,12 +397,12 @@ async def cb_toggle_zarinpal(callback: CallbackQuery, session: AsyncSession) -> 
 @super_router.callback_query(F.data == "admin_toggle_bale_pay")
 async def cb_toggle_bale_pay(callback: CallbackQuery, session: AsyncSession) -> None:
     admin_settings = await get_admin_settings(session)
-    if not admin_settings.bale_pay_enabled and not admin_settings.bale_provider_token:
-        await callback.answer("اول باید provider_tokenِ بله‌پی رو از «تنظیمات کلیدها» ثبت کنی.", show_alert=True)
-        return
     admin_settings.bale_pay_enabled = not admin_settings.bale_pay_enabled
     await session.flush()
     await callback.answer("بله‌پی " + ("فعال شد ✅" if admin_settings.bale_pay_enabled else "پنهان شد 🙈"))
+    if admin_settings.bale_pay_enabled and not admin_settings.bale_provider_token:
+        # A1: توکنِ درگاهِ سراسری فقط پشتیبان است؛ بدونِ آن هر فروشگاه باید توکنِ درگاهِ خودش را داشته باشد.
+        await callback.message.answer(texts.BALE_ENABLED_WITHOUT_GLOBAL_PROVIDER)
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -653,7 +654,6 @@ _TEXT_FIELDS: dict[str, str] = {
     "ai_model": texts.ADMIN_ASK_AI_MODEL,
     "ai_base_url": texts.ADMIN_ASK_AI_BASE_URL,
     "zarinpal_merchant_id": texts.ADMIN_ASK_ZARINPAL_MERCHANT_ID,
-    "bale_provider_token": texts.ADMIN_ASK_BALE_PROVIDER_TOKEN,
     "platform_card_number": texts.ADMIN_ASK_PLATFORM_CARD_NUMBER,
     "platform_card_holder_name": texts.ADMIN_ASK_PLATFORM_CARD_HOLDER,
 }
@@ -715,7 +715,13 @@ _NULLABLE_TEXT_FIELDS: dict[str, str] = {
     "ai_fallback_api_key": texts.ADMIN_ASK_AI_FALLBACK_API_KEY,
     "ai_fallback_model": texts.ADMIN_ASK_AI_FALLBACK_MODEL,
     "ai_fallback_base_url": texts.ADMIN_ASK_AI_FALLBACK_BASE_URL,
+    # P18 · A1: هر دو توکنِ بله از پنل قابلِ تنظیم و پاک‌کردن‌اند (رمزنگاری‌شده، اعمال بدونِ ری‌استارت).
+    "bale_bot_token": texts.ADMIN_ASK_BALE_BOT_TOKEN,
+    "bale_provider_token": texts.ADMIN_ASK_BALE_PROVIDER_TOKEN,
 }
+
+# P18 · A1: بعدِ ذخیره‌یِ این فیلدها کشِ اعتبارهایِ بله تازه می‌شود ⇒ تغییر بدونِ ری‌استارت اعمال می‌شود.
+_BALE_TOKEN_FIELDS: frozenset[str] = frozenset({"bale_bot_token", "bale_provider_token"})
 
 
 @super_router.message(F.text == "🔑 تنظیمات کلیدها")
@@ -739,13 +745,22 @@ async def cb_payment_events(callback: CallbackQuery, session: AsyncSession) -> N
 
 @super_router.callback_query(F.data == "admin_bale_selftest")
 async def cb_bale_selftest(callback: CallbackQuery, session: AsyncSession) -> None:
-    """B13: getMe ← getWebhookInfo ← createInvoiceLink (۱۰٬۰۰۰ ریال)؛ هر مرحله جدا گزارش می‌شه تا مشکل دقیق معلوم باشه."""
+    """B13 + A1(د): اول پیکربندی (توکنِ ربات / توکنِ درگاه / رازِ وب‌هوک) هر کدام جدا، بعد
+    getMe ← getWebhookInfo ← createInvoiceLink (۱۰٬۰۰۰ ریال). هیچ مقدارِ خامی نمایش داده نمی‌شود."""
     await callback.answer()
-    token = settings.bale_bot_token
+    await bale_credentials_service.refresh(session)
+    admin_settings = await get_admin_settings(session)
+    token = bale_credentials_service.bot_token()
+    steps: list[tuple[str, bool, str]] = texts.bale_selftest_config_steps(
+        bot_token_set=bool(token),
+        bot_token_source="پنلِ ادمین" if admin_settings.bale_bot_token else ".env",
+        provider_set=bool(admin_settings.bale_provider_token),
+        updates_mode=settings.bale_updates_mode,
+        webhook_secret_set=bool(bale_credentials_service.webhook_secret()),
+    )
     if not token:
-        await callback.message.answer(texts.BALE_SELFTEST_NO_TOKEN)
+        await callback.message.answer(texts.bale_selftest_report(steps))
         return
-    steps: list[tuple[str, bool, str]] = []
     try:
         me = await bale_service.get_me(token)
         steps.append(("getMe (توکنِ ربات و دسترسی به API)", True, f"@{(me or {}).get('username', '?')}"))
@@ -756,9 +771,8 @@ async def cb_bale_selftest(callback: CallbackQuery, session: AsyncSession) -> No
         steps.append(("getWebhookInfo", True, f"url={(info or {}).get('url') or 'تنظیم‌نشده'}"))
     except bale_service.BaleError as exc:
         steps.append(("getWebhookInfo", False, str(exc)[:200]))
-    admin_settings = await get_admin_settings(session)
     if not admin_settings.bale_provider_token:
-        steps.append(("createInvoiceLink", False, "provider_tokenِ بله‌پی در تنظیماتِ ادمین ثبت نشده."))
+        steps.append(("createInvoiceLink", False, "توکنِ درگاهِ بله‌پی در تنظیماتِ ادمین ثبت نشده."))
     else:
         try:
             link = await bale_service.create_invoice_link(
@@ -873,6 +887,18 @@ async def setting_value_entered(message: Message, state: FSMContext, session: As
         value = None if raw in ("خالی", "پاک کن", "-") else raw
     else:
         value = raw
+
+    if field in _BALE_TOKEN_FIELDS:
+        if value is not None and not bale_credentials_service.valid_token_input(value):
+            await message.answer(texts.ADMIN_INVALID_BALE_TOKEN)
+            return
+        await admin_settings_service.update_setting(session, field, value)
+        # A1: تغییرِ توکن بدونِ ری‌استارت اعمال شود.
+        await bale_credentials_service.refresh(session)
+        await state.clear()
+        await message.answer(texts.ADMIN_SETTING_SAVED)
+        await _refresh_settings_menu(message, session)
+        return
 
     await admin_settings_service.update_setting(session, field, value)
     await state.clear()

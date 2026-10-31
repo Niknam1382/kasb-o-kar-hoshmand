@@ -22,7 +22,7 @@ from app.bots.shop_bot import keyboards as shop_keyboards
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.shop_bot.handlers.orders import send_invoice_to_customer
 from app.database.models import Customer, TenantMode
-from app.services import order_payment_service, order_state, payment_settings_service
+from app.services import bale_credentials_service, order_payment_service, order_state, payment_settings_service
 from app.services.admin_settings_service import get_admin_settings
 from app.services import order_transition_service as transitions
 
@@ -209,8 +209,9 @@ async def _settings_ctx(session: AsyncSession, user_id: int):
     return owner, shop_bot, row
 
 
-async def _show_menu(callback: CallbackQuery, shop_bot, row) -> None:
-    text = texts.payments_menu_text(row, shop_bot)
+async def _show_menu(callback: CallbackQuery, session: AsyncSession, shop_bot, row) -> None:
+    status = await bale_credentials_service.shop_status(session, shop_bot, row)
+    text = texts.payments_menu_text(row, shop_bot, status.missing)
     kb = keyboards.payments_menu_keyboard(row, shop_bot)
     try:
         await callback.message.edit_text(text, reply_markup=kb)
@@ -228,7 +229,7 @@ async def pays_menu(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer(texts.PAYS_NEEDS_SALES_MODE, show_alert=True)
         return
     await callback.answer()
-    await _show_menu(callback, shop_bot, row)
+    await _show_menu(callback, session, shop_bot, row)
 
 
 @router.callback_query(F.data.startswith("pays_tog:"))
@@ -244,8 +245,9 @@ async def pays_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
             return
         row.card_enabled = not row.card_enabled
     elif code == "bale":
-        if not row.bale_enabled and not shop_bot.bale_provider_token:
-            await callback.answer("اول توکنِ بله‌پی رو با «💳 پرداختِ آنلاینِ سفارش‌ها» ثبت کن.", show_alert=True)
+        # A1: توکنِ درگاهِ سراسریِ مدیر پشتیبانِ توکنِ فروشگاه است، پس با هر کدام می‌شود روشن کرد.
+        if not row.bale_enabled and not await bale_credentials_service.provider_token(session, shop_bot):
+            await callback.answer("اول توکنِ درگاهِ بله‌پی رو ثبت کن: «💳 پرداختِ آنلاینِ سفارش‌ها».", show_alert=True)
             return
         row.bale_enabled = not row.bale_enabled
     elif code == "zarinpal":
@@ -254,17 +256,18 @@ async def pays_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
             return
         row.zarinpal_enabled = not row.zarinpal_enabled
     elif code == "manual":
-        if row.manual_enabled and not payment_settings_service.online_methods(row, shop_bot):
+        online = await bale_credentials_service.methods(session, shop_bot, row, include_manual=False)
+        if row.manual_enabled and not online:
             await callback.answer("حداقل یک روش باید فعال بمونه؛ پرداختِ دستی تنها روشِ فعاله.", show_alert=True)
             return
         row.manual_enabled = not row.manual_enabled
-        if not row.manual_enabled and not payment_settings_service.online_methods(row, shop_bot):
+        if not row.manual_enabled and not online:
             row.manual_enabled = True
     else:
         row.auto_accept_online = not row.auto_accept_online
     await session.flush()
     await callback.answer()
-    await _show_menu(callback, shop_bot, row)
+    await _show_menu(callback, session, shop_bot, row)
 
 
 @router.callback_query(F.data == "pays_card")

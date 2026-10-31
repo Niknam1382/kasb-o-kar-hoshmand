@@ -24,7 +24,9 @@ from app.config import RunMode, settings
 from app.database.models import OrderPayment, PaymentPurpose, PaymentStatus
 from app.database.session import session_scope
 from app.services import (
+    admin_alert_service,
     ai_service,
+    bale_credentials_service,
     bale_service,
     customer_service,
     order_payment_service,
@@ -77,6 +79,27 @@ async def _load_active_shop_bots(bot_manager: ShopBotManager) -> None:
     logger.info("%d ربات فروشگاهی‌ِ فعال بارگذاری شد.", len(shop_bots))
 
 
+async def _refresh_bale_credentials() -> str:
+    """A1: توکنِ رباتِ بله و رازِ وب‌هوک از پنلِ ادمین (رمزنگاری‌شده) ← `.env`.
+    در startup و در هر گردشِ حلقه‌یِ getUpdates صدا زده می‌شود ⇒ تغییر بدونِ ری‌استارت."""
+    try:
+        async with session_scope() as session:
+            return await bale_credentials_service.refresh(session)
+    except Exception:  # noqa: BLE001 — نبودِ DB نباید دریافتِ رویدادِ پرداخت را متوقف کند
+        logger.warning("تازه‌کردنِ اعتبارهایِ بله از دیتابیس ناموفق بود؛ مقدارِ .env استفاده می‌شود.", exc_info=True)
+        return bale_credentials_service.bot_token()
+
+
+def validate_runtime_config() -> None:
+    """د(الف): در حالتِ webhook بدونِ رازِ وب‌هوک برنامه بالا نمی‌آید — وگرنه هر کسی می‌تواند آپدیتِ جعلی
+    (حتی با هویتِ ادمین) به `/webhook/main` بفرستد. در حالتِ polling (پیش‌فرض) رازی لازم نیست."""
+    if settings.run_mode == RunMode.WEBHOOK and not (settings.main_bot_webhook_secret or "").strip():
+        raise RuntimeError(
+            "RUN_MODE=webhook است ولی MAIN_BOT_WEBHOOK_SECRET خالی است. یا یک رشته‌ی تصادفیِ بلند برایِ "
+            "MAIN_BOT_WEBHOOK_SECRET در .env بگذار، یا RUN_MODE=polling بگذار."
+        )
+
+
 async def _notify_payment_result(main_bot: Bot, owner_telegram_id: int, is_topup: bool, wallet_amount_toman: int | None, reward_info: dict | None) -> None:
     try:
         await main_bot.send_message(owner_telegram_id, main_texts.payment_approved_notification(is_topup, wallet_amount_toman))
@@ -104,6 +127,7 @@ async def _notify_payment_result(main_bot: Bot, owner_telegram_id: int, is_topup
 # حالت polling (RUN_MODE=polling)
 # =============================================================================
 async def run_polling() -> None:
+    admin_alert_service.install()
     main_bot = Bot(token=settings.main_bot_token)
     shop_dispatcher = create_shop_dispatcher(main_bot)
     bot_manager = ShopBotManager(shop_dispatcher)
@@ -126,6 +150,7 @@ async def run_polling() -> None:
         if bale_updates_task is not None:
             await bale_updates_task
         await ai_service.close_http_session()
+        await admin_alert_service.shutdown()
         await main_bot.session.close()
 
 
@@ -157,8 +182,16 @@ def _is_duplicate_update(bot_id: int, update_id: int) -> bool:
     return False
 
 
+def _forbidden(reason: str) -> Response:
+    """د(و): ۴۰۳ مکررِ وب‌هوک نشانه‌یِ تلاش برایِ تزریقِ آپدیتِ جعلی است ⇒ هشدارِ نرخ‌محدود به ادمین."""
+    admin_alert_service.record_event(admin_alert_service.KIND_FORBIDDEN, reason)
+    return Response(status_code=403)
+
+
 @app.on_event("startup")
 async def on_startup() -> None:
+    validate_runtime_config()
+    admin_alert_service.install()
     main_bot = Bot(token=settings.main_bot_token)
     shop_dispatcher = create_shop_dispatcher(main_bot)
     bot_manager = ShopBotManager(shop_dispatcher)
@@ -174,12 +207,6 @@ async def on_startup() -> None:
 
     if settings.run_mode == RunMode.WEBHOOK:
         webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/main"
-        if not settings.main_bot_webhook_secret:
-            logger.warning(
-                "main_bot_webhook_secret در .env تنظیم نشده — وب‌هوکِ ربات اصلی بدونِ تاییدِ رمز کار "
-                "می‌کنه (یعنی هرکسی که آدرسِ وب‌هوک رو حدس بزنه می‌تونه آپدیتِ جعلی بفرسته). قبل از "
-                "production حتمًا یه رشته‌ی تصادفیِ بلند براش ست کنید."
-            )
         await main_bot.set_webhook(
             webhook_url,
             secret_token=settings.main_bot_webhook_secret or None,
@@ -192,13 +219,14 @@ async def on_startup() -> None:
 
     # وب‌هوکِ بله‌پی مستقل از run_mode ـه (چون فقط برای پرداخته، نه برای چت
     # کردن با مشتری) — اگه توکن ست شده باشه، همیشه ثبتش می‌کنیم.
-    if settings.bale_bot_token and settings.bale_updates_mode == "polling":
+    await _refresh_bale_credentials()
+    if settings.bale_updates_mode == "polling":
         _state["bale_updates_task"] = await _start_bale_updates_polling(_state["stop_event"])
-    elif settings.bale_bot_token:
+    elif bale_credentials_service.bot_token():
         # B5: بله هدرِ secret نمی‌فرسته؛ پس رازِ وب‌هوک (اگه تنظیم شده) توی خودِ مسیره
-        bale_webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/bale" + (f"/{settings.bale_webhook_secret}" if settings.bale_webhook_secret else "")
+        bale_webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/bale" + (f"/{bale_credentials_service.webhook_secret()}" if bale_credentials_service.webhook_secret() else "")
         try:
-            await bale_service.set_webhook(settings.bale_bot_token, bale_webhook_url)
+            await bale_service.set_webhook(bale_credentials_service.bot_token(), bale_webhook_url)
             logger.info("وب‌هوکِ بله‌پی روی %s تنظیم شد.", bale_webhook_url)
         except bale_service.BaleError:
             logger.exception(
@@ -229,6 +257,7 @@ async def on_shutdown() -> None:
 
     # جلسه‌ی HTTP مشترکِ سرویسِ هوش مصنوعی رو هم می‌بندیم تا سوکت باز نمونه
     await ai_service.close_http_session()
+    await admin_alert_service.shutdown()
     await _state["main_bot"].session.close()
 
 
@@ -243,8 +272,9 @@ def _is_valid_webhook_secret(provided_secret: str | None) -> bool:
     """
     مشابهِ رمزِ وب‌هوکِ ربات‌های فروشگاهی (پایینِ همین فایل)، ولی برای ربات اصلی
     از تنظیماتِ ثابتِ .env استفاده می‌کنیم چون فقط یه ربات اصلی داریم، نه یکی
-    به‌ازای هر فروشگاه. اگه main_bot_webhook_secret ست نشده باشه (لاگِ هشدار
-    موقعِ startup)، این چک رد می‌شه تا رفتارِ قبلی (ناامن ولی کارکردن) خراب نشه.
+    به‌ازای هر فروشگاه. شاخه‌یِ «رازِ خالی = پذیرش» فقط برایِ سازگاریِ تست/توسعه
+    باقی مانده: در استقرارِ واقعی `validate_runtime_config()` در حالتِ webhook
+    بدونِ راز اجازه‌یِ بالاآمدن نمی‌دهد (د-الف)، پس این شاخه هرگز به کار نمی‌افتد.
     """
     if not settings.main_bot_webhook_secret:
         return True
@@ -254,7 +284,7 @@ def _is_valid_webhook_secret(provided_secret: str | None) -> bool:
 @app.post("/webhook/main")
 async def webhook_main(request: Request) -> Response:
     if not _is_valid_webhook_secret(request.headers.get("X-Telegram-Bot-Api-Secret-Token")):
-        return Response(status_code=403)
+        return _forbidden("webhook/main: رازِ وب‌هوکِ نامعتبر")
 
     data = await request.json()
     update = Update.model_validate(data)
@@ -293,7 +323,7 @@ async def webhook_shop(shop_bot_id: int, request: Request) -> Response:
 
     secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
     if not _secrets_equal(secret, bot_manager.get_secret(shop_bot_id)):
-        return Response(status_code=403)
+        return _forbidden(f"webhook/shop/{shop_bot_id}: رازِ وب‌هوکِ نامعتبر")
 
     data = await request.json()
     update = Update.model_validate(data)
@@ -303,10 +333,16 @@ async def webhook_shop(shop_bot_id: int, request: Request) -> Response:
     return Response(status_code=200)
 
 
-async def _bale_outcome_ok(transaction: dict, expected_toman: int | None, context: str) -> bool:
-    """B3: فقط وضعیتِ «موفق» (شاملِ succeed) و مبلغِ هم‌خوان اجازه‌یِ اعتباردهی می‌ده؛ همه‌یِ نتایج در payment_event_logs ثبت می‌شن."""
+async def _bale_outcome_ok(
+    transaction: dict, expected_toman: int | None, context: str, shop_bot_id: int | None = None, group_ref: str | None = None
+) -> bool:
+    """B3: فقط وضعیتِ «موفق» (شاملِ succeed) و مبلغِ هم‌خوان اجازه‌یِ اعتباردهی می‌ده؛ همه‌یِ نتایج در payment_event_logs ثبت می‌شن.
+    `shop_bot_id`/`group_ref` شناسه‌یِ همبستگی‌اند (د-ز)."""
     outcome = bale_service.classify_transaction_status(transaction)
-    await payment_event_service.log_event("bale", "in", f"inquire_result:{context}", status=outcome, raw=transaction)
+    await payment_event_service.log_event(
+        "bale", "in", f"inquire_result:{context}", status=outcome, raw=transaction,
+        shop_bot_id=shop_bot_id, group_ref=group_ref,
+    )
     if outcome != "success":
         logger.error("استعلامِ تراکنشِ بله موفق نبود (%s، %s): %r", outcome, context, transaction)
         return False
@@ -319,21 +355,21 @@ async def _bale_outcome_ok(transaction: dict, expected_toman: int | None, contex
 @app.post("/webhook/bale/{path_secret}")
 async def webhook_bale_with_secret(path_secret: str, request: Request) -> Response:
     """B5: رازِ وب‌هوک توی مسیره (بله هدرِ secret نمی‌فرسته)."""
-    if not settings.bale_bot_token:
+    if not bale_credentials_service.bot_token():
         return Response(status_code=404)
-    if not settings.bale_webhook_secret or not _secrets_equal(path_secret, settings.bale_webhook_secret):
-        return Response(status_code=403)
+    if not bale_credentials_service.webhook_secret() or not _secrets_equal(path_secret, bale_credentials_service.webhook_secret()):
+        return _forbidden("webhook/bale: رازِ وب‌هوکِ نامعتبر")
     return await _process_bale_update(request)
 
 
 @app.post("/webhook/bale")
 async def webhook_bale(request: Request) -> Response:
-    if not settings.bale_bot_token:
+    if not bale_credentials_service.bot_token():
         return Response(status_code=404)
-    if settings.bale_webhook_secret:
+    if bale_credentials_service.webhook_secret():
         secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-        if not _secrets_equal(secret, settings.bale_webhook_secret):
-            return Response(status_code=403)
+        if not _secrets_equal(secret, bale_credentials_service.webhook_secret()):
+            return _forbidden("webhook/bale: رازِ وب‌هوکِ نامعتبر")
     return await _process_bale_update(request)
 
 
@@ -352,26 +388,38 @@ async def _dispatch_bale_update(data: dict) -> None:
         return
     pre_checkout = data.get("pre_checkout_query")
     if pre_checkout:
-        await payment_event_service.log_event("bale", "in", "pre_checkout_query", reference=pre_checkout.get("id"), raw=pre_checkout)
+        await payment_event_service.log_event(
+            "bale", "in", "pre_checkout_query", reference=pre_checkout.get("id"), raw=pre_checkout,
+            group_ref=pre_checkout.get("invoice_payload"),
+        )
         await _handle_bale_pre_checkout(pre_checkout)
         return
 
     successful_payment = (data.get("message") or {}).get("successful_payment")
     if successful_payment:
-        await payment_event_service.log_event("bale", "in", "successful_payment", reference=successful_payment.get("telegram_payment_charge_id"), raw=successful_payment)
+        await payment_event_service.log_event(
+            "bale", "in", "successful_payment", reference=successful_payment.get("telegram_payment_charge_id"),
+            raw=successful_payment, group_ref=successful_payment.get("invoice_payload"),
+        )
         await _handle_bale_successful_payment(successful_payment)
 
 
 async def _start_bale_updates_polling(stop_event: asyncio.Event) -> asyncio.Task | None:
-    """B6: اگه توکنِ بله هست و mode=polling، webhook رو حذف و حلقه‌یِ getUpdates رو شروع می‌کنه."""
-    if not settings.bale_bot_token or settings.bale_updates_mode != "polling":
+    """B6: اگه mode=polling، webhook رو حذف و حلقه‌یِ getUpdates رو شروع می‌کنه.
+    A1: توکن از پنلِ ادمین (رمزنگاری‌شده) ← `.env` و در هر گردش تازه می‌شود ⇒ تغییرِ توکن بدونِ ری‌استارت.
+    حلقه حتی بدونِ توکن شروع می‌شود و منتظر می‌ماند تا ادمین توکن را در پنل بگذارد."""
+    if settings.bale_updates_mode != "polling":
         return None
-    try:
-        await bale_service.delete_webhook(settings.bale_bot_token)
-    except bale_service.BaleError:
-        logger.exception("حذفِ webhookِ بله ناموفق بود؛ getUpdates ممکنه خطا بده (حلقه با backoff ادامه می‌ده).")
+    token = await _refresh_bale_credentials()
+    if token:
+        try:
+            await bale_service.delete_webhook(token)
+        except bale_service.BaleError:
+            logger.exception("حذفِ webhookِ بله ناموفق بود؛ getUpdates ممکنه خطا بده (حلقه با backoff ادامه می‌ده).")
     return asyncio.create_task(
-        bale_updates_service.run_loop(settings.bale_bot_token, _dispatch_bale_update, stop_event, bale_service.get_updates)
+        bale_updates_service.run_loop(
+            token, _dispatch_bale_update, stop_event, bale_service.get_updates, _refresh_bale_credentials
+        )
     )
 
 
@@ -426,7 +474,7 @@ async def _handle_bale_pre_checkout(pre_checkout: dict) -> None:
         error_message = None if ok else "این سفارش دیگه معتبر نیست یا قبلاً پردازش شده."
 
     try:
-        await bale_service.answer_pre_checkout_query(settings.bale_bot_token, query_id, ok=ok, error_message=error_message)
+        await bale_service.answer_pre_checkout_query(bale_credentials_service.bot_token(), query_id, ok=ok, error_message=error_message)
     except bale_service.BaleError:
         logger.exception("پاسخ‌دادن به pre_checkout_query بله ناموفق بود (query_id=%s).", query_id)
 
@@ -463,12 +511,12 @@ async def _handle_bale_successful_payment(successful_payment: dict) -> None:
         # همیشه قبل از اعتبارکردنِ کیف‌پول، مستقل از خودِ سرورِ بله استعلام
         # می‌گیریم — این مهم‌ترین محافظت در برابرِ یه وب‌هوکِ جعلیه.
         try:
-            transaction = await bale_service.inquire_transaction(settings.bale_bot_token, transaction_id)
+            transaction = await bale_service.inquire_transaction(bale_credentials_service.bot_token(), transaction_id)
         except bale_service.BaleError:
             logger.exception("استعلامِ تراکنشِ بله ناموفق بود (transaction_id=%s) — کیف‌پول شارژ نشد.", transaction_id)
             return
 
-        if not await _bale_outcome_ok(transaction, payment.final_amount, "wallet/subscription"):
+        if not await _bale_outcome_ok(transaction, payment.final_amount, "wallet/subscription", group_ref=invoice_payload):
             return
 
         _effect, reward_info = await payment_service.approve_bale_payment(session, payment, transaction_id)
@@ -492,16 +540,21 @@ async def _handle_bale_new_flow(payment_id: int, shop_bot_id: int, transaction_i
         if payment is None or payment.status == order_payment_service.P_PAID:
             return
         try:
-            transaction = await bale_service.inquire_transaction(settings.bale_bot_token, transaction_id)
+            transaction = await bale_service.inquire_transaction(bale_credentials_service.bot_token(), transaction_id)
         except bale_service.BaleError:
             logger.exception("استعلامِ تراکنشِ بله ناموفق بود (transaction_id=%s) — سفارش پرداخت‌شده علامت نخورد.", transaction_id)
             return
         if bale_service.classify_transaction_status(transaction) == "pending":
-            await payment_event_service.log_event("bale", "in", "inquire_result:cart", status="pending", raw=transaction)
+            await payment_event_service.log_event(
+                "bale", "in", "inquire_result:cart", status="pending", raw=transaction,
+                shop_bot_id=shop_bot_id, group_ref=payment.provider_ref,
+            )
             if attempt < len(_BALE_RETRY_DELAYS):
                 asyncio.create_task(_retry_bale_new_flow(payment_id, shop_bot_id, transaction_id, attempt))
             return
-        if not await _bale_outcome_ok(transaction, payment.amount_toman, "cart"):
+        if not await _bale_outcome_ok(
+            transaction, payment.amount_toman, "cart", shop_bot_id=shop_bot_id, group_ref=payment.provider_ref
+        ):
             return
         settings_row = await payment_settings_service.get_or_create(session, shop_bot_id)
         result = await order_payment_service.apply_verified_online_payment(
@@ -558,12 +611,15 @@ async def _handle_bale_cartgroup_payment(invoice_payload: str, transaction_id: s
         orders = await order_service.get_by_cart_checkout_group(session, group_id)
 
         try:
-            transaction = await bale_service.inquire_transaction(settings.bale_bot_token, transaction_id)
+            transaction = await bale_service.inquire_transaction(bale_credentials_service.bot_token(), transaction_id)
         except bale_service.BaleError:
             logger.exception("استعلامِ تراکنشِ بله ناموفق بود (transaction_id=%s) — سبد پرداخت‌شده علامت نخورد.", transaction_id)
             return
 
-        if not await _bale_outcome_ok(transaction, order_transition_service.group_total_toman(orders), "cart"):  # اقلام + ارسال
+        if not await _bale_outcome_ok(  # اقلام + ارسال
+            transaction, order_transition_service.group_total_toman(orders), "cart",
+            shop_bot_id=orders[0].shop_bot_id, group_ref=group_id,
+        ):
             return
 
         # B10: بعد از استعلامِ شبکه، ردیف‌ها قفل و تازه خونده می‌شن؛ فقط برنده‌یِ رقابت (webhook/getUpdates/تکراری) علامت می‌زنه و خبر می‌ده.
@@ -617,12 +673,14 @@ async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str) 
         # همینجا هم، دقیقاً مثلِ مسیرِ بالا، مستقل از خودِ سرورِ بله استعلام
         # می‌گیریم — این مهم‌ترین محافظت در برابرِ یه وب‌هوکِ جعلیه.
         try:
-            transaction = await bale_service.inquire_transaction(settings.bale_bot_token, transaction_id)
+            transaction = await bale_service.inquire_transaction(bale_credentials_service.bot_token(), transaction_id)
         except bale_service.BaleError:
             logger.exception("استعلامِ تراکنشِ بله ناموفق بود (transaction_id=%s) — سفارش پرداخت‌شده علامت نخورد.", transaction_id)
             return
 
-        if not await _bale_outcome_ok(transaction, order.estimated_value_toman, "order"):
+        if not await _bale_outcome_ok(
+            transaction, order.estimated_value_toman, "order", shop_bot_id=order.shop_bot_id, group_ref=str(order.id)
+        ):
             return
 
         # B10: قفل + خوانشِ تازه؛ بازنده‌یِ رقابت (یا تراکنشِ بازپخش‌شده) هیچ اثری نداره.
@@ -672,7 +730,10 @@ async def _zarinpal_shop_callback(Authority: str, Status: str) -> HTMLResponse |
         except Exception:  # noqa: BLE001 — ZarinpalError/رمزگشایی؛ جزئیات فقط در لاگ
             logger.exception("تاییدِ پرداختِ زرین‌پالِ سفارش با اتوریتیِ %s ناموفق بود.", Authority)
             return HTMLResponse(main_texts.ZARINPAL_PAYMENT_FAILED_PAGE)
-        await payment_event_service.log_event("zarinpal", "in", "verify:order", reference=Authority, status="ok" if ref_id else "no_ref", raw={"ref_id": ref_id})
+        await payment_event_service.log_event(
+            "zarinpal", "in", "verify:order", reference=Authority, status="ok" if ref_id else "no_ref",
+            raw={"ref_id": ref_id}, shop_bot_id=payment.shop_bot_id, group_ref=str(payment.id),
+        )
         if not ref_id:
             return HTMLResponse(main_texts.ZARINPAL_PAYMENT_FAILED_PAGE)
         result = await order_payment_service.apply_verified_online_payment(
@@ -721,6 +782,7 @@ async def zarinpal_callback(Authority: str, Status: str) -> HTMLResponse:
 
 
 if __name__ == "__main__":
+    validate_runtime_config()
     if settings.run_mode == RunMode.POLLING:
         asyncio.run(run_polling())
     else:

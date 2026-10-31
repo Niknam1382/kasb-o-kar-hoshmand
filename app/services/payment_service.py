@@ -172,6 +172,48 @@ async def attach_receipt(session: AsyncSession, payment: Payment, file_id: str) 
     await session.flush()
 
 
+async def get_open_receipt_payments(session: AsyncSession, shop_owner_id: int, limit: int = 10) -> list[Payment]:
+    """A7: پرداخت‌هایِ کارت‌به‌کارتِ در انتظارِ رسیدِ خودِ این فروشگاه‌دار (برایِ «📂 پرداخت‌هایِ باز»)."""
+    result = await session.execute(
+        select(Payment)
+        .where(
+            Payment.shop_owner_id == shop_owner_id,
+            Payment.status == PaymentStatus.PENDING,
+            Payment.method == PaymentMethod.CARD_TO_CARD,
+            Payment.receipt_file_id.is_(None),
+            Payment.receipt_text.is_(None),
+        )
+        .order_by(Payment.id.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def _exists_other(session: AsyncSession, column, value: str, payment_id: int) -> bool:
+    result = await session.execute(
+        select(func.count()).select_from(Payment).where(column == value, Payment.id != payment_id)
+    )
+    return result.scalar_one() > 0
+
+
+async def attach_text_receipt(
+    session: AsyncSession, payment: Payment, text: str, tracking: str | None
+) -> tuple[bool, bool]:
+    """A7: رسیدِ متنیِ شارژِ اعتبار (همان قاعده‌یِ سمتِ فروشگاه). تکراری بودن فقط **پرچم** می‌خورد، هرگز ردِ خودکار —
+    تصمیم با ادمین است. برمی‌گرداند: (متنِ تکراری, پیگیریِ تکراری)."""
+    from app.services import order_payment_service
+
+    digest = order_payment_service.receipt_sha256(text.encode("utf-8"))
+    dup_text = await _exists_other(session, Payment.receipt_sha256, digest, payment.id)
+    dup_tracking = bool(tracking) and await _exists_other(session, Payment.receipt_tracking_ref, tracking, payment.id)
+    payment.receipt_text = text[: order_payment_service.RECEIPT_TEXT_MAX_LENGTH]
+    payment.receipt_tracking_ref = (tracking[:64] if tracking else None)
+    payment.receipt_sha256 = digest
+    payment.receipt_flags = order_payment_service.payment_flags(duplicate_hash=dup_text, duplicate_tracking=dup_tracking)
+    await session.flush()
+    return dup_text, dup_tracking
+
+
 async def _apply_payment_effect(session: AsyncSession, payment: Payment) -> Subscription | WalletCharge:
     """بسته به هدفِ پرداخت، اثرِ واقعیِ اون رو اعمال می‌کنه: برای شارژِ کیف‌پول،
     مبلغ به کیف‌پولِ فروشگاه‌دار اضافه می‌شه؛ برای اشتراک (میراثی)، همون منطقِ

@@ -24,6 +24,7 @@ from app.services import (
     ai_pool_service,
     ai_service,
     audit_log_service,
+    bale_credentials_service,
     bale_service,
     bot_error_service,
     cart_edit_service,
@@ -40,6 +41,7 @@ from app.services import (
     order_detection_service,
     order_service,
     product_service,
+    payment_settings_service,
     shop_bot_service,
     shop_owner_service,
     wallet_service,
@@ -1053,26 +1055,28 @@ async def cb_customer_confirm_order(callback: CallbackQuery, session: AsyncSessi
 async def _maybe_offer_online_payment(
     shop_bot_instance: Bot, session: AsyncSession, shop_bot, order, customer_telegram_id: int
 ) -> None:
-    """فازِ ۳: اگه فروشگاه bale_provider_tokenِ خودش رو تنظیم کرده باشه، یه
+    """فازِ ۳: اگه پیکربندیِ بله‌پیِ فروشگاه کامل باشه، یه
     پیامِ جداگانه با دکمه‌ی «پرداختِ آنلاین» به مشتری می‌فرسته. کاملاً اختیاری
     و additive: منطقِ بالا (owner-notification) کاملاً دست‌نخورده می‌مونه —
     فروشگاه‌دار همچنان از همون مسیرِ همیشگی سفارش رو تایید/پردازش می‌کنه؛ این
-    فقط یه گزینه‌ی اضافه‌ست، نه جایگزینِ چیزی."""
+    فقط یه گزینه‌ی اضافه‌ست، نه جایگزینِ چیزی.
+
+    B11: ملاک همان `bale_credentials_service.shop_status` است (توکنِ ربات + توکنِ درگاهِ فروشگاه یا سراسری
+    + کلیدِ ادمین + کلیدِ فروشگاه) ⇒ پیکربندیِ ناقص هیچ پیامِ اضافه‌ای برایِ مشتری نمی‌سازد."""
     if order.type != OrderType.ORDER or not order.estimated_value_toman or order.estimated_value_toman <= 0:
         return
-    if not shop_bot.bale_provider_token:
-        return
-
-    admin_settings = await get_admin_settings(session)
-    if not admin_settings.bale_pay_enabled or not settings.bale_bot_token:
+    status = await bale_credentials_service.shop_status(
+        session, shop_bot, await payment_settings_service.get(session, shop_bot.id)
+    )
+    if not status.available:
         return
 
     invoice_payload = f"order-{order.id}-{secrets.token_hex(8)}"
     amount_rial = bale_service.toman_to_rial(order.estimated_value_toman)  # مبلغ‌های داخلیِ ما تومانن؛ بله‌پی ریال می‌خواد.
     try:
         pay_url = await bale_service.create_invoice_link(
-            settings.bale_bot_token,
-            shop_bot.bale_provider_token,
+            status.bot_token,
+            status.provider_token,
             title="پرداخت سفارش",
             description=(order.summary or "پرداخت سفارش")[:255],
             payload=invoice_payload,

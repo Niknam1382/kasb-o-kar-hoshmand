@@ -302,10 +302,27 @@ def wallet_topup_action_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=wallet_topup_action_label(), callback_data="topup_start")],
+            [InlineKeyboardButton(text="📂 پرداخت‌هایِ باز", callback_data="topup_open_list")],
             [InlineKeyboardButton(text="🧮 محاسبه‌گرِ هزینه‌ی ماهانه", callback_data="cost_calc_start")],
             [InlineKeyboardButton(text="📜 تاریخچه‌ی تراکنش‌ها", callback_data="wallet_history")],
         ]
     )
+
+
+def topup_receipt_keyboard(payment_id: int) -> InlineKeyboardMarkup:
+    """A7: «⬅️ برگشت» در حالتِ انتظارِ رسید — state پاک می‌شود ولی ردیفِ پرداخت می‌ماند."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="⬅️ برگشت", callback_data=f"topup_pay_back:{payment_id}")]]
+    )
+
+
+def open_topup_payments_keyboard(payments) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=f"📎 رسیدِ پرداختِ {payment.id}", callback_data=f"topup_pay_resume:{payment.id}")]
+        for payment in payments
+    ]
+    rows.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="wallet_status")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def cost_calc_volume_keyboard() -> InlineKeyboardMarkup:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import time
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -17,12 +18,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards as main_keyboards
+from app.bots.main_bot import texts as main_texts
 from app.bots.shop_bot import keyboards, texts
 from app.bots.shop_bot.handlers.orders import _load_group, _resolve
 from app.bots.shop_bot.states import PaymentStates
 from app.database.models import Customer, OrderConsultation, OrderStatus, TenantMode
 from app.config import settings
 from app.services import (
+    bale_credentials_service,
     bale_service,
     order_payment_service,
     order_state,
@@ -41,6 +44,31 @@ from app.utils.validators import format_toman
 logger = logging.getLogger(__name__)
 
 router = Router(name="shop_payments")
+
+# B11: اطلاعِ «پیکربندیِ بله‌پی ناقص است» به فروشگاه‌دار — نه به مشتری — و حداکثر هر ۶ ساعت برایِ هر فروشگاه.
+_OWNER_ALERT_COOLDOWN_SECONDS = 6 * 60 * 60
+_last_owner_misconfig_alert: dict[int, float] = {}
+
+
+async def _pay_methods(session: AsyncSession, shop_bot, row, *, include_manual: bool = True) -> list[str]:
+    """یک ملاکِ واحد برایِ بله‌پی ⇒ «دکمه‌یِ نمایش‌داده‌شده» و «پرداختِ واقعاً ممکن» هرگز جدا نمی‌افتند (B11)."""
+    return await bale_credentials_service.methods(session, shop_bot, row, include_manual=include_manual)
+
+
+async def _notify_owner_bale_misconfigured(main_bot: Bot, session: AsyncSession, shop_bot, missing: tuple[str, ...]) -> None:
+    """B11: مشتری پیامِ فنی نمی‌بیند؛ به‌جایش فروشگاه‌دار دقیقاً می‌فهمد چه چیزی کم است."""
+    now = time.monotonic()
+    last = _last_owner_misconfig_alert.get(shop_bot.id)
+    if last is not None and now - last < _OWNER_ALERT_COOLDOWN_SECONDS:
+        return
+    _last_owner_misconfig_alert[shop_bot.id] = now
+    owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
+    if owner is None:
+        return
+    try:
+        await main_bot.send_message(owner.telegram_id, main_texts.bale_misconfigured_notice(missing))
+    except TelegramAPIError:
+        logger.warning("اطلاعِ ناقص‌بودنِ پیکربندیِ بله‌پی به فروشگاه‌دار نرسید.", exc_info=True)
 
 
 def _awaiting(rows) -> bool:
@@ -69,7 +97,7 @@ async def pm_menu(callback: CallbackQuery, session: AsyncSession) -> None:
     if not _awaiting(rows):
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
-    methods = payment_settings_service.checkout_methods(await payment_settings_service.get(session, shop_bot.id), shop_bot)
+    methods = await _pay_methods(session, shop_bot, await payment_settings_service.get(session, shop_bot.id))
     if not methods:
         await callback.answer(texts.PAY_METHOD_UNAVAILABLE, show_alert=True)
         return
@@ -92,7 +120,7 @@ async def pm_manual(callback: CallbackQuery, session: AsyncSession, main_bot: Bo
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
     settings_row = await payment_settings_service.get(session, shop_bot.id)
-    if payment_settings_service.METHOD_MANUAL not in payment_settings_service.checkout_methods(settings_row, shop_bot):
+    if payment_settings_service.METHOD_MANUAL not in await _pay_methods(session, shop_bot, settings_row):
         await callback.answer(texts.PAY_METHOD_UNAVAILABLE, show_alert=True)
         return
     result = await order_transition_service.transition_group(
@@ -130,7 +158,7 @@ async def pm_card(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
     settings_row = await payment_settings_service.get(session, shop_bot.id)
-    if payment_settings_service.METHOD_CARD not in payment_settings_service.online_methods(settings_row, shop_bot):
+    if payment_settings_service.METHOD_CARD not in await _pay_methods(session, shop_bot, settings_row, include_manual=False):
         await callback.answer(texts.PAY_METHOD_UNAVAILABLE, show_alert=True)
         return
     _payment, expires = await order_payment_service.start_payment(session, rows, payment_settings_service.METHOD_CARD, settings_row)
@@ -148,27 +176,26 @@ async def pm_card(callback: CallbackQuery, session: AsyncSession) -> None:
 
 
 @router.callback_query(F.data.startswith("pm_bale:"))
-async def pm_bale(callback: CallbackQuery, session: AsyncSession) -> None:
+async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot) -> None:
     key = callback.data.split(":", 1)[1]
     shop_bot, _customer, rows = await _ctx(session, callback.bot.id, callback.from_user.id, key)
     if not _awaiting(rows):
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
     settings_row = await payment_settings_service.get(session, shop_bot.id)
-    admin_settings = await get_admin_settings(session)
-    if (
-        payment_settings_service.METHOD_BALE not in payment_settings_service.online_methods(settings_row, shop_bot)
-        or not admin_settings.bale_pay_enabled
-        or not settings.bale_bot_token
-    ):
+    status = await bale_credentials_service.shop_status(session, shop_bot, settings_row)
+    if not status.available:
+        # B11: دکمه با همان ملاکِ `shop_status` ساخته می‌شود، پس این شاخه یعنی کیبوردِ کهنه.
+        # مشتری فقط یک پیامِ مودبانه می‌بیند؛ جزئیاتِ فنی برایِ فروشگاه‌دار می‌رود.
         await callback.answer(texts.PAY_METHOD_UNAVAILABLE, show_alert=True)
+        await _notify_owner_bale_misconfigured(main_bot, session, shop_bot, status.missing)
         return
     total = order_transition_service.group_total_toman(rows)
     payload = f"cartgroup-{key}-{secrets.token_hex(8)}"
     try:
         pay_url = await bale_service.create_invoice_link(
-            settings.bale_bot_token,
-            shop_bot.bale_provider_token,
+            status.bot_token,
+            status.provider_token,
             title="پرداختِ سفارش",
             description=f"سفارش {texts.order_code(rows)}",
             payload=payload,
@@ -193,7 +220,7 @@ async def pm_zarinpal(callback: CallbackQuery, session: AsyncSession) -> None:
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
     settings_row = await payment_settings_service.get(session, shop_bot.id)
-    if payment_settings_service.METHOD_ZARINPAL not in payment_settings_service.online_methods(settings_row, shop_bot) or not settings.webhook_base_url:
+    if payment_settings_service.METHOD_ZARINPAL not in await _pay_methods(session, shop_bot, settings_row, include_manual=False) or not settings.webhook_base_url:
         await callback.answer(texts.PAY_METHOD_UNAVAILABLE, show_alert=True)
         return
     total = order_transition_service.group_total_toman(rows)
@@ -222,7 +249,7 @@ async def pay_receipt_start(callback: CallbackQuery, session: AsyncSession, stat
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
     settings_row = await payment_settings_service.get_or_create(session, shop_bot.id)
-    if payment_settings_service.METHOD_CARD not in payment_settings_service.online_methods(settings_row, shop_bot):
+    if payment_settings_service.METHOD_CARD not in await _pay_methods(session, shop_bot, settings_row, include_manual=False):
         await callback.answer(texts.PAY_METHOD_UNAVAILABLE, show_alert=True)
         return
     group_id = order_transition_service.group_key(rows[0])

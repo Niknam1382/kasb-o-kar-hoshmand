@@ -1,7 +1,7 @@
 """چک‌اوتِ مرحله‌ایِ سبدِ خرید (W5 · C3 / 1.1).
 
-مراحل: نامِ تحویل‌گیرنده ← موبایل ← (فقط کالایِ فیزیکی) آدرس از دفترچه/ورودِ تازه ← (اگه ≥۲ روش) روشِ ارسال
-← سوال‌هایِ سفارشیِ فروشگاه‌دار ← توضیح ← پیش‌فاکتور (با هزینه‌یِ ارسال) ← «ثبتِ نهایی».
+مراحل: نامِ تحویل‌گیرنده ← موبایل ← (فقط کالایِ فیزیکی) آدرس از دفترچه/ورودِ تازه ← (اگر حتی یک روشِ ارسالِ فعال
+وجود داشته باشد) روشِ ارسال ← سوال‌هایِ سفارشیِ فروشگاه‌دار ← توضیح ← پیش‌فاکتور (با هزینه‌یِ ارسال) ← «ثبتِ نهایی».
 
 نگهبان‌هایِ قبلی حفظ شده‌اند: اثرانگشتِ سبد، `previewed_final_total` (مبلغی که می‌بینه = مبلغی که ثبت می‌شه)، قفلِ کمپین،
 و `state.clear()` قبلِ هر I/O در «ثبتِ نهایی» (دابل‌تپ = یک سفارش). این روتر قبل از `customer.router` include می‌شه (F20).
@@ -29,6 +29,7 @@ from app.config import settings
 from app.database.models import OrderStatus, OrderType
 from app.services import (
     address_book_service,
+    bale_credentials_service,
     bale_service,
     campaign_service,
     cart_service,
@@ -911,7 +912,7 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
 
     # W3: اگه فروشگاه روشِ آنلاین/کارتی فعال کرده، سفارش‌ها منتظرِ پرداخت می‌شن (نه تاییدِ دستی)
     pay_settings = await payment_settings_service.get(session, shop_bot.id)
-    pay_methods = payment_settings_service.checkout_methods(pay_settings, shop_bot)
+    pay_methods = await bale_credentials_service.methods(session, shop_bot, pay_settings)
     if pay_methods:
         for order in orders:
             order.status = OrderStatus.AWAITING_PAYMENT
@@ -960,25 +961,30 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
             logger.exception("اطلاع‌رسانیِ سفارشِ سبد به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
 
     if not pay_methods:
-        await _maybe_offer_cart_online_payment(callback.bot, session, shop_bot, group_id, total_toman, customer.telegram_id)
+        await _maybe_offer_cart_online_payment(
+            callback.bot, session, shop_bot, pay_settings, group_id, total_toman, customer.telegram_id
+        )
 
 
 async def _maybe_offer_cart_online_payment(
-    shop_bot_instance: Bot, session: AsyncSession, shop_bot, group_id: str, total_toman: int, customer_telegram_id: int
+    shop_bot_instance: Bot, session: AsyncSession, shop_bot, pay_settings, group_id: str, total_toman: int, customer_telegram_id: int
 ) -> None:
     """مثلِ _maybe_offer_online_payment (customer.py) ولی برایِ مجموعِ کلِ سبد (شاملِ ارسال). payload با پیشوندِ
-    'cartgroup-'؛ main.py موقعِ وب‌هوک group_id رو از payload جدا می‌کنه."""
-    if total_toman <= 0 or not shop_bot.bale_provider_token:
+    'cartgroup-'؛ main.py موقعِ وب‌هوک group_id رو از payload جدا می‌کنه.
+
+    B11: با همان ملاکِ واحدِ `bale_credentials_service.shop_status` که دکمه‌یِ بله‌پی هم با آن ساخته می‌شود؛
+    پیکربندیِ ناقص ⇒ هیچ پیامِ اضافه‌ای به مشتری نمی‌رود."""
+    if total_toman <= 0:
         return
-    admin_settings = await get_admin_settings(session)
-    if not admin_settings.bale_pay_enabled or not settings.bale_bot_token:
+    status = await bale_credentials_service.shop_status(session, shop_bot, pay_settings)
+    if not status.available:
         return
 
     invoice_payload = f"cartgroup-{group_id}-{secrets.token_hex(8)}"
     try:
         pay_url = await bale_service.create_invoice_link(
-            settings.bale_bot_token,
-            shop_bot.bale_provider_token,
+            status.bot_token,
+            status.provider_token,
             title="پرداختِ سبدِ خرید",
             description="پرداختِ سبدِ خرید",
             payload=invoice_payload,

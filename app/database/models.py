@@ -238,6 +238,10 @@ class AdminSettings(Base):
     # برای همین یه رشته‌ی ساده نگه داشته شده تا هرجور مقداری که بله واقعاً
     # بهتون داد، بدونِ نیاز به تغییرِ مدل قابلِ‌ذخیره باشه.
     bale_provider_token: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
+    # P18 · A1: توکنِ رباتِ بله (سراسری) از پنلِ ادمین؛ اولویت با این مقدار است، بعد `BALE_BOT_TOKEN` در .env.
+    bale_bot_token: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
+    # P18 · A1: رازِ وب‌هوکِ بله فقط در حالتِ webhook لازم است و *خودکار* ساخته می‌شود — هرگز از ادمین پرسیده نمی‌شود.
+    bale_webhook_secret_auto: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
     platform_card_holder_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     referral_reward_type: Mapped[ReferralRewardType] = _enum_column(
@@ -406,6 +410,11 @@ class Payment(Base, CreatedAtMixin):
     method: Mapped[PaymentMethod] = _enum_column(PaymentMethod, nullable=False)
     status: Mapped[PaymentStatus] = _enum_column(PaymentStatus, default=PaymentStatus.PENDING, nullable=False)
     receipt_file_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # P18 · A7: رسیدِ متنیِ شارژِ اعتبار (مثلِ سمتِ فروشگاه) + پرچمِ تکراری (هرگز ردِ خودکار).
+    receipt_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    receipt_tracking_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    receipt_sha256: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    receipt_flags: Mapped[str | None] = mapped_column(String(64), nullable=True)
     discount_code_id: Mapped[int | None] = mapped_column(ForeignKey("discount_codes.id"), nullable=True)
     zarinpal_authority: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     zarinpal_ref_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -892,6 +901,9 @@ class PaymentEventLog(Base):
     reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # د(ز): شناسه‌یِ همبستگی — کدام فروشگاه و کدام گروه/سفارش، تا لاگِ پرداخت قابلِ ردیابی باشد.
+    shop_bot_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    group_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
