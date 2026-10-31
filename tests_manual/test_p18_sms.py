@@ -229,6 +229,8 @@ async def test_admin_sms_panel(main_dp) -> None:
         assert admin.last_text == main_texts.ADMIN_INVALID_SMS_SENDER, bad
     await admin.say("۱۰۰۰۱۲۳۴۵۶")
     assert (await settings()).sms_sender_number == "1000123456"
+    # ذخیره‌یِ موفق state را پاک می‌کند ⇒ برایِ پاک‌کردن باید دوباره از منو وارد شد
+    await admin.tap("admin_setting_edit:sms_sender_number")
     await admin.say("خالی")
     assert (await settings()).sms_sender_number is None
 
@@ -240,10 +242,12 @@ async def test_admin_sms_panel(main_dp) -> None:
     assert (await settings()).sms_otp_template == "myOtp_1"
 
     labels = dict(main_texts.admin_settings_button_labels(await settings()))
-    assert API_KEY not in labels["sms_api_key"] and "••" in labels["sms_api_key"], labels["sms_api_key"]
+    assert API_KEY not in labels["sms_api_key"] and "●●●●" in labels["sms_api_key"], labels["sms_api_key"]
     assert "myOtp_1" in labels["sms_otp_template"], labels["sms_otp_template"]
-    assert "1000123456" in labels["sms_sender_number"] or labels["sms_sender_number"].endswith("تنظیم‌نشده")
+    # سرشماره در همین تست پاک شده بود ⇒ برچسب باید صادق بگوید «تنظیم‌نشده»
+    assert labels["sms_sender_number"].endswith("تنظیم‌نشده"), labels["sms_sender_number"]
 
+    await admin.tap("admin_setting_edit:sms_otp_template")  # ذخیره state را پاک می‌کند ⇒ دوباره وارد شو
     await admin.say("خالی")
     assert (await settings()).sms_otp_template is None
     labels = dict(main_texts.admin_settings_button_labels(await settings()))

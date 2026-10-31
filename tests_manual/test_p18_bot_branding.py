@@ -282,6 +282,7 @@ async def test_owner_branding_screen(main_dp) -> None:
     assert main_texts.BRANDING_NOT_CONFIGURED not in owner.last_text
     assert "گالریِ گلِ مریم — " + ADMIN_TEXT in owner.last_text, owner.last_text
 
+    await owner.tap("br_edit")  # ذخیره‌یِ موفق state را پاک کرده ⇒ دوباره واردِ حالتِ ویرایش
     await owner.say("خالی")
     assert (await _shop_bot(shop_bot_id)).branding_owner_text is None
     await owner.tap("br_back")
