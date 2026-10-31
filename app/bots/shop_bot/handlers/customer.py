@@ -772,7 +772,6 @@ async def customer_photo(message: Message, session: AsyncSession, main_bot: Bot)
         last_name=message.from_user.last_name,
     )
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
-    admin_settings = await get_admin_settings(session)
 
     customer_name = message.from_user.first_name or (f"@{message.from_user.username}" if message.from_user.username else str(message.from_user.id))
     caption_note = f"\n\nمتنِ همراهِ عکس: {message.caption}" if message.caption else ""
@@ -782,6 +781,13 @@ async def customer_photo(message: Message, session: AsyncSession, main_bot: Bot)
     # طریقِ ربات اصلی (main_bot)، اول باید بایت‌های عکس رو با ربات فروشگاهی دانلود
     # کنیم و بعد به‌عنوانِ یه فایلِ تازه (BufferedInputFile) با main_bot آپلودش کنیم؛
     # همون file_id رو مستقیم به main_bot دادن کار نمی‌کنه.
+    if owner is None:
+        await message.answer(texts.PHOTO_RECEIVED_ACK)
+        return
+
+    # P18 · A4: تحلیلِ عکس فقط برایِ رسیدِ پرداخت است. عکسِ عادیِ مشتری هیچ هزینه‌ای
+    # ندارد و فقط برایِ فروشگاه‌دار می‌رود؛ همان‌جا اگر رسید باشد خودش مسیرِ «🧾 ثبتِ رسید»
+    # را می‌رود (handlers/payments.py).
     image_bytes: bytes | None = None
     try:
         file_io = await message.bot.download(message.photo[-1].file_id)
@@ -789,28 +795,12 @@ async def customer_photo(message: Message, session: AsyncSession, main_bot: Bot)
     except Exception:
         logger.exception("دانلودِ عکسِ مشتری %s ناموفق بود.", message.from_user.id)
 
-    analysis_note = ""
-    if image_bytes is not None and owner is not None and owner.wallet_balance_toman > 0:
-        try:
-            ai = await ai_pool_service.build_ai_service(session, admin_settings, "vision")
-            if ai is None:
-                raise ai_service.AiServiceError("هیچ کلیدِ AI‌ای با قابلیتِ vision تنظیم نشده.")
-            await session.commit()  # آزاد کردنِ اتصالِ دیتابیس قبل از انتظارِ AI (ظرفیت؛ فازِ ۶-الف)
-            image_analysis_result = await ai.analyze_image(texts.RECEIPT_ANALYSIS_PROMPT, image_bytes)
-            analysis_note = f"\n\n🔎 بررسیِ خودکارِ تصویر:\n{image_analysis_result.text}"
-            cost = wallet_service.estimate_photo_cost(admin_settings)
-            await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.PHOTO_ANALYSIS, main_bot)
-        except ai_service.AiServiceError:
-            logger.exception("بررسیِ هوشمندِ تصویرِ ارسالی توسطِ مشتری %s ناموفق بود.", message.from_user.id)
-        except Exception:
-            logger.exception("تحلیلِ عکسِ مشتری %s ناموفق بود.", message.from_user.id)
-
     if image_bytes is not None:
         try:
             await main_bot.send_photo(
                 owner.telegram_id,
                 BufferedInputFile(image_bytes, filename="customer_photo.jpg"),
-                caption=texts.customer_photo_forward_caption(customer_name, caption_note, analysis_note),
+                caption=texts.customer_photo_forward_caption(customer_name, caption_note),
             )
         except TelegramAPIError:
             logger.exception("فوروارد کردنِ عکسِ مشتری به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
@@ -837,7 +827,9 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
         await message.answer(texts.SHOP_UNAVAILABLE)
         return
 
-    ai = await ai_pool_service.build_ai_service(session, admin_settings, "chat")
+    # P18 · A4: رونویسیِ صدا استخرِ مخصوصِ خودش (capability=stt) را می‌خواهد؛ اگر ادمین کلیدِ
+    # صوتی تعریف نکرده باشد، همان مسیرِ قدیمی با مدلِ whisper-1 (رفتارِ قبل) کار می‌کند.
+    ai = await ai_pool_service.build_ai_service(session, admin_settings, "stt")
     if ai is None:
         await message.answer(texts.AI_ERROR_REPLY)
         return

@@ -312,10 +312,6 @@ def estimate_chat_cost(admin_settings, total_tokens: int | None) -> int:
     return max(1, round(total_tokens * admin_settings.wallet_cost_per_1k_tokens_toman / 1000))
 
 
-def estimate_photo_cost(admin_settings) -> int:
-    return admin_settings.wallet_cost_photo_analysis_toman
-
-
 def estimate_voice_cost(admin_settings) -> int:
     return admin_settings.wallet_cost_voice_transcription_toman
 

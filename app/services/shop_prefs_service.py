@@ -84,6 +84,8 @@ ALL_PREFS: tuple[IntPref, ...] = (
 )
 BY_KEY: dict[str, IntPref] = {pref.key: pref for pref in ALL_PREFS}
 # این چهارتایی که پیش‌تر از پنلِ ادمین تنظیم می‌شدند و دیگر نباید دکمه‌ای آنجا داشته باشند (A5 + بازه‌هایِ W5).
+# `wallet_cost_photo_analysis_toman` هم از A4 اضافه شد: تحلیلِ عکسِ عمومی حذف شده، پس هزینه‌اش هم
+# تنظیم نمی‌شود (ستون و ردیف‌هایِ کیف‌پولِ قدیمی دست‌نخورده می‌مانند).
 REMOVED_FROM_ADMIN: frozenset[str] = frozenset(
     {pref.admin_key for pref in ALL_PREFS}
     | {
@@ -91,6 +93,7 @@ REMOVED_FROM_ADMIN: frozenset[str] = frozenset(
         "payment_deadline_max_minutes",
         "review_hold_min_hours",
         "review_hold_max_hours",
+        "wallet_cost_photo_analysis_toman",
     }
 )
 

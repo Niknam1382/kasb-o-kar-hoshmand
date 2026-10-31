@@ -146,7 +146,7 @@ class OpenAiCompatibleAiService(BaseAiService):
         for attempt in range(_MAX_RETRIES + 1):
             form = aiohttp.FormData()
             form.add_field("file", audio_bytes, filename=filename, content_type="application/octet-stream")
-            form.add_field("model", "whisper-1")
+            form.add_field("model", self.model)
             try:
                 session = _get_http_session()
                 async with _ai_semaphore(), session.post(url, headers=self._headers(), data=form) as resp:
@@ -283,6 +283,7 @@ def get_ai_service(
 
 _CIRCUIT_FAILURE_THRESHOLD = 5  # این‌قدر شکستِ پیاپی لازمه تا مدار باز بشه
 _CIRCUIT_COOLDOWN_SECONDS = 60.0  # مدت‌زمانی که یه مدارِ بازشده، بازمی‌مونه
+DEFAULT_STT_MODEL = "whisper-1"  # مسیرِ قدیمیِ تک‌کلیدی: صدا همیشه با این مدل رونویسی می‌شد
 
 
 @dataclasses.dataclass
@@ -291,29 +292,32 @@ class _CircuitState:
     open_until: float = 0.0  # time.monotonic() — ۰ یعنی مدار بسته‌ست
 
 
-_circuit_states: dict[int, _CircuitState] = {}
+# P18 · A4: کلیدِ مدار الآن (کلید، مدل) است — مدلِ خرابِ یک کلید نباید کلِ آن کلید را از
+# روتیشن خارج کند؛ model="" یعنی «خودِ کلید» (همان رفتارِ قبل، برایِ استخر).
+_circuit_states: dict[tuple[int, str], _CircuitState] = {}
 
 
-def _circuit_is_open(key_id: int) -> bool:
-    state = _circuit_states.get(key_id)
+def _circuit_is_open(key_id: int, model: str = "") -> bool:
+    state = _circuit_states.get((key_id, model))
     if state is None:
         return False
     return time.monotonic() < state.open_until
 
 
-def _record_circuit_success(key_id: int) -> None:
-    _circuit_states.pop(key_id, None)
+def _record_circuit_success(key_id: int, model: str = "") -> None:
+    _circuit_states.pop((key_id, model), None)
 
 
-def _record_circuit_failure(key_id: int) -> None:
-    state = _circuit_states.setdefault(key_id, _CircuitState())
+def _record_circuit_failure(key_id: int, model: str = "") -> None:
+    state = _circuit_states.setdefault((key_id, model), _CircuitState())
     state.consecutive_failures += 1
     if state.consecutive_failures >= _CIRCUIT_FAILURE_THRESHOLD:
         newly_opened = state.open_until == 0.0
         state.open_until = time.monotonic() + _CIRCUIT_COOLDOWN_SECONDS
         if newly_opened:
             logger.error(
-                "مدارِ قطع برای یه کلیدِ AI باز شد (پس از %d شکستِ پیاپی) — تا %d ثانیه دیگه امتحان نمی‌شه.",
+                "مدارِ قطع برای یه %s باز شد (پس از %d شکستِ پیاپی) — تا %d ثانیه دیگه امتحان نمی‌شه.",
+                f"مدلِ «{model}»" if model else "کلیدِ AI",
                 state.consecutive_failures,
                 int(_CIRCUIT_COOLDOWN_SECONDS),
             )
@@ -322,6 +326,57 @@ def _record_circuit_failure(key_id: int) -> None:
 def reset_all_circuits_for_tests() -> None:
     """فقط برای تست: بینِ تست‌های مختلف حالتِ مدارِ قطع رو ریست می‌کنه."""
     _circuit_states.clear()
+
+
+class ModelChainAiService(BaseAiService):
+    """P18 · A4: یک کلید + زنجیره‌یِ ترتیبیِ مدل‌ها (مدلِ اصلی، بعد پشتیبان‌هایِ همان کلید).
+
+    سلامت و cooldown به‌ازایِ (کلید + مدل) ثبت می‌شود؛ مدلی که ۵ بار پیاپی شکست بخورد
+    تا ۶۰ ثانیه کنار گذاشته می‌شود ولی بقیه‌یِ مدل‌هایِ همان کلید در دسترس می‌مانن.
+    """
+
+    def __init__(self, key_id: int, api_key: str, base_url: str, models: list[str]) -> None:
+        unique: list[str] = []
+        for name in models:
+            cleaned = (name or "").strip()
+            if cleaned and cleaned not in unique:
+                unique.append(cleaned)
+        if not unique:
+            raise ValueError("ModelChainAiService به حداقل یک نامِ مدل نیاز داره")
+        self.key_id = key_id
+        self.models = unique
+        self._clients = [OpenAiCompatibleAiService(api_key, name, base_url) for name in unique]
+
+    def is_available(self) -> bool:
+        """آیا لااقل یک مدلِ این کلید از مدارِ قطع بیرون است؟ (برایِ روتیشنِ استخر.)"""
+        return any(not _circuit_is_open(self.key_id, name) for name in self.models)
+
+    async def _run(self, method_name: str, *args) -> object:
+        last_exc: AiServiceError | None = None
+        for client in self._clients:
+            if _circuit_is_open(self.key_id, client.model):
+                continue
+            try:
+                result = await getattr(client, method_name)(*args)
+            except AiServiceError as exc:
+                _record_circuit_failure(self.key_id, client.model)
+                last_exc = exc
+                logger.warning("مدلِ «%s» رویِ این کلید شکست خورد؛ مدلِ بعدیِ همان کلید امتحان می‌شه...", client.model)
+                continue
+            _record_circuit_success(self.key_id, client.model)
+            return result
+        if last_exc is not None:
+            raise last_exc
+        raise AiServiceError("همه‌ی مدل‌هایِ این کلید موقتاً در cooldown هستن.")
+
+    async def get_reply(self, system_prompt: str, history: list[dict[str, str]], user_message: str) -> AiCallResult:
+        return await self._run("get_reply", system_prompt, history, user_message)
+
+    async def analyze_image(self, prompt: str, image_bytes: bytes, mime_type: str = "image/jpeg") -> AiCallResult:
+        return await self._run("analyze_image", prompt, image_bytes, mime_type)
+
+    async def transcribe_audio(self, audio_bytes: bytes, filename: str = "voice.ogg") -> str:
+        return await self._run("transcribe_audio", audio_bytes, filename)
 
 
 class PooledAiService(BaseAiService):
@@ -342,11 +397,18 @@ class PooledAiService(BaseAiService):
         start = random.randrange(len(self._entries))
         return self._entries[start:] + self._entries[:start]
 
+    def _entry_is_usable(self, service: BaseAiService, key_id: int) -> bool:
+        if _circuit_is_open(key_id):
+            return False
+        # P18 · A4: زنجیره‌یِ مدل ممکن است همه‌اش در cooldown باشد ⇒ کلید را بدونِ شکست رد کن.
+        probe = getattr(service, "is_available", None)
+        return True if probe is None else bool(probe())
+
     async def _run(self, method_name: str, *args) -> object:
         last_exc: Exception | None = None
         tried_any = False
         for key_id, service in self._ordered_entries():
-            if _circuit_is_open(key_id):
+            if not self._entry_is_usable(service, key_id):
                 continue
             tried_any = True
             try:

@@ -152,6 +152,7 @@ class ModerationStates(StatesGroup):
 
 class AiPoolStates(StatesGroup):
     waiting_entry_details = State()
+    waiting_fallback_models = State()
 
 
 class AdminRoleStates(StatesGroup):

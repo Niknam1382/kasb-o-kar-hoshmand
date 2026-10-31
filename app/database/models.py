@@ -10,6 +10,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     MetaData,
     Numeric,
@@ -412,6 +413,8 @@ class SubscriptionPlan(Base):
 
 class OtpCode(Base):
     __tablename__ = "otp_codes"
+    # P18 · د: سقفِ ارسالِ ساعتی به‌ازایِ هر شماره، بدونِ ایندکس پیمایشِ کاملِ جدول است.
+    __table_args__ = (Index("ix_otp_codes_phone_purpose_sent", "phone_number", "purpose", "sent_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
@@ -878,11 +881,16 @@ class ModerationRule(Base, CreatedAtMixin):
 
 
 class AiKeyCapability(str, enum.Enum):
-    """این کلید برای چه نوع فراخوانی‌ای مناسبه — پاسخِ متنی، تحلیلِ عکس، یا هردو."""
+    """این کلید برای چه نوع فراخوانی‌ای مناسبه — پاسخِ متنی، تحلیلِ عکس، هر دو، یا رونویسیِ صوت.
+
+    `both` همان معنایِ همیشگی را دارد (چت + بینایی)؛ `stt` عمداً با `both` یکی نیست تا
+    کلیدهایِ چتِ قدیمی ناگهانی در مسیرِ صوت وارد نشوند.
+    """
 
     CHAT = "chat"
     VISION = "vision"
     BOTH = "both"
+    STT = "stt"
 
 
 class AiApiKeyPoolEntry(Base, CreatedAtMixin):
@@ -893,14 +901,20 @@ class AiApiKeyPoolEntry(Base, CreatedAtMixin):
     می‌ره — هم بارِ درخواست‌ها بینِ چند کلید پخش می‌شه، هم یه کلیدِ مشکل‌دار
     کلِ پلتفرم رو از کار نمی‌ندازه. اگه هیچ کلیدی توی استخر نباشه،
     admin_settings.ai_api_key/ai_fallback_api_key (روشِ قدیمی) استفاده می‌شه.
+
+    P18 · A4: هر ورودی علاوه بر مدلِ اصلی، فهرستِ ترتیبیِ مدل‌هایِ پشتیبانِ
+    *همان کلید* را هم دارد (`fallback_models`؛ با ویرگول/خطِ جدید جدا می‌شن).
+    اولِ همان کلید تا آخرِ فهرست امتحان می‌شود و بعد کلیدِ بعدیِ استخر؛
+    سلامت و cooldown به‌ازایِ (کلید + مدل) ثبت می‌شود.
     """
 
     __tablename__ = "ai_api_key_pool"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     label: Mapped[str] = mapped_column(String(100), nullable=False)
-    api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    api_key: Mapped[str] = mapped_column(EncryptedToken, nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
+    fallback_models: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
     base_url: Mapped[str] = mapped_column(String(255), nullable=False)
     capability: Mapped[AiKeyCapability] = _enum_column(AiKeyCapability, default=AiKeyCapability.CHAT, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

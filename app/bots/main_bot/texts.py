@@ -1186,7 +1186,7 @@ ADMIN_ASK_WALLET_COST_PER_1K_TOKENS = "هزینه‌ی هر ۱۰۰۰ توکن (�
 ADMIN_ASK_AI_COST_USD = "هزینه‌ی واقعیِ مدلِ AI به ازای هر ۱ میلیون توکن، به دلار چقدره؟ (عددِ اعشاری؛ همان نرخِ اعلامیِ سرویس‌دهنده):"
 ADMIN_ASK_USD_TO_TOMAN_RATE = "نرخِ تبدیلِ دلار به تومان (که باید خودتون به‌روز نگهش دارید) چنده؟ (فقط عددِ صحیح):"
 ADMIN_ASK_MARKUP_MULTIPLIER = "ضریبِ سودِ شما روی هزینه‌ی خامِ AI (که هزینه‌ی سرور هم توش لحاظ می‌شه) چند برابر باشه؟ (عددِ ۵ یعنی ۵ برابر):"
-ADMIN_ASK_WALLET_COST_PHOTO_ANALYSIS = "هزینه‌ی هر بار تحلیلِ هوشمندِ عکس، به تومان چقدر باشه؟"
+# P18 · A4: «هزینه‌ی تحلیلِ عکس» برداشته شد — تحلیلِ عکس فقط برایِ رسیدِ پرداخت است و هزینه‌یِ خودش را دارد.
 ADMIN_ASK_WALLET_COST_VOICE_TRANSCRIPTION = "هزینه‌ی هر بار رونویسیِ پیامِ صوتی، به تومان چقدر باشه؟"
 ADMIN_ASK_WALLET_COST_ORDER_DETECTION = "هزینه‌ی پیش‌فرضِ تشخیصِ سفارش (وقتی تعدادِ توکنِ واقعی در دسترس نباشه)، به تومان چقدر باشه؟"
 ADMIN_ASK_WALLET_TOPUP_VALIDITY_MONTHS = "هر بار شارژِ کیف‌پول، چند ماه اعتبار داشته باشه؟"
@@ -1356,6 +1356,8 @@ def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
         ("bale_provider_token", f"🔵 توکنِ درگاهِ بله‌پی: {_mask_secret(admin_settings.bale_provider_token)}"),
         ("platform_card_number", f"💳 شماره کارت پلتفرم: {_mask_secret(admin_settings.platform_card_number)}"),
         ("platform_card_holder_name", f"👤 صاحب کارت: {admin_settings.platform_card_holder_name or 'تنظیم‌نشده'}"),
+        # P18 · A2: متنِ اجباریِ بیویِ ربات‌هایِ فروشگاهی + دکمه‌یِ همگام‌سازیِ فوری.
+        ("branding_text", f"🪪 بیوگرافیِ اجباریِ ربات‌ها: {admin_settings.branding_text or 'تنظیم‌نشده'}"),
         ("referral_reward_value", f"🎁 پورسانتِ معرف: {admin_settings.referral_reward_value}٪ از اولین شارژ"),
         ("grace_period_hours", f"⏳ مهلت گریس‌پیریود: {admin_settings.grace_period_hours} ساعت"),
         (
@@ -1372,7 +1374,6 @@ def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
         ("ai_cost_usd_per_1m_tokens", f"💵 هزینه‌ی خامِ AI: ${admin_settings.ai_cost_usd_per_1m_tokens}/۱M توکن"),
         ("usd_to_toman_rate", f"💱 نرخِ دلار: {format_toman(admin_settings.usd_to_toman_rate)}"),
         ("wallet_markup_multiplier", f"📈 ضریبِ سود: {admin_settings.wallet_markup_multiplier}×"),
-        ("wallet_cost_photo_analysis_toman", f"🖼 هزینه‌ی تحلیلِ عکس: {format_toman(admin_settings.wallet_cost_photo_analysis_toman)}"),
         ("wallet_cost_receipt_analysis_toman", f"🧾 هزینه‌ی تحلیلِ رسید (مشورتی): {format_toman(admin_settings.wallet_cost_receipt_analysis_toman)}"),
         ("wallet_cost_voice_transcription_toman", f"🎙 هزینه‌ی رونویسیِ صوت: {format_toman(admin_settings.wallet_cost_voice_transcription_toman)}"),
         ("wallet_cost_order_detection_toman", f"🔎 هزینه‌ی پیش‌فرضِ تشخیصِ سفارش: {format_toman(admin_settings.wallet_cost_order_detection_toman)}"),
@@ -1551,16 +1552,27 @@ AI_POOL_MENU_INTRO = (
 )
 AI_POOL_EMPTY = "هنوز هیچ کلیدی به استخر اضافه نشده."
 ASK_AI_POOL_ENTRY = (
-    "اطلاعاتِ کلیدِ جدید رو توی ۵ خط بفرست (دقیقاً به همین ترتیب):\n\n"
-    "برچسب (فقط برایِ خودت، تا کلیدها رو از هم تشخیص بدی)\n"
+    "اطلاعاتِ کلیدِ جدید را در ۵ یا ۶ خط بفرست (دقیقاً به همین ترتیب):\n\n"
+    "برچسب (فقط برایِ خودت، تا کلیدها را از هم تشخیص بدی)\n"
     "کلیدِ API\n"
     "نامِ مدل\n"
     "آدرسِ base_url کاملِ chat/completions\n"
-    "نوع: chat یا vision یا both"
+    "نوع: chat یا vision یا both یا stt\n"
+    "خطِ ششم (اختیاری): مدل‌هایِ پشتیبانِ همین کلید، با ویرگول و به همان ترتیبِ امتحان شدن"
 )
-AI_POOL_ENTRY_INVALID_FORMAT = "دقیقاً ۵ خط لازمه (برچسب، کلید، مدل، base_url، نوع). دوباره امتحان کن یا با «لغو» برگرد."
-AI_POOL_ENTRY_INVALID_CAPABILITY = "خطِ آخر باید دقیقاً یکی از این‌ها باشه: chat یا vision یا both."
+AI_POOL_ENTRY_INVALID_FORMAT = (
+    "۵ خط لازم است (برچسب، کلید، مدل، base_url، نوع) — خطِ ششم اختیاری است و مدل‌هایِ پشتیبان را می‌گیرد. "
+    "دوباره امتحان کن یا با «لغو» برگرد."
+)
+AI_POOL_ENTRY_INVALID_CAPABILITY = "خطِ پنجم باید دقیقاً یکی از این‌ها باشه: chat یا vision یا both یا stt."
 AI_POOL_ENTRY_DELETED = "🗑 کلید حذف شد."
+ASK_AI_POOL_FALLBACK_MODELS = (
+    "مدل‌هایِ پشتیبانِ همین کلید را بنویس، با ویرگول و به همان ترتیبی که باید امتحان شوند "
+    "(حداکثر ۵).\n\n"
+    "برایِ پاک‌کردن بنویس «خالی». برایِ لغو «انصراف».\n\n"
+    "⚠️ این مدل‌ها فقط وقتی امتحان می‌شوند که مدلِ قبلیِ همان کلید خطا بدهد؛ پس باید همان capability را داشته باشند."
+)
+AI_POOL_FALLBACK_SAVED = "✅ مدل‌هایِ پشتیبان ذخیره شد."
 
 
 def ai_pool_entry_added_confirmation(label: str) -> str:
@@ -1576,10 +1588,13 @@ def _mask_api_key(api_key: str) -> str:
 def ai_pool_entry_detail_text(entry) -> str:
     cap = entry.capability.value if hasattr(entry.capability, "value") else entry.capability
     status = "فعال 🟢" if entry.is_active else "غیرفعال ⚪️"
+    # P18 · A4: زنجیره‌یِ مدل‌ها باید دیده شود تا ادمین بداند واقعاً چه چیزی امتحان می‌شود.
+    fallbacks = (getattr(entry, "fallback_models", "") or "").strip()
     return (
         f"برچسب: {entry.label}\n"
         f"کلید: {_mask_api_key(entry.api_key)}\n"
         f"مدل: {entry.model}\n"
+        f"پشتیبان‌هایِ همین کلید: {fallbacks or '—'}\n"
         f"base_url: {entry.base_url}\n"
         f"نوع: {cap}\n"
         f"وضعیت: {status}"

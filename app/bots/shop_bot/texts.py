@@ -57,19 +57,14 @@ GAP_FALLBACK_REPLY = "این سوالت رو برای فروشگاه‌دار ث
 
 NON_TEXT_MESSAGE = "فعلاً فقط پیام متنی رو می‌تونم بخونم 🙂 لطفاً سوالت رو بنویس."
 
-RECEIPT_ANALYSIS_PROMPT = (
-    "این عکس رو بررسی کن و بگو آیا شبیه یه رسید یا فیش پرداخت بانکی هست یا نه. "
-    "اگه هست، مبلغ، تاریخ و ساعت (اگه مشخص بود)، و شماره‌ی پیگیری یا مرجع رو استخراج کن. "
-    "خروجی رو در چند خط کوتاه و خوانا بنویس، نه JSON."
-)
-
-PHOTO_RECEIVED_ACK = "📸 عکست دریافت شد و برای بررسی فرستاده شد."
+# P18 · A4: تحلیلِ هوشمندِ عکس فقط در مسیرِ «رسیدِ پرداخت» انجام می‌شود؛ این پرامپتِ عمومی حذف شد.
+PHOTO_RECEIVED_ACK = "📸 عکست رسید و برایِ فروشگاه‌دار فرستاده شد. (تحلیلِ خودکارِ عکس فقط برایِ رسیدِ پرداخت است)"
 
 VOICE_TRANSCRIBE_ERROR = "متاسفانه نتونستم پیامِ صوتیت رو تشخیص بدم 🙏 می‌شه لطفاً به‌صورت نوشتاری هم بفرستیش؟"
 
 
-def customer_photo_forward_caption(customer_name: str, caption_note: str, analysis_note: str) -> str:
-    return f"📸 مشتری «{customer_name}» یه عکس فرستاد.{caption_note}{analysis_note}"
+def customer_photo_forward_caption(customer_name: str, caption_note: str) -> str:
+    return f"📸 مشتری «{customer_name}» یه عکس فرستاد.{caption_note}"
 
 
 # =============================================================================

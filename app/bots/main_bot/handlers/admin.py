@@ -630,7 +630,7 @@ _INT_FIELDS: dict[str, str] = {
     "conversation_history_limit": texts.ADMIN_ASK_CONVERSATION_HISTORY_LIMIT,
     "referral_reward_value": texts.ADMIN_ASK_REFERRAL_PERCENT,
     "wallet_cost_per_1k_tokens_toman": texts.ADMIN_ASK_WALLET_COST_PER_1K_TOKENS,
-    "wallet_cost_photo_analysis_toman": texts.ADMIN_ASK_WALLET_COST_PHOTO_ANALYSIS,
+    # P18 · A4: تحلیلِ عکسِ عمومی حذف شد ⇒ این هزینه دیگر تنظیم نمی‌شود (ستون و داده می‌مانند).
     "wallet_cost_receipt_analysis_toman": texts.ADMIN_ASK_WALLET_COST_RECEIPT_ANALYSIS,
     "wallet_cost_voice_transcription_toman": texts.ADMIN_ASK_WALLET_COST_VOICE_TRANSCRIPTION,
     "wallet_cost_order_detection_toman": texts.ADMIN_ASK_WALLET_COST_ORDER_DETECTION,
@@ -1314,22 +1314,65 @@ async def cb_ai_pool_add(callback: CallbackQuery, state: FSMContext) -> None:
 @super_router.message(AiPoolStates.waiting_entry_details, F.text)
 async def ai_pool_entry_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
     lines = [line.strip() for line in message.text.strip().splitlines() if line.strip()]
-    if len(lines) != 5:
+    if len(lines) not in (5, 6):
         await message.answer(texts.AI_POOL_ENTRY_INVALID_FORMAT)
         return
 
-    label, api_key, model, base_url, capability_raw = lines
+    label, api_key, model, base_url, capability_raw = lines[:5]
+    fallback_raw = lines[5] if len(lines) == 6 else None
     capability = capability_raw.lower()
-    if capability not in (AiKeyCapability.CHAT.value, AiKeyCapability.VISION.value, AiKeyCapability.BOTH.value):
+    if capability not in {item.value for item in AiKeyCapability}:
         await message.answer(texts.AI_POOL_ENTRY_INVALID_CAPABILITY)
         return
 
-    await ai_pool_service.add_entry(session, label, api_key, model, base_url, capability)
+    entry = await ai_pool_service.add_entry(session, label, api_key, model, base_url, capability, fallback_raw)
     await state.clear()
     await message.answer(texts.ai_pool_entry_added_confirmation(label))
+    await message.answer(
+        texts.ai_pool_entry_detail_text(entry), reply_markup=keyboards.ai_pool_entry_detail_keyboard(entry.id, entry.is_active)
+    )
 
     entries = await ai_pool_service.get_all_entries(session)
     await message.answer(texts.AI_POOL_MENU_INTRO, reply_markup=keyboards.ai_pool_list_keyboard(entries))
+
+
+@super_router.callback_query(F.data.startswith("ai_pool_models:"))
+async def cb_ai_pool_models(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    entry_id = int(callback.data.split(":")[1])
+    entry = await ai_pool_service.get_by_id(session, entry_id)
+    if entry is None:
+        await callback.answer(texts.GENERIC_ERROR, show_alert=True)
+        return
+    await callback.answer()
+    await state.set_state(AiPoolStates.waiting_fallback_models)
+    await state.update_data(pool_entry_id=entry.id)
+    current = (entry.fallback_models or "").strip()
+    await callback.message.answer(
+        texts.ASK_AI_POOL_FALLBACK_MODELS + "\n\n" + f"مدلِ اصلی: {entry.model}\nپشتیبان‌هایِ فعلی: {current or '—'}"
+    )
+
+
+@super_router.message(AiPoolStates.waiting_fallback_models, F.text)
+async def ai_pool_models_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    raw = message.text.strip()
+    if raw in ("انصراف", "لغو", "/cancel"):
+        await state.clear()
+        await message.answer("↩️ لغو شد؛ فهرستِ مدل‌هایِ پشتیبان عوض نشد.")
+        return
+    entry = await ai_pool_service.get_by_id(session, int(data["pool_entry_id"]))
+    if entry is None:
+        await state.clear()
+        await message.answer(texts.GENERIC_ERROR)
+        return
+    # «خالی» یعنی بدونِ پشتیبان؛ هر چیزِ دیگر نرمال و تا ۵ مورد بریده می‌شود (سقفِ هزینه/تأخیر).
+    saved = await ai_pool_service.set_fallback_models(session, entry, None if raw in ("خالی", "پاک کن", "-") else raw)
+    await state.clear()
+    await message.answer(texts.AI_POOL_FALLBACK_SAVED)
+    await message.answer(
+        texts.ai_pool_entry_detail_text(entry) + ("\nترتیبِ امتحان: " + " ← ".join([entry.model, *saved]) if saved else ""),
+        reply_markup=keyboards.ai_pool_entry_detail_keyboard(entry.id, entry.is_active),
+    )
 
 
 @super_router.callback_query(F.data.startswith("ai_pool_view:"))

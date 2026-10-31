@@ -618,6 +618,7 @@ def ai_pool_entry_detail_keyboard(entry_id: int, is_active: bool) -> InlineKeybo
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=toggle_label, callback_data=f"ai_pool_toggle:{entry_id}")],
+            [InlineKeyboardButton(text="🧵 مدل‌هایِ پشتیبانِ همین کلید", callback_data=f"ai_pool_models:{entry_id}")],
             [InlineKeyboardButton(text="🗑 حذف", callback_data=f"ai_pool_delete:{entry_id}")],
             [InlineKeyboardButton(text="🔙 بازگشت به فهرست", callback_data="ai_pool_list")],
         ]
@@ -966,7 +967,7 @@ def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="✍️ مقدارِ دلخواه (۲ تا ۶۰ ثانیه)", callback_data="bs_batch_custom")],
             [InlineKeyboardButton(text="↩️ پیش‌فرضِ سیستم", callback_data="bs_batch_reset")],
             [InlineKeyboardButton(text="📈 گزارشِ دوره‌ای", callback_data="rp_open")],
-            [InlineKeyboardButton(text="🧴 بیوگرافیِ ربات", callback_data="br_open")],
+            [InlineKeyboardButton(text="✏️ بیوگرافیِ ربات", callback_data="br_open")],
             [InlineKeyboardButton(text="⏱ مهلت‌ها و حافظه", callback_data="sp_prefs_open")],
             [InlineKeyboardButton(text="📞 پشتیبانیِ مشتری‌ها", callback_data="sp_open")],
         ]

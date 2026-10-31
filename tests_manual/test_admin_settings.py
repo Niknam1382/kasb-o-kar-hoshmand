@@ -110,7 +110,8 @@ async def test_wallet_pricing_fields_are_editable(main_dp) -> None:
 
     fields_and_values = [
         ("wallet_cost_per_1k_tokens_toman", "80"),
-        ("wallet_cost_photo_analysis_toman", "650"),
+        # P18 · A4: هزینه‌ی «تحلیلِ عکسِ عمومی» از پنل رفت؛ جای آن هزینه‌ی تحلیلِ رسید.
+        ("wallet_cost_receipt_analysis_toman", "650"),
         ("wallet_trial_credit_toman", "75000"),
         ("wallet_low_balance_warning_toman", "30000"),
     ]
@@ -121,10 +122,18 @@ async def test_wallet_pricing_fields_are_editable(main_dp) -> None:
     async with session_scope() as session:
         admin_settings = await get_admin_settings(session)
         assert admin_settings.wallet_cost_per_1k_tokens_toman == 80
-        assert admin_settings.wallet_cost_photo_analysis_toman == 650
+        assert admin_settings.wallet_cost_receipt_analysis_toman == 650
         assert admin_settings.wallet_trial_credit_toman == 75_000
         assert admin_settings.wallet_low_balance_warning_toman == 30_000
 
+    # دکمه‌یِ کهنه‌یِ تحلیلِ عکس دیگر نباید چیزی تغییر بدهد (ستون و داده می‌مانند).
+    before = admin_settings.wallet_cost_photo_analysis_toman
+    n = len(fields_and_values) * 2
+    await main_dp.feed_update(admin_bot, make_callback_update(n + 1, data="admin_setting_edit:wallet_cost_photo_analysis_toman", user_id=ADMIN_TG_ID))
+    await main_dp.feed_update(admin_bot, make_message_update(n + 2, text="9999", user_id=ADMIN_TG_ID))
+    async with session_scope() as session:
+        admin_settings = await get_admin_settings(session)
+        assert admin_settings.wallet_cost_photo_analysis_toman == before
     print("✅ test_wallet_pricing_fields_are_editable PASSED")
 
 
