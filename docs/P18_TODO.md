@@ -40,9 +40,9 @@
 - [x] **C4** تنظیماتِ A5ِ مربوط به مشاوره در پنلِ مشاوره
 
 ## پایان
-- [ ] به‌روزرسانیِ `docs/PROGRESS.md`، `docs/changelog-p18.md`، `docs/admin-guide.md`، `docs/user-guide.md`
-- [ ] آرشیوِ `kasb-o-kar-hoshmand_P18.zip` (بدونِ .git/__pycache__/backup_*.sql)
-- [ ] گزارشِ پایانیِ فارسی (توضیح‌هایِ خواسته‌شده + فرض‌ها + ⏩ها + چک‌لیستِ ۱۰ موردی)
+- [x] به‌روزرسانیِ `docs/PROGRESS.md`، `docs/changelog-p18.md`، `docs/admin-guide.md`، `docs/user-guide.md`
+- [x] آرشیوِ `kasb-o-kar-hoshmand_P18.zip` (بدونِ .git/__pycache__/backup_*.sql)
+- [x] گزارشِ پایانیِ فارسی (توضیح‌هایِ خواسته‌شده + فرض‌ها + ⏩ها + چک‌لیستِ ۱۰ موردی)
 
 ---
 
