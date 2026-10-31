@@ -10,24 +10,64 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts
 from app.database.models import ShopBot, ShopOwner
-from app.services import stats_service
+from app.services import stats_service, time_freeze_service
 from app.services.admin_settings_service import get_admin_settings
+from app.utils.jalali import to_tehran
 
 logger = logging.getLogger(__name__)
 
+# B5: هفته‌یِ ایرانی از نگاهِ فروشگاه‌دار — ۰=شنبه … ۶=جمعه (نامِ روزها در texts.REPORT_WEEKDAY_NAMES).
+DEFAULT_REPORT_WEEKDAY = 0
+DEFAULT_REPORT_HOUR = 9
+_SATURDAY_PY_WEEKDAY = 5  # شنبه در weekdayِ پایتون (دوشنبه=۰)
 
-async def send_due_reports(session: AsyncSession, main_bot: Bot) -> None:
+
+def persian_weekday_to_python(index: int) -> int:
+    """۰=شنبه … ۶=جمعه ← weekdayِ پایتون (۰=دوشنبه)."""
+    return (_SATURDAY_PY_WEEKDAY + int(index)) % 7
+
+
+def latest_window_start(now_tehran: datetime.datetime, weekday_index: int, hour: int) -> datetime.datetime:
+    """آغازِ تازه‌ترین بازه‌یِ مجازِ ارسال (aware، به وقتِ تهران).
+
+    «تازه‌ترین» نه «امروز»: اگر ربات وسطِ هفته خاموش بوده، با بالا آمدن همان گزارشِ عقب‌افتاده یک‌بار
+    می‌رود و بعد تا هفته‌یِ بعد تکرار نمی‌شود.
+    """
+    target = persian_weekday_to_python(weekday_index)
+    days_back = (now_tehran.weekday() - target) % 7
+    candidate = (now_tehran - datetime.timedelta(days=days_back)).replace(
+        hour=max(0, min(23, int(hour))), minute=0, second=0, microsecond=0
+    )
+    if candidate > now_tehran:
+        candidate -= datetime.timedelta(days=7)
+    return candidate
+
+
+async def send_due_reports(session: AsyncSession, main_bot: Bot, now: datetime.datetime | None = None) -> None:
+    """گزارشِ دوره‌ای: روزِ هفته + ساعتِ *هر فروشگاه*، به وقتِ تهران، دقیقاً یک‌بار در هر بازه‌یِ هفتگی.
+
+    B5: پیش از این مبنا «N روز از آخرین ارسال» بود و چون جاب هر ۳۰ دقیقه چک می‌کرد، لحظه‌یِ ارسال هر
+    هفته کمی جابه‌جا می‌شد و هرگز به ساعتِ موردِ انتظارِ فروشگاه‌دار نمی‌رسید (و مبنایش UTC بود).
+    `admin_settings.periodic_report_frequency_days` فقط بازه‌یِ پوششِ متنِ گزارش است، نه زمان‌بندی.
+    `now` اختیاری است و فقط برایِ تست پاس داده می‌شود (مثلِ `send_due_nightly_reports`).
+    """
     admin_settings = await get_admin_settings(session)
-    frequency = datetime.timedelta(days=admin_settings.periodic_report_frequency_days)
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    now_tehran = to_tehran(now)
+
+    all_frozen, frozen_owner_ids = await time_freeze_service.frozen_filter(session)
+    if all_frozen:
+        return  # K3/K4: در توقفِ زمان هیچ گزارشی نمی‌رود
 
     result = await session.execute(select(ShopBot).where(ShopBot.is_active.is_(True)))
     active_bots = result.scalars().all()
 
     for shop_bot in active_bots:
-        due = shop_bot.last_report_sent_at is None or (now - shop_bot.last_report_sent_at) >= frequency
-        if not due:
+        if not shop_bot.weekly_report_enabled or shop_bot.shop_owner_id in frozen_owner_ids:
             continue
+        window_start = latest_window_start(now_tehran, shop_bot.weekly_report_weekday, shop_bot.weekly_report_hour)
+        if shop_bot.last_report_sent_at is not None and to_tehran(shop_bot.last_report_sent_at) >= window_start:
+            continue  # همین بازه قبلاً فرستاده شده ⇒ دوباره نمی‌رود
 
         stats = await stats_service.get_shop_stats(session, shop_bot.id)
         owner = await session.get(ShopOwner, shop_bot.shop_owner_id)

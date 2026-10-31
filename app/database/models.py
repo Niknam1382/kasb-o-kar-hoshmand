@@ -521,6 +521,11 @@ class ShopBot(Base):
     # فازِ ۱ · W2 (C2): مسیرِ قدیمیِ «AI از چت سفارش می‌سازه». پیش‌فرض خاموش؛ تا False است
     # `_detect_and_notify_order` اجرا نمی‌شه (هزینه‌یِ ORDER_DETECTION هم صفره).
     legacy_ai_order_detection: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # P18 · B5: زمانِ گزارشِ دوره‌ای از نگاهِ فروشگاه‌دار و به وقتِ تهران (نه UTC و نه «N روز از آخرین ارسال»).
+    # weekday با هفته‌یِ ایرانی: ۰=شنبه … ۶=جمعه.
+    weekly_report_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    weekly_report_weekday: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    weekly_report_hour: Mapped[int] = mapped_column(Integer, default=9, server_default="9", nullable=False)
 
     products: Mapped[list["Product"]] = relationship(back_populates="shop_bot", lazy="selectin")
 

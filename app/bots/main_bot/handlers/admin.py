@@ -44,7 +44,6 @@ from app.services import (
     identity_service,
     shop_owner_service,
     stats_service,
-    subscription_plan_service,
     wallet_service,
 )
 from app.services.admin_settings_service import get_admin_settings
@@ -373,18 +372,6 @@ async def cb_pricing_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.edit_text(texts.ADMIN_PRICING_MENU_INTRO, reply_markup=keyboards.admin_pricing_menu_keyboard())
 
 
-# --- طرح‌های اشتراک ---
-async def _render_plans_list(message: Message, session: AsyncSession) -> None:
-    plans = await subscription_plan_service.get_all_plans(session)
-    await message.edit_text(texts.ADMIN_PRICING_MENU_INTRO, reply_markup=keyboards.admin_plans_list_keyboard(plans))
-
-
-@super_router.callback_query(F.data == "admin_pricing_plans")
-async def cb_pricing_plans(callback: CallbackQuery, session: AsyncSession) -> None:
-    await callback.answer()
-    await _render_plans_list(callback.message, session)
-
-
 @super_router.callback_query(F.data == "admin_toggle_zarinpal")
 async def cb_toggle_zarinpal(callback: CallbackQuery, session: AsyncSession) -> None:
     admin_settings = await get_admin_settings(session)
@@ -490,60 +477,6 @@ async def cb_toggle_knowledge_gap(callback: CallbackQuery, session: AsyncSession
     await session.flush()
     await callback.answer("تشخیصِ سوال‌هایِ بی‌جواب " + ("روشن شد 🧩" if admin_settings.knowledge_gap_enabled else "خاموش شد 🙈"))
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
-
-
-@super_router.callback_query(F.data.startswith("admin_plan_toggle:"))
-async def cb_plan_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
-    plan_id = int(callback.data.split(":")[1])
-    await subscription_plan_service.toggle_plan_active(session, plan_id)
-    await callback.answer()
-    await _render_plans_list(callback.message, session)
-
-
-@super_router.callback_query(F.data == "admin_plan_add")
-async def cb_plan_add(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(AdminPricingStates.waiting_plan_duration)
-    await callback.answer()
-    await callback.message.answer(texts.ADMIN_ASK_PLAN_DURATION)
-
-
-@super_router.message(AdminPricingStates.waiting_plan_duration, F.text)
-async def plan_duration_entered(message: Message, state: FSMContext) -> None:
-    try:
-        months = int(message.text.strip())
-        if months <= 0:
-            raise ValueError
-    except ValueError:
-        await message.answer(texts.ADMIN_INVALID_NUMBER)
-        return
-
-    await state.update_data(plan_duration=months)
-    await state.set_state(AdminPricingStates.waiting_plan_price)
-    await message.answer(texts.ADMIN_ASK_PLAN_PRICE)
-
-
-@super_router.message(AdminPricingStates.waiting_plan_price, F.text)
-async def plan_price_entered(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    try:
-        price = int(message.text.strip().replace(",", "").replace("،", ""))
-        if price <= 0:
-            raise ValueError
-    except ValueError:
-        await message.answer(texts.ADMIN_INVALID_NUMBER)
-        return
-
-    data = await state.get_data()
-    months = data["plan_duration"]
-    existing = await subscription_plan_service.get_by_duration(session, months)
-    if existing is not None:
-        await subscription_plan_service.update_price(session, existing, price)
-    else:
-        await subscription_plan_service.create_plan(session, months, price)
-
-    await state.clear()
-    await message.answer(texts.admin_plan_saved(months, price))
-    plans = await subscription_plan_service.get_all_plans(session)
-    await message.answer(texts.ADMIN_PRICING_MENU_INTRO, reply_markup=keyboards.admin_plans_list_keyboard(plans))
 
 
 # --- کدهای تخفیف ---

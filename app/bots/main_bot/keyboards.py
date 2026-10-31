@@ -451,26 +451,12 @@ def confirm_delete_channel_keyboard(channel_pk: int) -> InlineKeyboardMarkup:
 
 
 def admin_pricing_menu_keyboard() -> InlineKeyboardMarkup:
+    # A6: UIِ «طرح‌های اشتراک» حذف شد (جدول و سرویسِ داده دست‌نخورده ماندند).
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📅 طرح‌های اشتراک", callback_data="admin_pricing_plans")],
             [InlineKeyboardButton(text="🏷 کدهای تخفیف", callback_data="admin_pricing_discounts")],
         ]
     )
-
-
-def admin_plans_list_keyboard(plans) -> InlineKeyboardMarkup:
-    from app.utils.validators import format_toman
-
-    rows = []
-    for p in plans:
-        status = "✅" if p.is_active else "❌"
-        rows.append(
-            [InlineKeyboardButton(text=f"{status} {p.duration_months} ماهه — {format_toman(p.price_toman)}", callback_data=f"admin_plan_toggle:{p.id}")]
-        )
-    rows.append([InlineKeyboardButton(text="➕ افزودن طرح جدید", callback_data="admin_plan_add")])
-    rows.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_pricing_menu")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def admin_discounts_list_keyboard(codes) -> InlineKeyboardMarkup:
@@ -920,7 +906,37 @@ def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
             preset_row,
             [InlineKeyboardButton(text="✍️ مقدارِ دلخواه (۲ تا ۶۰ ثانیه)", callback_data="bs_batch_custom")],
             [InlineKeyboardButton(text="↩️ پیش‌فرضِ سیستم", callback_data="bs_batch_reset")],
+            [InlineKeyboardButton(text="📈 گزارشِ دوره‌ای", callback_data="rp_open")],
             [InlineKeyboardButton(text="📞 پشتیبانیِ مشتری‌ها", callback_data="sp_open")],
+        ]
+    )
+
+
+def shop_report_keyboard(shop_bot) -> InlineKeyboardMarkup:
+    """P18 · B5: روزِ هفته + ساعتِ گزارشِ دوره‌ای، به وقتِ تهران."""
+    from app.bots.main_bot import texts
+
+    day_rows = [
+        InlineKeyboardButton(
+            text=("✅ " if index == int(shop_bot.weekly_report_weekday) else "") + name,
+            callback_data=f"rp_day:{index}",
+        )
+        for index, name in enumerate(texts.REPORT_WEEKDAY_NAMES)
+    ]
+    hour_row = [
+        InlineKeyboardButton(
+            text=("✅ " if hour == int(shop_bot.weekly_report_hour) else "") + label, callback_data=f"rp_hour:{hour}"
+        )
+        for hour, label in texts.REPORT_HOUR_PRESETS
+    ]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⛔️ خاموش‌کردن" if shop_bot.weekly_report_enabled else "✅ روشن‌کردن", callback_data="rp_toggle")],
+            hour_row,
+            [InlineKeyboardButton(text="✍️ ساعتِ دلخواه (۰ تا ۲۳)", callback_data="rp_hour_custom")],
+            day_rows[:4],
+            day_rows[4:],
+            [InlineKeyboardButton(text="↩️ برگشت", callback_data="rp_back")],
         ]
     )
 

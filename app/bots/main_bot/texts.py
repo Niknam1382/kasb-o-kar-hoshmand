@@ -1054,13 +1054,8 @@ def admin_payment_approved_confirmation(owner_name: str) -> str:
 
 
 # --- تنظیمات قیمت و تخفیف ---
+# A6: UIِ «طرح‌های اشتراک» از پنل حذف شد؛ جدول و سرویسِ داده سرِ جایشان ماندند.
 ADMIN_PRICING_MENU_INTRO = "💰 تنظیمات قیمت و تخفیف:"
-ADMIN_ASK_PLAN_DURATION = "مدت طرح (به ماه) رو بنویس:"
-ADMIN_ASK_PLAN_PRICE = "قیمت این طرح رو به تومان بنویس:"
-
-
-def admin_plan_saved(months: int, price: int) -> str:
-    return f"✅ طرح {months} ماهه با قیمت {format_toman(price)} ذخیره شد."
 
 
 def admin_wallet_cost_recalculated(new_cost_toman: int) -> str:
@@ -2104,19 +2099,47 @@ BATCH_SECONDS_RESET = "↩️ به پیش‌فرضِ سیستم برگشت."
 SHOP_SETTINGS_STALE = "این دکمه دیگه معتبر نیست. دوباره «⚙️ تنظیماتِ ربات فروشگاه» رو بزن."
 BATCH_PRESETS = ((3, "⚡ ۳ ثانیه"), (8, "⚖️ ۸ ثانیه"), (15, "💰 ۱۵ ثانیه"), (30, "🐢 ۳۰ ثانیه"))
 
+# ------------------------------------------------------------------ P18 · B5: زمانِ گزارشِ دوره‌ای
+REPORT_WEEKDAY_NAMES = ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه")
+REPORT_HOUR_PRESETS = ((9, "🌅 ۰۹:۰۰"), (13, "🕐 ۱۳:۰۰"), (18, "🌆 ۱۸:۰۰"), (21, "🌙 ۲۱:۰۰"))
+REPORT_HOUR_ASK = "ساعتِ گزارش رو به وقتِ تهران بنویس (عددِ ۰ تا ۲۳). برایِ انصراف /cancel رو بزن."
+REPORT_HOUR_INVALID = "ساعت نامعتبره. یه عددِ صحیح بینِ ۰ تا ۲۳ بنویس."
+REPORT_SCHEDULE_SAVED = "✅ زمانِ گزارش ذخیره شد."
+
 
 def shop_settings_text(shop_bot, default_seconds: int) -> str:
     current = shop_bot.message_batch_seconds
     current_line = f"{current} ثانیه" if current else f"{default_seconds} ثانیه (پیش‌فرضِ سیستم)"
+    names = REPORT_WEEKDAY_NAMES
+    report_line = (
+        f"{names[int(shop_bot.weekly_report_weekday) % len(names)]} ساعتِ {int(shop_bot.weekly_report_hour):02d}:00"
+        if shop_bot.weekly_report_enabled
+        else "خاموش"
+    )
     return (
         "⚙️ تنظیماتِ رباتِ فروشگاه\n\n"
-        f"⏱ مدتِ تجمیعِ پیام‌ها: {current_line}\n\n"
+        f"⏱ مدتِ تجمیعِ پیام‌ها: {current_line}\n"
+        f"📈 گزارشِ دوره‌ای: {report_line}\n\n"
         "مشتری‌ها معمولاً یه جمله رو توی چند پیامِ پشتِ‌هم می‌فرستن. رباتت بعد از آخرین پیام این‌قدر صبر می‌کنه، "
         "همه‌یِ پیام‌ها رو یه‌جا می‌خونه و یک جواب می‌ده.\n"
         "• عددِ کوچک‌تر ⚡ جوابِ سریع‌تر، ولی احتمالِ چند جوابِ پشتِ‌هم و مصرفِ توکنِ بیشتر.\n"
         "• عددِ بزرگ‌تر 💰 پیام‌هایِ بیشتری یکی می‌شن و توکنِ کمتری مصرف می‌شه (هزینه‌یِ کم‌تر از کیف‌پولت)، "
         "ولی جوابِ ربات دیرتر میاد.\n"
         "توصیه: فروشگاهِ پرمکالمه ۸ تا ۱۵ ثانیه؛ پشتیبانیِ سریع ۳ تا ۵ ثانیه."
+    )
+
+
+def report_schedule_text(shop_bot) -> str:
+    names = REPORT_WEEKDAY_NAMES
+    day = names[int(shop_bot.weekly_report_weekday) % len(names)]
+    state = "🟢 روشن" if shop_bot.weekly_report_enabled else "⛔️ خاموش"
+    return (
+        "📈 گزارشِ دوره‌ای\n\n"
+        f"وضعیت: {state}\n"
+        f"روزِ هفته: {day}\n"
+        f"ساعت: {int(shop_bot.weekly_report_hour):02d}:00 (به وقتِ تهران)\n\n"
+        "ربات هر هفته دقیقاً یک‌بار، سرِ همین روز و ساعت، خلاصه‌یِ فروش و فعالیتِ فروشگاهت رو برات می‌فرسته.\n"
+        "اگه ربات سرِ اون لحظه خاموش باشه، اولین باری که بالا بیاد همون گزارشِ عقب‌افتاده رو یک‌بار می‌فرسته."
     )
 
 

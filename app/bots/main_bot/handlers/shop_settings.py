@@ -1,6 +1,7 @@
 """
-پنلِ فروشگاه‌دار — «⚙️ تنظیماتِ ربات فروشگاه» (فازِ ۶-الف). فعلاً: مدتِ تجمیعِ پیام‌هایِ مشتری (۲ تا ۶۰ ثانیه).
-هزینه‌یِ توکن با فروشگاه‌داره، پس تصمیمِ این تنظیم با خودشه (نه ادمینِ پلتفرم). تنظیم‌هایِ بعدی همین‌جا اضافه می‌شن.
+پنلِ فروشگاه‌دار — «⚙️ تنظیماتِ ربات فروشگاه» (فازِ ۶-الف). مواردِ per-shop که هزینه/تجربه‌شان با
+خودِ فروشگاه‌دار است: مدتِ تجمیعِ پیام‌هایِ مشتری (۲ تا ۶۰ ثانیه)، زمانِ گزارشِ دوره‌ای (P18 · B5) و
+پشتیبانیِ مشتری‌ها (D1/D2). تنظیم‌هایِ بعدی همین‌جا اضافه می‌شن.
 """
 from __future__ import annotations
 
@@ -84,6 +85,102 @@ async def batch_custom_received(message: Message, session: AsyncSession, state: 
     await state.clear()
     await message.answer(texts.BATCH_SECONDS_SAVED)
     text, keyboard = _screen(shop_bot)
+    await message.answer(text, reply_markup=keyboard)
+
+
+# ------------------------------------------------------------------ P18 · B5: زمانِ گزارشِ دوره‌ای (روزِ هفته + ساعتِ تهران)
+def _report_screen(shop_bot):
+    return texts.report_schedule_text(shop_bot), keyboards.shop_report_keyboard(shop_bot)
+
+
+@router.callback_query(F.data == "rp_open")
+async def report_open(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    text, keyboard = _report_screen(shop_bot)
+    await safe_edit(callback, text, keyboard)
+
+
+@router.callback_query(F.data == "rp_back")
+async def report_back(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    text, keyboard = _screen(shop_bot)
+    await safe_edit(callback, text, keyboard)
+
+
+@router.callback_query(F.data == "rp_toggle")
+async def report_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await shop_bot_service.set_report_schedule(session, shop_bot, enabled=not shop_bot.weekly_report_enabled)
+    await callback.answer()
+    text, keyboard = _report_screen(shop_bot)
+    await safe_edit(callback, text, keyboard)
+
+
+@router.callback_query(F.data.startswith("rp_day:"))
+async def report_weekday(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    weekday = parse_suffix_int(callback.data, "rp_day:")
+    if weekday is None or not shop_bot_service.valid_report_weekday(weekday):
+        await callback.answer(texts.SHOP_SETTINGS_STALE, show_alert=True)
+        return
+    await shop_bot_service.set_report_schedule(session, shop_bot, weekday=weekday)
+    await callback.answer(texts.REPORT_SCHEDULE_SAVED)
+    text, keyboard = _report_screen(shop_bot)
+    await safe_edit(callback, text, keyboard)
+
+
+@router.callback_query(F.data.startswith("rp_hour:"))
+async def report_hour_preset(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    hour = parse_suffix_int(callback.data, "rp_hour:")
+    if hour is None or not (shop_bot_service.REPORT_HOUR_MIN <= hour <= shop_bot_service.REPORT_HOUR_MAX):
+        await callback.answer(texts.SHOP_SETTINGS_STALE, show_alert=True)
+        return
+    await shop_bot_service.set_report_schedule(session, shop_bot, hour=hour)
+    await callback.answer(texts.REPORT_SCHEDULE_SAVED)
+    text, keyboard = _report_screen(shop_bot)
+    await safe_edit(callback, text, keyboard)
+
+
+@router.callback_query(F.data == "rp_hour_custom")
+async def report_hour_custom_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.clear()
+    await state.set_state(ShopSettingsStates.waiting_report_hour)
+    await callback.answer()
+    await callback.message.answer(texts.REPORT_HOUR_ASK)
+
+
+@router.message(ShopSettingsStates.waiting_report_hour, F.text)
+async def report_hour_custom_received(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await require_shop_bot(message, session)
+    if shop_bot is None:
+        await state.clear()
+        return
+    hour = shop_bot_service.parse_report_hour(message.text)
+    if hour is None:
+        await message.answer(texts.REPORT_HOUR_INVALID)
+        return
+    await shop_bot_service.set_report_schedule(session, shop_bot, hour=hour)
+    await state.clear()
+    await message.answer(texts.REPORT_SCHEDULE_SAVED)
+    text, keyboard = _report_screen(shop_bot)
     await message.answer(text, reply_markup=keyboard)
 
 

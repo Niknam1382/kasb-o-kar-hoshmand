@@ -64,12 +64,19 @@ MESSAGE_BATCH_MIN_SECONDS = 2
 MESSAGE_BATCH_MAX_SECONDS = 60
 
 
-def parse_batch_seconds(raw) -> int | None:
-    """ورودیِ فروشگاه‌دار (متن/عدد، ارقامِ فارسی هم) → عددِ صحیحِ ۲..۶۰؛ نامعتبر → None."""
+def _decimal_digits(raw) -> str | None:
+    """ارقامِ فارسی/عربی ← لاتین؛ اگر چیزی جز رقم باشد None.
+    `isdecimal` و نه `isdigit`: «²/①» را می‌پذیرد ولی `int()` رویشان ValueError می‌دهد."""
     if raw is None:
         return None
     digits = str(raw).strip().translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789"))
-    if not digits.isdecimal():  # نه isdigit(): «²/①» رو می‌پذیره ولی int() روشون ValueError می‌ده
+    return digits if digits.isdecimal() else None
+
+
+def parse_batch_seconds(raw) -> int | None:
+    """ورودیِ فروشگاه‌دار (متن/عدد، ارقامِ فارسی هم) → عددِ صحیحِ ۲..۶۰؛ نامعتبر → None."""
+    digits = _decimal_digits(raw)
+    if digits is None:
         return None
     value = int(digits)
     if value < MESSAGE_BATCH_MIN_SECONDS or value > MESSAGE_BATCH_MAX_SECONDS:
@@ -82,6 +89,47 @@ async def set_message_batch_seconds(session: AsyncSession, shop_bot: ShopBot, se
     if seconds is not None and not (MESSAGE_BATCH_MIN_SECONDS <= seconds <= MESSAGE_BATCH_MAX_SECONDS):
         raise ValueError("message_batch_seconds_out_of_range")
     shop_bot.message_batch_seconds = seconds
+    await session.flush()
+
+
+# =============================================================================
+# P18 · B5 — زمانِ گزارشِ دوره‌ایِ هر فروشگاه (روزِ هفته + ساعت، به وقتِ تهران)
+# =============================================================================
+REPORT_HOUR_MIN = 0
+REPORT_HOUR_MAX = 23
+REPORT_WEEKDAY_MIN = 0
+REPORT_WEEKDAY_MAX = 6
+
+
+def parse_report_hour(raw) -> int | None:
+    """ورودیِ فروشگاه‌دار → ساعتِ ۰..۲۳ به وقتِ تهران؛ نامعتبر → None."""
+    digits = _decimal_digits(raw)
+    if digits is None:
+        return None
+    value = int(digits)
+    if value < REPORT_HOUR_MIN or value > REPORT_HOUR_MAX:
+        return None
+    return value
+
+
+def valid_report_weekday(value) -> bool:
+    return isinstance(value, int) and REPORT_WEEKDAY_MIN <= value <= REPORT_WEEKDAY_MAX
+
+
+async def set_report_schedule(
+    session: AsyncSession, shop_bot: ShopBot, *, weekday: int | None = None, hour: int | None = None, enabled: bool | None = None
+) -> None:
+    """هر سه پارامتر اختیاری‌اند؛ مقدارِ نامعتبر → ValueError (هیچ نیمه‌نوشتنی اتفاق نمی‌افتد)."""
+    if weekday is not None and not valid_report_weekday(weekday):
+        raise ValueError("weekly_report_weekday_out_of_range")
+    if hour is not None and not (REPORT_HOUR_MIN <= hour <= REPORT_HOUR_MAX):
+        raise ValueError("weekly_report_hour_out_of_range")
+    if weekday is not None:
+        shop_bot.weekly_report_weekday = weekday
+    if hour is not None:
+        shop_bot.weekly_report_hour = hour
+    if enabled is not None:
+        shop_bot.weekly_report_enabled = enabled
     await session.flush()
 
 

@@ -124,8 +124,6 @@ class AdminChannelStates(StatesGroup):
 
 
 class AdminPricingStates(StatesGroup):
-    waiting_plan_duration = State()
-    waiting_plan_price = State()
     waiting_discount_code = State()
     waiting_discount_type = State()
     waiting_discount_value = State()
@@ -211,6 +209,7 @@ class ShopSettingsStates(StatesGroup):
     waiting_support_username = State()
     waiting_support_phone = State()
     waiting_support_text = State()
+    waiting_report_hour = State()
 
 
 class OrderOpsStates(StatesGroup):
