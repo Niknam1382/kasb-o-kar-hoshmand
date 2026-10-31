@@ -44,9 +44,13 @@ async def test_card_instructions_use_html_code_formatting(main_dp) -> None:
     await main_dp.feed_update(main_bot, make_callback_update(4, data="skip_discount", user_id=OWNER_TG_ID))
     await main_dp.feed_update(main_bot, make_callback_update(5, data="payment_method:card", user_id=OWNER_TG_ID))
 
-    last_message = session_obj.sent_messages[-1]
-    assert "<code>" in last_message["text"], "باید از تگِ <code> برای کپی‌سریع استفاده بشه"
-    assert "6037-9977-1234-5678" in last_message["text"]
+    # A7: بعد از دستورالعملِ کارت، یک پیامِ «رسید بفرست / ⬅️ برگشت» می‌آید؛ دستورالعمل پیامِ قبلی است.
+    instructions = [m for m in session_obj.sent_messages if "شماره کارت" in m["text"]]
+    assert len(instructions) == 1, session_obj.sent_messages
+    assert "<code>" in instructions[0]["text"], "باید از تگِ <code> برای کپی‌سریع استفاده بشه"
+    assert "6037-9977-1234-5678" in instructions[0]["text"]
+    assert instructions[0].get("parse_mode") == "HTML"
+    assert any("⬅️ برگشت" in m["text"] for m in session_obj.sent_messages), "پیامِ رسیدِ متنی/عکسی با دکمه‌یِ برگشت"
     print("✅ test_card_instructions_use_html_code_formatting PASSED")
 
 

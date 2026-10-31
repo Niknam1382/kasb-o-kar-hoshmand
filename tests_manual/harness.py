@@ -103,7 +103,12 @@ class FakeSession(BaseSession):
 
         if name == "SendMessage":
             self.sent_messages.append(
-                {"chat_id": method.chat_id, "text": method.text, "reply_markup": getattr(method, "reply_markup", None)}
+                {
+                    "chat_id": method.chat_id,
+                    "text": method.text,
+                    "reply_markup": getattr(method, "reply_markup", None),
+                    "parse_mode": getattr(method, "parse_mode", None),
+                }
             )
             return self._build_message(method.chat_id, text=method.text, reply_markup=getattr(method, "reply_markup", None))
 
