@@ -5,7 +5,7 @@ import datetime
 import logging
 import secrets
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import OtpCode
@@ -21,6 +21,12 @@ SEND_WINDOW_MINUTES = 60
 # تعدادِ پیامک‌هایِ ارسالی طیِ این پنجره، مبنایِ برآوردِ حجم/هزینه در پنلِ ادمین است
 # (کاوه‌نگار به‌ازایِ پیام صورتحساب می‌کند؛ نرخِ واحد را ما نمی‌دانیم و عددِ ساختگی نمی‌سازیم).
 COST_WINDOW_DAYS = 30
+
+
+async def _count(session: AsyncSession, *conditions) -> int:
+    """شمارش در SQL (ردیف‌ها به پایتون نمی‌آیند) — هر دو شمارنده‌یِ سقف/حجم از این استفاده می‌کنند."""
+    result = await session.execute(select(func.count()).select_from(OtpCode).where(*conditions))
+    return int(result.scalar_one())
 
 
 async def generate_otp(session: AsyncSession, shop_owner_id: int, purpose: str, phone_number: str | None = None) -> str:
@@ -59,15 +65,7 @@ async def sent_recently(session: AsyncSession, phone_number: str | None, purpose
     if not phone_number:
         return 0
     since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=SEND_WINDOW_MINUTES)
-    result = await session.execute(
-        select(OtpCode).where(
-            OtpCode.phone_number == phone_number,
-            OtpCode.purpose == purpose,
-            OtpCode.sent_at.is_not(None),
-            OtpCode.sent_at >= since,
-        )
-    )
-    return len(list(result.scalars().all()))
+    return await _count(session, OtpCode.phone_number == phone_number, OtpCode.purpose == purpose, OtpCode.sent_at >= since)
 
 
 async def mark_sent(session: AsyncSession, otp: OtpCode, provider_status: str | None) -> None:
@@ -80,10 +78,7 @@ async def mark_sent(session: AsyncSession, otp: OtpCode, provider_status: str | 
 async def sent_count_within(session: AsyncSession, days: int = COST_WINDOW_DAYS) -> int:
     """تعدادِ پیامک‌هایِ موفقی که در پنجره‌یِ N روزه رفته (مبنایِ نمایشِ حجم/هزینه در پنل)."""
     since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
-    result = await session.execute(
-        select(OtpCode).where(OtpCode.sent_at.is_not(None), OtpCode.sent_at >= since)
-    )
-    return len(list(result.scalars().all()))
+    return await _count(session, OtpCode.sent_at >= since)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -115,10 +110,11 @@ async def send_phone_code(
     otp = await pending_otp(session, shop_owner_id, purpose)
     try:
         # سرشماره می‌تواند در دیتابیسِ قدیمی با ارقامِ فارسی مانده باشد؛ provider فقط لاتین می‌پذیرد.
+        # قالبِ تنظیم‌نشده هم همین‌جا به پیش‌فرض تبدیل می‌شود تا هر provider یکسان صدا زده شود.
         status = await sms_service.get_sms_service(
             admin_settings.sms_api_key,
             sms_service.normalize_sender_digits(admin_settings.sms_sender_number),
-            admin_settings.sms_otp_template,
+            admin_settings.sms_otp_template or sms_service.DEFAULT_OTP_TEMPLATE,
         ).send_otp(phone, code)
     except sms_service.SmsServiceError as exc:
         logger.warning("ارسال پیامکِ OTP ناموفق بود: %s", exc)
