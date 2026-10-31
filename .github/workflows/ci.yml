@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kasbokar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kasbokar
+      MAIN_BOT_TOKEN: "000000:CI_FAKE_TOKEN"
+      ADMIN_TELEGRAM_IDS: "12345"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Generate a throwaway encryption key for CI
+        run: echo "ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> "$GITHUB_ENV"
+
+      # عمداً گزارشی‌ست، نه مسدودکننده: چون تا الان ruff هیچ‌وقت روی کدِ
+      # فعلی اجرا نشده، ممکنه اولین اجرا چندتا هشدارِ قدیمی نشون بده. بعدِ
+      # اینکه دیدیمشون و لازم بود پاک‌سازی کردیم، این خط رو بدونِ
+      # continue-on-error بذار تا واقعاً CI رو رد کنه.
+      - name: Lint (ruff) — reporting only for now
+        run: ruff check .
+        continue-on-error: true
+
+      - name: Run database migrations
+        run: alembic upgrade head
+
+      - name: Run test suite
+        run: python3 tests_manual/run_all_tests.py

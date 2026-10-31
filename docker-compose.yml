@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: kasbokar
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"  # فقط لوکال؛ هرگز روی اینترنت باز نشه (رمزِ پیش‌فرض postgres است)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: &log_rotation  # W5: چرخشِ لاگ تا دیسک پر نشه (۵ فایل × ۱۰ مگابایت)
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *log_rotation
+
+volumes:
+  postgres_data:

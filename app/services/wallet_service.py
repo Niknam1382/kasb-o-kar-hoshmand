@@ -1,0 +1,405 @@
+"""
+سرویسِ کیف‌پول — جایگزینِ سیستمِ اشتراکِ ثابتِ ماهانه.
+
+منطقِ اصلی:
+- هر «شارژ» (WalletCharge) یه بسته‌ی مستقله با تاریخِ انقضای خودش (پیش‌فرض ۱۲
+  ماه، در پنلِ ادمین قابل‌تغییر).
+- مصرف به‌صورتِ FIFO از قدیمی‌ترین شارژِ منقضی‌نشده کم می‌شه؛ اگه یه مصرف بزرگ‌تر
+  از یه بسته باشه، بینِ چند بسته پخش می‌شه.
+- انقضا به‌صورتِ روزانه (نه لحظه‌ای) چک می‌شه، توسطِ expire_stale_charges که از
+  اسکجولر صدا زده می‌شه — همینطور یادآوری‌های ۳۰/۷/۱ روزه.
+- wallet_balance_toman روی ShopOwner یه مقدارِ کش‌شده‌ست (برای اینکه چک‌کردنِ
+  موجودی، که توی مسیرِ داغِ هر پیامِ مشتری اتفاق می‌افته، نیازی به SUM زدن روی
+  چندین ردیف نداشته باشه)؛ همیشه باید با مجموعِ remaining_toman روی
+  WalletCharge های منقضی‌نشده هم‌خوان بمونه.
+"""
+from __future__ import annotations
+
+import datetime
+import logging
+
+from sqlalchemy import func, or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database.models import ShopOwner, WalletCharge, WalletTransaction, WalletTransactionReason
+from app.services import time_freeze_service
+from app.services.admin_settings_service import get_admin_settings
+
+logger = logging.getLogger(__name__)
+
+
+async def _apply_balance_delta(session: AsyncSession, owner: ShopOwner, delta_toman: int) -> None:
+    """
+    wallet_balance_toman رو با یه UPDATEِ اتمیکِ سطحِ دیتابیس تغییر می‌ده
+    (SET wallet_balance_toman = wallet_balance_toman + delta)، نه با
+    خوندن‌وتغییردادنِ مقدارِ پایتونی (owner.wallet_balance_toman += delta)
+    که در برابرِ lost update آسیب‌پذیره: چون کسرِ هزینه‌ی پاسخِ چت و کسرِ
+    هزینه‌ی تشخیصِ سفارش برای هر پیامِ مشتری در دو تسکِ async مجزا (و در
+    نتیجه دو session/تراکنشِ جدا) هم‌زمان اجرا می‌شن، دو نمونه‌ی جداگانه از
+    owner می‌تونن هم‌زمان از یه مقدارِ قدیمی شروع کنن و یکی، تغییرِ اون
+    یکی رو overwrite کنه. UPDATE با expressionِ ستونی، برخلافِ این، همیشه
+    رویِ مقدارِ *فعلیِ* ردیف در دیتابیس عمل می‌کنه، نه رویِ یه کپیِ پایتونیِ
+    احتمالاً stale — پس امنه حتی وقتی چند تراکنشِ هم‌زمان روی همین owner کار
+    می‌کنن. بعدِ UPDATE، مقدارِ واقعیِ جدید رو از RETURNING می‌گیریم و روی
+    خودِ owner هم می‌ذاریم تا کدِ بعدیِ همین تابع/caller (مثلاً چکِ آستانه‌ی
+    هشدارِ موجودیِ کم) مقدارِ درست رو ببینه، نه مقدارِ قبل‌ازِ-این-تغییر رو.
+    """
+    result = await session.execute(
+        update(ShopOwner)
+        .where(ShopOwner.id == owner.id)
+        .values(wallet_balance_toman=ShopOwner.wallet_balance_toman + delta_toman)
+        .returning(ShopOwner.wallet_balance_toman)
+    )
+    owner.wallet_balance_toman = result.scalar_one()
+
+
+async def add_charge(
+    session: AsyncSession,
+    owner: ShopOwner,
+    amount_toman: int,
+    reason: WalletTransactionReason = WalletTransactionReason.TOPUP,
+    payment_id: int | None = None,
+    validity_months: int | None = None,
+    reference: str | None = None,
+) -> WalletCharge:
+    """یه بسته‌ی شارژِ جدید می‌سازه (با انقضای مستقل) و موجودیِ کش‌شده رو آپدیت می‌کنه."""
+    if amount_toman <= 0:
+        raise ValueError("مبلغِ شارژ باید مثبت باشه")
+
+    if validity_months is None:
+        admin_settings = await get_admin_settings(session)
+        validity_months = admin_settings.wallet_topup_validity_months
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expires_at = now + datetime.timedelta(days=validity_months * 30)
+
+    charge = WalletCharge(
+        shop_owner_id=owner.id,
+        payment_id=payment_id,
+        amount_toman=amount_toman,
+        remaining_toman=amount_toman,
+        expires_at=expires_at,
+    )
+    session.add(charge)
+    await session.flush()
+
+    await _apply_balance_delta(session, owner, amount_toman)
+    owner.wallet_empty_notified_at = None
+    owner.wallet_low_balance_notified_at = None
+    session.add(
+        WalletTransaction(
+            shop_owner_id=owner.id, wallet_charge_id=charge.id, amount_toman=amount_toman, reason=reason, reference=reference
+        )
+    )
+    await session.flush()
+    return charge
+
+
+async def deduct(
+    session: AsyncSession,
+    owner: ShopOwner,
+    amount_toman: int,
+    reason: WalletTransactionReason,
+    reference: str | None = None,
+) -> bool:
+    """
+    از قدیمی‌ترین شارژِ منقضی‌نشده (FIFO) کم می‌کنه، حتی اگه بینِ چند بسته پخش
+    بشه. اگه موجودی کافی نبود، هیچ تغییری اعمال نمی‌شه و False برمی‌گرده —
+    caller باید به‌جای پاسخِ عادی، پیامِ کمبودِ اعتبار به فروشگاه‌دار نشون بده
+    (نه به مشتری).
+    """
+    if amount_toman <= 0:
+        return True
+
+    result = await session.execute(
+        select(WalletCharge)
+        .where(WalletCharge.shop_owner_id == owner.id, WalletCharge.is_expired.is_(False), WalletCharge.remaining_toman > 0)
+        .order_by(WalletCharge.expires_at.asc())
+        .with_for_update()
+    )
+    charges = list(result.scalars().all())
+
+    # مهم: قبل از هرگونه mutation چک می‌کنیم که مجموعِ بسته‌ها اصلاً کافیه یا
+    # نه. قبلاً این چک بعدِ حلقه بود (بعدِ اینکه charge.remaining_toman ی
+    # بسته‌هایی که تا اون لحظه پردازش شده بودن از قبل کم شده بود و
+    # WalletTransactionِ متناظرشون هم session.add شده بود) — یعنی حتی
+    # وقتی نهایتاً False برمی‌گردوند، اون کاهش‌های نصفه‌کاره (چون هیچ
+    # commit/rollبکِ صریحی هم نبود) با commitِ نهاییِ همون session
+    # (مثلاً توسطِ DbSessionMiddleware در پایانِ آپدیت) واقعاً پایدار می‌شدن
+    # — دقیقاً برخلافِ چیزی که این تابع ادعا می‌کرد («هیچ تغییری اعمال
+    # نمی‌شه»). چون .with_for_update() از همین اول قفل گرفته، هیچ تراکنشِ
+    # هم‌زمانِ دیگه‌ای نمی‌تونه بینِ این چک و حلقه‌ی پایین چیزی رو عوض کنه.
+    if sum(charge.remaining_toman for charge in charges) < amount_toman:
+        logger.warning("کسرِ %s تومنی برای shop_owner_id=%s رد شد — موجودی کافی نیست.", amount_toman, owner.id)
+        return False
+
+    remaining_to_deduct = amount_toman
+    for charge in charges:
+        if remaining_to_deduct <= 0:
+            break
+        take = min(charge.remaining_toman, remaining_to_deduct)
+        charge.remaining_toman -= take
+        remaining_to_deduct -= take
+        session.add(
+            WalletTransaction(
+                shop_owner_id=owner.id, wallet_charge_id=charge.id, amount_toman=-take, reason=reason, reference=reference
+            )
+        )
+
+    if remaining_to_deduct > 0:
+        # به‌طورِ نظری دیگه نباید به اینجا برسیم (چونِ چکِ بالا از قبل مجموع
+        # رو تایید کرده و ردیف‌ها هم قفل‌ان) — نگهش داشتیم فقط به‌عنوانِ یه
+        # محافظِ نهایی در برابرِ ناسازگاریِ داده‌ای که واقعاً نباید پیش بیاد.
+        logger.error(
+            "ناسازگاریِ غیرمنتظره‌ی موجودیِ کیف‌پول برای shop_owner_id=%s: بعدِ تاییدِ کافی‌بودن، بازم %s تومن کم اومد.",
+            owner.id,
+            remaining_to_deduct,
+        )
+        return False
+
+    await _apply_balance_delta(session, owner, -amount_toman)
+    await session.flush()
+    return True
+
+
+def compute_cost_per_1k_tokens_from_formula(admin_settings) -> int:
+    """
+    (هزینه‌ی خامِ AI به ازای ۱۰۰۰ توکن، به دلار) × (نرخِ دلار به تومان) ×
+    (ضریبِ سود که هزینه‌ی سرور رو هم پوشش می‌ده) — نتیجه به تومان، حداقل ۱.
+    این فقط محاسبه می‌کنه؛ ذخیره‌کردنِ نتیجه توی wallet_cost_per_1k_tokens_toman
+    برعهده‌ی caller ـه (دکمه‌ی «محاسبه‌ی خودکار» در پنلِ ادمین).
+    """
+    usd_per_1k = admin_settings.ai_cost_usd_per_1m_tokens / 1000
+    raw_toman = usd_per_1k * admin_settings.usd_to_toman_rate
+    return max(1, round(raw_toman * admin_settings.wallet_markup_multiplier))
+
+
+async def get_balance(owner: ShopOwner) -> int:
+    return owner.wallet_balance_toman
+
+
+async def get_recent_transactions(session: AsyncSession, owner_id: int, limit: int = 15) -> list[WalletTransaction]:
+    """
+    آخرین تراکنش‌های کیف‌پول رو برمی‌گردونه (جدیدترین اول) — برای نمایشِ
+    تاریخچه به خودِ فروشگاه‌دار، تا فقط موجودیِ فعلی رو نبینه بلکه بدونه
+    هر تغییری به چه دلیلی بوده.
+    """
+    result = await session.execute(
+        select(WalletTransaction)
+        .where(WalletTransaction.shop_owner_id == owner_id)
+        .order_by(WalletTransaction.id.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def has_ever_had_wallet_activity(session: AsyncSession, owner: ShopOwner) -> bool:
+    result = await session.execute(select(WalletCharge.id).where(WalletCharge.shop_owner_id == owner.id).limit(1))
+    return result.scalar_one_or_none() is not None
+
+
+async def expire_stale_charges(session: AsyncSession) -> int:
+    """
+    کارِ روزانه: بسته‌هایی که تاریخِ انقضاشون گذشته رو می‌بنده و از موجودیِ
+    کش‌شده کم می‌کنه. عمداً روزانه‌ست (نه لحظه‌ای) تا وسطِ یه مکالمه/مصرفِ
+    درحال‌انجام چیزی قطع نشه.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    all_frozen, frozen_ids = await time_freeze_service.frozen_filter(session)  # W5 · K3: توقفِ زمان
+    if all_frozen:
+        return 0
+    stale_query = select(WalletCharge).where(
+        WalletCharge.is_expired.is_(False), WalletCharge.expires_at <= now, WalletCharge.remaining_toman > 0
+    )
+    if frozen_ids:
+        stale_query = stale_query.where(WalletCharge.shop_owner_id.notin_(frozen_ids))
+    result = await session.execute(stale_query)
+    stale_charges = list(result.scalars().all())
+
+    owner_ids = {c.shop_owner_id for c in stale_charges}
+    owners_by_id: dict[int, ShopOwner] = {}
+    if owner_ids:
+        owners_result = await session.execute(select(ShopOwner).where(ShopOwner.id.in_(owner_ids)))
+        owners_by_id = {o.id: o for o in owners_result.scalars().all()}
+
+    count = 0
+    for charge in stale_charges:
+        owner = owners_by_id.get(charge.shop_owner_id)
+        if owner is None:
+            continue
+        expired_amount = charge.remaining_toman
+        await session.execute(
+            update(ShopOwner)
+            .where(ShopOwner.id == owner.id)
+            .values(wallet_balance_toman=func.greatest(0, ShopOwner.wallet_balance_toman - expired_amount))
+        )
+        session.add(
+            WalletTransaction(
+                shop_owner_id=owner.id,
+                wallet_charge_id=charge.id,
+                amount_toman=-expired_amount,
+                reason=WalletTransactionReason.EXPIRY,
+            )
+        )
+        charge.remaining_toman = 0
+        charge.is_expired = True
+        count += 1
+
+    await session.flush()
+    return count
+
+
+async def find_charges_needing_reminder(session: AsyncSession) -> list[tuple[WalletCharge, int]]:
+    """
+    بسته‌هایی که به یکی از مرزهای یادآوری (۳۰، ۷، یا ۱ روزِ مونده) رسیدن و هنوز
+    یادآوریِ اون مرحله براشون نرفته رو برمی‌گردونه.
+
+    نکته‌ی مهم: بازه‌ها باید متقابلاً منحصر باشن — بسته‌ای که مثلاً ۵ روز
+    مونده داره، فقط باید تگِ «۷ روز مونده» بگیره، نه هم «۳۰ روز» هم «۷ روز»
+    (که گمراه‌کننده بود، چون واقعاً ۳۰ روز نمونده). برای همین همیشه نزدیک‌ترین
+    مرزِ صادق رو انتخاب می‌کنیم، نه هر مرزی که از دیدِ ریاضی بزرگ‌تره.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    due: list[tuple[WalletCharge, int]] = []
+
+    all_frozen, frozen_ids = await time_freeze_service.frozen_filter(session)  # W5 · K3: در توقف یادآوری نمی‌ره
+    if all_frozen:
+        return due
+    reminder_query = select(WalletCharge).where(
+        WalletCharge.is_expired.is_(False),
+        WalletCharge.remaining_toman > 0,
+        WalletCharge.expires_at > now,
+        WalletCharge.expires_at <= now + datetime.timedelta(days=30),
+    )
+    if frozen_ids:
+        reminder_query = reminder_query.where(WalletCharge.shop_owner_id.notin_(frozen_ids))
+    result = await session.execute(reminder_query)
+    for charge in result.scalars().all():
+        days_left = (charge.expires_at - now).days
+        # هر آستانه فقط وقتی کاندیدِ معتبره که نه خودش قبلاً رفته، نه هیچ
+        # آستانه‌ی محکم‌ترِ (نزدیک‌تر به انقضا) دیگه‌ای رفته باشه — وگرنه بعد
+        # از فرستادنِ «۷ روز مونده»، ممکنه بعداً به‌اشتباه «۳۰ روز مونده» هم
+        # بفرستیم که یه پسرفتِ گیج‌کننده‌ست.
+        candidates = []
+        if days_left <= 1 and not charge.reminder_1d_sent:
+            candidates.append(1)
+        if days_left <= 7 and not charge.reminder_7d_sent and not charge.reminder_1d_sent:
+            candidates.append(7)
+        if days_left <= 30 and not charge.reminder_30d_sent and not charge.reminder_7d_sent and not charge.reminder_1d_sent:
+            candidates.append(30)
+        if candidates:
+            due.append((charge, min(candidates)))
+
+    return due
+
+
+async def mark_reminder_sent(session: AsyncSession, charge: WalletCharge, days: int) -> None:
+    if days == 30:
+        charge.reminder_30d_sent = True
+    elif days == 7:
+        charge.reminder_7d_sent = True
+    elif days == 1:
+        charge.reminder_1d_sent = True
+    await session.flush()
+
+
+# --- محاسبه‌ی هزینه‌ی وزن‌دار ---
+
+
+def estimate_chat_cost(admin_settings, total_tokens: int | None) -> int:
+    if total_tokens is None:
+        total_tokens = 800  # تخمینِ محافظه‌کارانه اگه ارائه‌دهنده usage برنگردوند
+    return max(1, round(total_tokens * admin_settings.wallet_cost_per_1k_tokens_toman / 1000))
+
+
+def estimate_photo_cost(admin_settings) -> int:
+    return admin_settings.wallet_cost_photo_analysis_toman
+
+
+def estimate_voice_cost(admin_settings) -> int:
+    return admin_settings.wallet_cost_voice_transcription_toman
+
+
+def estimate_order_detection_cost(admin_settings, total_tokens: int | None) -> int:
+    if total_tokens is None:
+        return admin_settings.wallet_cost_order_detection_toman
+    return max(1, round(total_tokens * admin_settings.wallet_cost_per_1k_tokens_toman / 1000))
+
+
+def estimate_cart_edit_cost(admin_settings, total_tokens: int | None) -> int:
+    """تحلیلِ «آیا این پیام یه دستورِ ویرایشِ سبده؟» دقیقاً از جنسِ تشخیصِ سفارشه
+    (یه فراخوانیِ کوتاهِ تحلیلی که خروجیش JSON ـه)، پس همون فرمولِ وزن‌دارِ
+    توکن‌محور رو استفاده می‌کنه — نه یه تنظیمِ ادمینِ جدا، تا لازم نباشه مایگریشن
+    یا صفحه‌ی تنظیمات اضافه بشه."""
+    return estimate_order_detection_cost(admin_settings, total_tokens)
+
+
+# تعدادِ توکنِ «معمولی» برایِ تخمینِ قبل از اجرا (نمایشِ «حدودِ X تومان» و چکِ موجودی).
+CRM_SUMMARY_TYPICAL_TOKENS = 1500
+OWNER_ASSISTANT_TYPICAL_TOKENS = 1200
+
+
+def estimate_crm_summary_cost(admin_settings, total_tokens: int | None) -> int:
+    """خلاصه‌یِ هوشمندِ مشتری (فازِ ۴-ج): همون فرمولِ وزن‌دارِ توکن‌محورِ چت؛ اگه ارائه‌دهنده usage
+    برنگردوند، تخمینِ محافظه‌کارانه‌یِ چت (۸۰۰ توکن). نه تنظیمِ ادمینِ جدا، نه مایگریشن."""
+    return estimate_chat_cost(admin_settings, total_tokens)
+
+
+def estimate_owner_assistant_cost(admin_settings, total_tokens: int | None) -> int:
+    """یه پیامِ دستیارِ مدیریتی (فازِ ۴-د): همون فرمولِ توکن‌محورِ چت."""
+    return estimate_chat_cost(admin_settings, total_tokens)
+
+
+# --- اطلاع‌رسانیِ کمبودِ اعتبار (با محافظت در برابرِ اسپم) ---
+
+_LOW_BALANCE_RENOTIFY_HOURS = 24
+_EMPTY_RENOTIFY_HOURS = 6
+
+
+async def try_claim_empty_notification(session: AsyncSession, owner: ShopOwner) -> bool:
+    """
+    اتمیک (UPDATE...WHERE سطحِ دیتابیس، نه چک‌وسِت پایتونی): True فقط به یه
+    caller برمی‌گرده، حتی اگه دو تسکِ هم‌زمان (با سشن‌های جدا، مثلِ کسرِ
+    هزینه‌ی پاسخِ چت و کسرِ هزینه‌ی تشخیصِ سفارش که واقعاً به‌صورتِ دو تسکِ
+    async مجزا اجرا می‌شن) هم‌زمان صداش بزنن — دقیقاً همون کلاسِ مشکلی که
+    _apply_balance_delta برایِ خودِ موجودی حلش کرده، اینجا برایِ فلگِ
+    ضدِ-اسپم‌ِ اطلاع‌رسانی. قبلاً این چک با should_notify_empty (که فقط
+    owner ی از یه session رو توی پایتون می‌خوند) + mark_empty_notified
+    جدا انجام می‌شد؛ چون دو session ی جدا از هم بی‌خبرن، هر دو می‌تونستن
+    هم‌زمان «هنوز نرفته» ببینن و هر دو پیام بفرستن — دقیقاً باگی که این
+    نسخه‌ی اتمیک رفعش می‌کنه.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    threshold = now - datetime.timedelta(hours=_EMPTY_RENOTIFY_HOURS)
+    result = await session.execute(
+        update(ShopOwner)
+        .where(
+            ShopOwner.id == owner.id,
+            or_(ShopOwner.wallet_empty_notified_at.is_(None), ShopOwner.wallet_empty_notified_at <= threshold),
+        )
+        .values(wallet_empty_notified_at=now)
+        .returning(ShopOwner.id)
+    )
+    claimed = result.scalar_one_or_none() is not None
+    if claimed:
+        owner.wallet_empty_notified_at = now
+    return claimed
+
+
+async def try_claim_low_balance_notification(session: AsyncSession, owner: ShopOwner) -> bool:
+    """مثلِ try_claim_empty_notification، ولی برایِ هشدارِ «موجودی داره کم می‌شه» (نه «تمومِ کامل»)."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    threshold = now - datetime.timedelta(hours=_LOW_BALANCE_RENOTIFY_HOURS)
+    result = await session.execute(
+        update(ShopOwner)
+        .where(
+            ShopOwner.id == owner.id,
+            or_(ShopOwner.wallet_low_balance_notified_at.is_(None), ShopOwner.wallet_low_balance_notified_at <= threshold),
+        )
+        .values(wallet_low_balance_notified_at=now)
+        .returning(ShopOwner.id)
+    )
+    claimed = result.scalar_one_or_none() is not None
+    if claimed:
+        owner.wallet_low_balance_notified_at = now
+    return claimed
