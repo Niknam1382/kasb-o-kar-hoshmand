@@ -20,7 +20,7 @@ from __future__ import annotations
 import datetime
 import logging
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,10 @@ FAILED = "failed"
 MAX_ATTEMPTS = 6
 BACKOFF_SECONDS = (30, 120, 600, 1800, 3600, 7200)
 DUE_LIMIT = 50
+# P21-B (O3): مهلتِ نگهداریِ خودِ صف. `sent` بعد از ۳۰ روز بی‌فایده است؛ `failed` ۹۰ روز
+# می‌ماند چون «چه خبری هرگز نرسید» برایِ تشخیصِ قطعیِ تلگرام/بله لازم است.
+SENT_RETENTION_DAYS = 30
+FAILED_RETENTION_DAYS = 90
 
 
 def _utcnow() -> datetime.datetime:
@@ -170,3 +174,32 @@ async def retry_failed(session: AsyncSession) -> int:
     )
     await session.flush()
     return int(result.rowcount or 0)
+
+
+async def prune_aged(
+    session: AsyncSession,
+    *,
+    sent_days: int = SENT_RETENTION_DAYS,
+    failed_days: int = FAILED_RETENTION_DAYS,
+    now: datetime.datetime | None = None,
+) -> int:
+    """ردیف‌هایِ کهنهٔ صف را پاک می‌کند. بدونِ این، جدولِ تازه‌یِ P20 تا ابد رشد می‌کرد.
+
+    دو مهلتِ جدا عمدی است: `sent` دیگر هیچ ارزشی ندارد (خبر رفته و در دفترِ سفارش هم ثبت شده)
+    ولی `failed` سابقهٔ «چه خبری به مشتری نرسید» است و برایِ تشخیصِ قطعیِ تلگرام/بله لازم است،
+    پس ۹۰ روز می‌ماند. `pending` هرگز پاک نمی‌شود — آن بدهیِ ارسال است، نه تاریخچه.
+    """
+    now = now or _utcnow()
+    removed = 0
+    for status, days in ((SENT, sent_days), (FAILED, failed_days)):
+        if days <= 0:
+            continue
+        result = await session.execute(
+            delete(Notification).where(
+                Notification.status == status,
+                Notification.created_at < now - datetime.timedelta(days=days),
+            )
+        )
+        removed += int(result.rowcount or 0)
+    await session.flush()
+    return removed

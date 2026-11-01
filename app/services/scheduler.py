@@ -81,6 +81,10 @@ async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
             default_days = shop_prefs_service.resolve(shop_prefs_service.CONVERSATION_RETENTION, None, admin_settings)
             retention_by_shop = await shop_prefs_service.retention_by_shop(session, admin_settings)
             await conversation_service.prune_old_messages_for_shops(session, retention_by_shop, default_days)
+            # P21-B (O3): خودِ صفِ اعلان هم باید پاک‌سازی شود (در P20 ساخته شد و هیچ مهلتی نداشت).
+            pruned = await notification_service.prune_aged(session)
+        if pruned:
+            logger.info("پاک‌سازیِ صفِ اعلان‌ها: %s ردیفِ کهنه حذف شد.", pruned)
 
 
 async def reconcile_wallet_ledgers() -> int:

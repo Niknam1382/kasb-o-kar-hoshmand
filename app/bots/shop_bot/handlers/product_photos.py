@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Product, TenantMode
-from app.services import product_photo_service, product_service, platform_service, shop_bot_service
+from app.services import product_photo_service, product_service, shop_bot_service
 from app.utils.validators import format_toman
 
 router = Router(name="shop_product_photos")

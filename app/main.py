@@ -10,7 +10,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
-from fastapi import FastAPI, Request, Response
+from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import select
 
@@ -164,6 +164,11 @@ async def run_polling() -> None:
     await _load_active_shop_bots(bot_manager, main_bot)
 
     stop_event = asyncio.Event()
+    # O2: /health و /metrics در حالتِ polling هم در دسترس‌اند (اپِ سلامت، بدونِ مسیرِ وب‌هوک)
+    _state["main_bot"] = main_bot
+    _state["bot_manager"] = bot_manager
+    _state["stop_event"] = stop_event
+    health = _start_health_server()
     scheduler_task = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, stop_event, bot_manager))
     payment_expiry_task = asyncio.create_task(scheduler.run_payment_expiry_loop(main_bot, bot_manager, stop_event))
     bale_updates_task = await _start_bale_updates_polling(stop_event)  # B6: بدونِ سرورِ HTTP هم پرداختِ بله‌پی دریافت می‌شه
@@ -177,6 +182,7 @@ async def run_polling() -> None:
         await payment_expiry_task
         if bale_updates_task is not None:
             await bale_updates_task
+        _stop_health_server(health)
         await ai_service.close_http_session()
         await admin_alert_service.shutdown()
         await main_bot.session.close()
@@ -187,6 +193,10 @@ async def run_polling() -> None:
 # =============================================================================
 # مستندات/OpenAPI عمداً غیرفعال: ساختارِ endpointها برایِ بیرون لازم نیست (کاهشِ سطحِ حمله).
 app = FastAPI(title="کسب‌وکار هوشمند", docs_url=None, redoc_url=None, openapi_url=None)
+
+# O2 (P21-B): `/health` و `/metrics` رویِ یک روترِ جدا نشسته‌اند تا در حالتِ polling هم
+# بشود آن‌ها را سرو کرد — بدونِ اینکه حتی یک مسیرِ webhook از بیرون باز شود.
+observability_router = APIRouter()
 
 _state: dict = {}
 
@@ -331,7 +341,7 @@ async def webhook_main(request: Request) -> Response:
     return Response(status_code=200)
 
 
-@app.get("/health")
+@observability_router.get("/health")
 async def health_check() -> JSONResponse:
     """
     بررسیِ سلامت برای مانیتورینگ/لودبالانسر/داکر: اتصالِ دیتابیس رو با یه کوئریِ
@@ -403,7 +413,7 @@ def _denied() -> Response:
     return Response(status_code=403)
 
 
-@app.get("/metrics")
+@observability_router.get("/metrics")
 async def metrics_endpoint(request: Request) -> Response:
     """شمارنده‌هایِ in-process به شکلِ متنِ Prometheus. با METRICS_TOKEN="" اصلاً وجود ندارد."""
     if not settings.metrics_token:
@@ -412,6 +422,54 @@ async def metrics_endpoint(request: Request) -> Response:
     if not _secrets_equal(provided, settings.metrics_token):
         return _denied()
     return PlainTextResponse(observability.render_prometheus(), media_type="text/plain; version=0.0.4")
+
+
+app.include_router(observability_router)
+
+
+def build_health_app() -> FastAPI:
+    """O2: اپِ کوچکِ سلامت برایِ حالتِ polling — **فقط** `/health` و `/metrics`.
+
+    چرا این‌طور: در `RUN_MODE=polling` هیچ سرورِ HTTP بالا نمی‌آمد، یعنی مانیتورینگِ
+    لودبالانسر/داکر و `/metrics` عملاً ناممکن بود. راهِ ساده‌تر — بالا آوردنِ اپ اصلی در هر
+    دو حالت — مسیرهایِ `/webhook/*` را هم در حالتی باز می‌کرد که رازِ وب‌هوک لازم نیست
+    (`validate_runtime_config` فقط در webhook آن را الزامی می‌کند) ⇒ هر کسی رویِ شبکهٔ داخلی
+    می‌توانست آپدیتِ جعلی بفرستد. این اپ آن مسیرها را اصلاً ندارد.
+    """
+    health_app = FastAPI(title="کسب‌وکار هوشمند — سلامت", docs_url=None, redoc_url=None, openapi_url=None)
+    health_app.include_router(observability_router)
+    return health_app
+
+
+def _start_health_server():
+    """اپِ سلامت را کنارِ polling بالا می‌آورد. None ⇒ غیرفعال (`HEALTH_ENABLED=false`)."""
+    if not settings.health_enabled:
+        return None
+    import uvicorn
+
+    config = uvicorn.Config(
+        build_health_app(),
+        host=settings.webhook_listen_host,
+        port=settings.webhook_listen_port,
+        log_level="warning",
+        access_log=False,
+        lifespan="off",
+    )
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    logger.info("اپِ سلامت روی %s:%s بالا آمد (فقط /health و /metrics).", config.host, config.port)
+    return server, task
+
+
+def _stop_health_server(health) -> None:
+    if health is None:
+        return
+    server, task = health
+    server.should_exit = True
+    try:
+        task.cancel()
+    except Exception:  # noqa: BLE001 — بستنِ سرورِ سلامت هرگز نباید shutdown را بشکند
+        logger.warning("بستنِ اپِ سلامت ناموفق بود.", exc_info=True)
 
 
 async def _bale_outcome_ok(
@@ -786,7 +844,7 @@ async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str) 
         shop_bot = await shop_bot_service.get_by_id(session, order.shop_bot_id)
         customer = await customer_service.get_by_id(session, order.customer_id)
         owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
-        order_id, order_estimated_value = order.id, order.estimated_value_toman
+        order_id = order.id
         customer_platform = customer.platform if customer is not None else None
 
     try:

@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     trust_proxy_headers: bool = False
     # P20: رازِ خواندنِ /metrics. خالی ⇒ endpoint اصلاً وجود ندارد (۴۰۴).
     metrics_token: str = ""
+    # P21-B (O2): در حالتِ polling هم یک اپِ کوچکِ «فقط /health و /metrics» بالا بیاید.
+    # مسیرهایِ webhook در این اپ نیستند، پس رازِ وب‌هوک هم مثلِ حالتِ webhook الزامی نمی‌شود.
+    health_enabled: bool = True
 
     auth_mode: AuthMode = AuthMode.TEST
 

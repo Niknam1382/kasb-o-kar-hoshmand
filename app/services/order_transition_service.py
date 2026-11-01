@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import OrderConsultation, OrderEvent, OrderStatus, Product, ShopBot
+from app.database.models import OrderConsultation, OrderEvent, OrderStatus, ShopBot
 from app.services import admin_settings_service, commission_service, order_state, product_service
 
 logger = logging.getLogger(__name__)

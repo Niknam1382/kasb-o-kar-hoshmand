@@ -16,7 +16,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.main_bot import texts as main_texts
 from app.bots.shop_bot import cart_proposal_ui as proposal_ui
 from app.bots.shop_bot import keyboards, texts
-from app.config import settings
 from app.database.models import AuditEventType, ModerationAction, OrderType, TenantMode, WalletTransactionReason
 from app.database.session import session_scope
 from app.services import (

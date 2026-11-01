@@ -145,7 +145,7 @@ def format_invoice_text(data: dict) -> str:
     if data.get("paid"):
         lines.append(f"✅ پرداخت‌شده ({method_label})")
     else:
-        lines.append(f"📝 ثبت‌شده — پرداخت در محل/هماهنگی با فروشگاه" if (data.get("payment_method") or "manual") == "manual" else f"⏳ منتظرِ پرداخت ({method_label})")
+        lines.append("📝 ثبت‌شده — پرداخت در محل/هماهنگی با فروشگاه" if (data.get("payment_method") or "manual") == "manual" else f"⏳ منتظرِ پرداخت ({method_label})")
     if data.get("signature"):
         lines.append("\nصادرشده با «کسب‌وکار هوشمند»")
     return "\n".join(lines)
@@ -265,7 +265,6 @@ def build_invoice_pdf(data: dict) -> bytes | None:
 
         # --- جدولِ اقلام (ستون‌ها راست‌به‌چپ: کالا، تعداد، مبلغ)
         def row(cells: list[tuple[float, str]], *, header: bool = False, strong: bool = False) -> None:
-            widths = [w for w, _ in cells]
             height = 7.2
             y = pdf.get_y()
             x = right

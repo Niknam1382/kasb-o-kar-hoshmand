@@ -25,7 +25,6 @@ from app.bots.main_bot import texts as main_texts
 from app.bots.shop_bot import checkout_ui as ui
 from app.bots.shop_bot import keyboards, texts
 from app.bots.shop_bot.states import CheckoutStates
-from app.config import settings
 from app.database.models import OrderStatus, OrderType
 from app.services import (
     address_book_service,

@@ -446,7 +446,6 @@ async def get_by_provider_ref(session: AsyncSession, provider_ref: str, method: 
 
 async def _reactivate_expired(session: AsyncSession, rows: list[OrderConsultation]) -> bool:
     """پرداختِ دیرهنگام: گروهِ expired دوباره رزرو می‌شه (اگه موجودی هست). برمی‌گردونه `oversold`."""
-    from app.database.models import Product
 
     oversold = False
     for row in rows:

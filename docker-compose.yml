@@ -10,6 +10,21 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-kasbokar}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # P21-B (O6): پیش‌فرض‌هایِ کانتینر برایِ یکِ سرورِ کوچک ساختاریافته‌اند (shared_buffers=128MB)
+    # و با سرورِ پیشنهادیِ مستندات (2GB) فاصله دارند؛ اینجا دست‌کم dev و prod عددِ نزدیک
+    # می‌دهند. `jit=off` برایِ کوئری‌هایِ کوتاهِ OLTP (هزینهٔ کامپایلِ LLVM بیش از سودش است) و
+    # `wal_compression=on` حجمِ وال را کم می‌کند. مقادیرِ بزرگ‌تر رویِ سرورِ واقعی:
+    # shared_buffers=2GB / effective_cache_size=6GB ⇒ PRODUCTION_DEPLOYMENT_GUIDE.md §ظرفیت.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=2GB
+      - -c
+      - wal_compression=on
+      - -c
+      - jit=off
     ports:
       - "127.0.0.1:5432:5432"  # فقط لوکال؛ هرگز روی اینترنت باز نشه (رمزِ پیش‌فرض postgres است)
     healthcheck:
