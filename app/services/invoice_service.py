@@ -247,30 +247,64 @@ def build_invoice_pdf(data: dict) -> bytes | None:
             pdf.line(_PDF_MARGIN, y, right, y)
             pdf.ln(2.5)
 
-        # --- سرصفحه: نامِ فروشگاه + شماره + تاریخِ جلالی
-        line_text(str(data.get("shop") or "—"), 16, 9.0)
-        line_text(f"فاکتور {data.get('number') or '—'}", 12, 7.0, (60, 60, 60))
-        line_text(f"تاریخ: {data.get('date') or '—'}", 10, 6.5, (60, 60, 60))
-        rule(0.8, (35, 35, 35))
+        # --- پالتِ برند (P22 · زیباییِ فاکتور): یکِ نوارِ تیرهٔ سرصفحه، ردیف‌هایِ یک‌در‌میان،
+        # و کادرِ جمعِ کل. رنگ‌ها عمداً کم‌تعداد و چاپی‌دوست‌اند (بی‌رنگ هم خوانا می‌ماند).
+        brand = (15, 94, 92)
+        brand_soft = (238, 246, 245)
+        zebra = (248, 250, 250)
+        ink = (17, 17, 17)
+        ink_soft = (95, 95, 95)
+
+        def band(text: str, sub: str) -> None:
+            """نوارِ سرصفحه: نامِ فروشگاه سمتِ راست، شماره/تاریخ سمتِ چپ، متنِ سفید."""
+            height = 17.0
+            top = pdf.get_y()
+            pdf.set_fill_color(*brand)
+            pdf.rect(_PDF_MARGIN, top, _PDF_USABLE, height, style="F")
+            pdf.set_font("fa", "", 15)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_xy(_PDF_MARGIN + 2.0, top + 2.2)
+            pdf.cell(_PDF_USABLE - 4.0, 8.0, fa(_clip(pdf, text, _PDF_USABLE - 4.0)), align="R")
+            pdf.set_font("fa", "", 9)
+            pdf.set_xy(_PDF_MARGIN + 2.0, top + 9.6)
+            pdf.cell(_PDF_USABLE - 4.0, 6.0, fa(sub), align="L")
+            pdf.set_text_color(*ink)
+            pdf.set_xy(_PDF_MARGIN, top + height + 3.0)
+
+        def chip(label: str, color: tuple[int, int, int]) -> None:
+            width = min(_PDF_USABLE, pdf.get_string_width(fa(label)) + 9.0)
+            pdf.set_fill_color(*color)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_xy(right - width, pdf.get_y())
+            pdf.cell(width, 7.0, fa(label), align="C", fill=True)
+            pdf.set_text_color(*ink)
+            pdf.set_xy(_PDF_MARGIN, pdf.get_y() + 7.0)
+
+        # --- سرصفحه
+        band(str(data.get("shop") or "—"), f"فاکتور {data.get('number') or '—'} · {data.get('date') or '—'}")
 
         # --- مشتری / تماس / آدرس
-        line_text(f"مشتری: {data.get('customer') or '—'}", 10)
+        line_text(f"مشتری: {data.get('customer') or '—'}", 10.5, 6.8)
         if data.get("phone"):
-            line_text(f"تماس: {data['phone']}", 10)
+            line_text(f"تماس: {data['phone']}", 10, 6.4, ink_soft)
         address = str(data.get("address") or "").strip()
         if address:
             pdf.set_font("fa", "", 9.5)
+            pdf.set_text_color(*ink_soft)
             pdf.multi_cell(_PDF_USABLE, 5.2, fa("آدرسِ تحویل: " + address), align="R")
+            pdf.set_text_color(*ink)
         pdf.ln(1.5)
 
         # --- جدولِ اقلام (ستون‌ها راست‌به‌چپ: کالا، تعداد، مبلغ)
-        def row(cells: list[tuple[float, str]], *, header: bool = False, strong: bool = False) -> None:
-            height = 7.2
+        def row(cells: list[tuple[float, str]], *, header: bool = False, strong: bool = False, shade: bool = False) -> None:
+            height = 7.6 if header else 7.2
             y = pdf.get_y()
             x = right
             pdf.set_font("fa", "", 10 if not strong else 10.5)
             if header:
-                pdf.set_fill_color(242, 242, 242)
+                pdf.set_fill_color(*brand)
+            elif shade or strong:
+                pdf.set_fill_color(*(brand_soft if strong else zebra))
             for width, text in cells:
                 x -= width
                 pdf.set_xy(x, y)
@@ -278,19 +312,23 @@ def build_invoice_pdf(data: dict) -> bytes | None:
                 content = fa(text)
                 if width == _COL_NAME:
                     content = _clip(pdf, content, width - 2.5)
-                pdf.cell(width, height, content, border=1, align=align, fill=header)
+                if header:
+                    pdf.set_text_color(255, 255, 255)
+                pdf.cell(width, height, content, border=1, align=align, fill=header or shade or strong)
+                if header:
+                    pdf.set_text_color(*ink)
             pdf.set_xy(_PDF_MARGIN, y + height)
 
         row([(_COL_NAME, "کالا"), (_COL_QTY, "تعداد"), (_COL_PRICE, "مبلغ")], header=True)
-        for item in (data.get("items") or [])[:_PDF_MAX_ITEMS]:
+        for index, item in enumerate((data.get("items") or [])[:_PDF_MAX_ITEMS]):
             kind = " (دیجیتال)" if item.get("kind") == "digital" else ""
             row([
                 (_COL_NAME, f"{item.get('name') or '—'}{kind}"),
                 (_COL_QTY, str(item.get("qty") or 1)),
                 (_COL_PRICE, format_toman(int(item.get("line_total") or 0))),
-            ])
+            ], shade=index % 2 == 1)
         if len(data.get("items") or []) > _PDF_MAX_ITEMS:
-            line_text(f"… و {len(data['items']) - _PDF_MAX_ITEMS} قلمِ دیگر", 9, 6.0, (90, 90, 90))
+            line_text(f"… و {len(data['items']) - _PDF_MAX_ITEMS} قلمِ دیگر", 9, 6.0, ink_soft)
 
         # --- جمع‌ها
         row([(_COL_NAME + _COL_QTY, "جمعِ اقلام"), (_COL_PRICE, format_toman(int(data.get("list_total") or 0)))])
@@ -299,24 +337,26 @@ def build_invoice_pdf(data: dict) -> bytes | None:
         if data.get("shipping"):
             method = f" — {data['shipping_method']}" if data.get("shipping_method") else ""
             row([(_COL_NAME + _COL_QTY, f"هزینه‌یِ ارسال{method}"), (_COL_PRICE, format_toman(int(data["shipping"])))])
-        pdf.set_fill_color(248, 248, 248)
-        row([(_COL_NAME + _COL_QTY, "جمعِ کل"), (_COL_PRICE, format_toman(int(data.get("total") or 0)))], strong=True)
-        pdf.ln(2.0)
+        row([(_COL_NAME + _COL_QTY, "جمعِ کل (تومان)"), (_COL_PRICE, format_toman(int(data.get("total") or 0)))], strong=True)
+        pdf.ln(3.0)
 
-        # --- وضعیتِ پرداخت
+        # --- وضعیتِ پرداخت (برچسبِ رنگی، نه فقطِ متن)
         method_label = PAYMENT_METHOD_LABELS.get(data.get("payment_method") or "manual", "—")
         if data.get("paid"):
-            line_text(f"پرداخت‌شده ({method_label})", 10.5)
+            # نکته: فونتِ Vazirmatn نشانهٔ «✓» را ندارد و در PDF جعبه می‌شود (تستِ گلیف همان را
+            # می‌گیرد)؛ پس وضعیت فقط با رنگ و متن گفته می‌شود.
+            chip(f"پرداخت‌شده ({method_label})", (22, 116, 68))
         elif (data.get("payment_method") or "manual") == "manual":
-            line_text("ثبت‌شده — پرداخت در محل/هماهنگی با فروشگاه", 10.5)
+            chip("ثبت‌شده — پرداخت در محل/هماهنگی با فروشگاه", (96, 96, 96))
         else:
-            line_text(f"منتظرِ پرداخت ({method_label})", 10.5)
+            chip(f"منتظرِ پرداخت ({method_label})", (176, 106, 10))
+        pdf.ln(2.0)
 
         # --- پاورقی
         rule(0.4)
         if data.get("signature"):
-            line_text("صادرشده با «کسب‌وکار هوشمند»", 9, 5.5, (110, 110, 110))
-        line_text(f"این فاکتور رایانه‌ای تولید شده و بدونِ امضا معتبر است — شماره‌یِ {data.get('number') or '—'}", 8.5, 5.5, (110, 110, 110))
+            line_text("صادرشده با «کسب‌وکار هوشمند»", 9, 5.5, ink_soft)
+        line_text(f"این فاکتور رایانه‌ای تولید شده و بدونِ امضا معتبر است — شماره‌یِ {data.get('number') or '—'}", 8.5, 5.5, ink_soft)
 
         return bytes(pdf.output())
     except Exception:
