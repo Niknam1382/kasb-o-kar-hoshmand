@@ -114,6 +114,7 @@ TEST_FILES = [
     "test_p21_security.py",
     "test_customer_keyboard_layout.py",
     "test_p22_wallet_months_and_wording.py",
+    "test_p22_bale_token_in_panel.py",
 ]
 
 

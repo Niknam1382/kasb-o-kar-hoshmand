@@ -15,6 +15,7 @@ import sys
 sys.path.insert(0, ".")
 sys.path.insert(0, "tests_manual")
 
+from app.bots.main_bot import keyboards as main_keyboards  # noqa: E402
 from app.bots.shop_bot import keyboards  # noqa: E402
 from app.bots.shop_bot import texts as shop_texts  # noqa: E402
 from app.database.models import TenantMode  # noqa: E402
@@ -132,12 +133,66 @@ def _card(product):
     return rows(product_photos.card_keyboard(product))
 
 
+# ============================================================================= ۶ — پنل‌هایِ ادمین و فروشگاه‌دار
+def test_panel_menus_are_paired() -> None:
+    """مشکلِ ۲ کاربر: منویِ فروشگاه‌دار «سه ردیفِ تک، بعد دونفره، بعد یکِ ردیفِ سه‌تایی» بود.
+    قاعده: هیچ ردیفی بیشتر از دو دکمه ندارد و تا ردیفِ آخر، همه دونفره‌اند."""
+    for bale_visible in (False, True):
+        for mode in ("sales", "consultation"):
+            rows_of_menu = rows(main_keyboards.shop_owner_panel_keyboard(mode, bale_visible=bale_visible))
+            widths = [len(row) for row in rows_of_menu]
+            assert max(widths) <= 2, (mode, bale_visible, widths)
+            assert all(width == 2 for width in widths[:-1]), (mode, bale_visible, widths)
+
+    for is_super in (True, False):
+        widths = [len(row) for row in rows(main_keyboards.admin_panel_keyboard(is_super))]
+        assert max(widths) <= 2 and all(width == 2 for width in widths[:-1]), (is_super, widths)
+
+    flat_super = flat(main_keyboards.admin_panel_keyboard(True))
+    assert flat_super[:4] == ["📢 مدیریت کانال‌های اجباری", "🧾 صف تایید پرداخت‌ها", "💰 تنظیمات قیمت و تخفیف", "🔑 تنظیمات کلیدها"], flat_super
+    assert "📜 گزارشِ ممیزی" in flat_super and "👑 مدیریتِ ادمین‌ها" in flat_super
+    assert flat(main_keyboards.admin_panel_keyboard(False)) == [
+        "📢 مدیریت کانال‌های اجباری",
+        "🧾 صف تایید پرداخت‌ها",
+        "📊 آمار سراسری",
+        "📣 پیام همگانی",
+        "👥 مدیریت فروشگاه‌دارها",
+        "🛡 نگهبانِ محتوا",
+        "⏱ اعتبار و زمان",
+        "📜 گزارشِ ممیزی",
+    ], "ردیف‌ها عوض شد، ترتیبِ دکمه‌ها نه"
+    print("✅ test_panel_menus_are_paired PASSED")
+
+
+def test_panel_inline_screens_are_paired() -> None:
+    class _Bot:
+        message_batch_seconds = 8
+        bale_encrypted_token = None
+        bale_bot_enabled = False
+        low_stock_alert_threshold = 3
+
+    class _Row:
+        card_enabled = bale_enabled = zarinpal_enabled = manual_enabled = auto_accept_online = True
+
+    widths = [len(row) for row in rows(main_keyboards.shop_settings_keyboard(_Bot()))]
+    assert max(widths) <= 2, widths
+    widths = [len(row) for row in rows(main_keyboards.payments_menu_keyboard(_Row(), _Bot()))]
+    assert max(widths) <= 2, widths
+    widths = [len(row) for row in rows(main_keyboards.profile_keyboard())]
+    assert widths == [2, 2, 2], widths
+    widths = [len(row) for row in rows(main_keyboards.audit_filter_keyboard("money", "24"))]
+    assert max(widths) <= 2, widths
+    print("✅ test_panel_inline_screens_are_paired PASSED")
+
+
 def main() -> None:
     test_main_menu_is_paired()
     test_pairing_never_reorders_buttons()
     test_cancel_buttons_stay_full_width()
     test_long_labels_are_not_squeezed()
     test_gallery_and_product_card_are_paired()
+    test_panel_menus_are_paired()
+    test_panel_inline_screens_are_paired()
 
 
 if __name__ == "__main__":

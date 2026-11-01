@@ -35,6 +35,33 @@ def _pagination_row(page: int, total_pages: int, callback_prefix: str) -> list[I
     return row
 
 
+def grid(buttons: list, per_row: int = 2, max_label: int = 0) -> list[list]:
+    """چینشِ دونفره (P22): همان ترتیب، `per_row` دکمه در هر ردیف، باقی‌مانده تنها.
+
+    چرا: منوهایِ این پنل سال‌ها «هر دکمه یکِ ردیفِ تمام‌عرض» بودند ⇒ منویِ بی‌نظم و بلند؛
+    کاربر هم دقیقاً همین را گفت (سه ردیفِ تک، چند ردیفِ دونفره، یکِ ردیفِ سه‌تایی).
+    `max_label` برایِ کیبوردهایِ inline لازم است: تلگرام برچسبِ بلند را در نصفِ عرض با «…»
+    می‌بُرد، پس آن دکمه تمام‌عرض می‌ماند. کیبوردهایِ reply (منویِ اصلی) این مشکل را ندارند
+    چون متن را می‌شکنند (wrap).
+    """
+    rows: list[list] = []
+    pending: list = []
+    for button in buttons:
+        if len(pending) == per_row:
+            rows.append(pending)
+            pending = []
+        if max_label and len(getattr(button, "text", "") or "") > max_label:
+            if pending:
+                rows.append(pending)
+                pending = []
+            rows.append([button])
+        else:
+            pending.append(button)
+    if pending:
+        rows.append(pending)
+    return rows
+
+
 def admin_prompt_default_keyboard(mode: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="📥 بارگذاریِ متنِ پیش‌فرض", callback_data=f"admin_prompt_default:{mode}")]])
 
@@ -136,16 +163,25 @@ def shop_owner_panel_keyboard(tenant_mode=None, bale_visible: bool = False) -> R
     rows.append(["🧩 سوال‌هایِ بی‌جواب", "📚 پرسش‌وپاسخ‌هایِ تاییدشده"])
     rows.append(["💬 دستیارِ مدیریتی"] if consultation else ["🧮 حسابداری", "💬 دستیارِ مدیریتی"])
     rows.append(["⚙️ تنظیماتِ ربات فروشگاه"])
-    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text=label) for label in row] for row in rows], resize_keyboard=True)
+    # P22: چینشِ دونفره. قبلاً ردیف‌ها قاطی بود (سه ردیفِ تک، بعد دونفره، بعد یکِ سه‌تایی) و
+    # همین منو را بی‌نظم نشان می‌داد. ترتیبِ خطیِ دکمه‌ها دست‌نخورده است ⇒ هندلرها و تست‌ها سالم‌اند.
+    labels = [label for row in rows for label in row]
+    return ReplyKeyboardMarkup(keyboard=grid([KeyboardButton(text=label) for label in labels]), resize_keyboard=True)
 
 def profile_keyboard() -> InlineKeyboardMarkup:
+    """P22: شش فعلِ این صفحه در سه ردیفِ دونفره (قبلاً دو ردیفِ تک در آخر داشت)."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✏️ نام", callback_data="pf_edit:first_name"), InlineKeyboardButton(text="✏️ نامِ خانوادگی", callback_data="pf_edit:last_name")],
-            [InlineKeyboardButton(text="✏️ موبایل", callback_data="pf_edit:phone"), InlineKeyboardButton(text="✏️ ایمیل", callback_data="pf_edit:email")],
-            [InlineKeyboardButton(text="🔀 نوعِ کسب‌وکار", callback_data="pf_mode")],
-            [InlineKeyboardButton(text="📞 پشتیبانیِ پلتفرم", callback_data="pf_support")],
-        ]
+        inline_keyboard=grid(
+            [
+                InlineKeyboardButton(text="✏️ نام", callback_data="pf_edit:first_name"),
+                InlineKeyboardButton(text="✏️ نامِ خانوادگی", callback_data="pf_edit:last_name"),
+                InlineKeyboardButton(text="✏️ موبایل", callback_data="pf_edit:phone"),
+                InlineKeyboardButton(text="✏️ ایمیل", callback_data="pf_edit:email"),
+                InlineKeyboardButton(text="🔀 نوعِ کسب‌وکار", callback_data="pf_mode"),
+                InlineKeyboardButton(text="📞 پشتیبانیِ پلتفرم", callback_data="pf_support"),
+            ],
+            max_label=26,
+        )
     )
 
 
@@ -179,11 +215,19 @@ def products_list_keyboard(products, page: int = 0, sales_mode: bool = True) -> 
         rows.append(nav)
     # C1: افزودنِ محصول (تکی و گروهی) فقط مودِ فروشگاهی — مشاوره نباید «محصول» بسازد.
     if sales_mode:
-        # فازِ ۱ · P1-S3 (B2): کالایِ دیجیتال/ارسال هم فقط مودِ فروشگاهی
-        rows.append([InlineKeyboardButton(text="➕ افزودن محصول جدید", callback_data="product_add")])
-        rows.append([InlineKeyboardButton(text="💾 افزودنِ محصولِ دیجیتال", callback_data="product_add_digital")])
-        rows.append([InlineKeyboardButton(text="🚚 روش‌هایِ ارسال", callback_data="shipping_list")])
-        rows.append([InlineKeyboardButton(text="📥 افزودن گروهی از اکسل", callback_data="product_bulk_import")])
+        # P22: چهار فعلِ این صفحه دونادونه شد (قبلاً چهار ردیفِ تک). ردیفِ نامِ محصولات تک می‌ماند
+        # چون نامِ محصول متنِ صاحبِ فروشگاه است و در نصفِ عرض با «…» بریده می‌شود.
+        rows.extend(
+            grid(
+                [
+                    InlineKeyboardButton(text="➕ افزودن محصول جدید", callback_data="product_add"),
+                    InlineKeyboardButton(text="💾 افزودنِ محصولِ دیجیتال", callback_data="product_add_digital"),
+                    InlineKeyboardButton(text="🚚 روش‌هایِ ارسال", callback_data="shipping_list"),
+                    InlineKeyboardButton(text="📥 افزودن گروهی از اکسل", callback_data="product_bulk_import"),
+                ],
+                max_label=26,
+            )
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -301,13 +345,17 @@ def choose_knowledge_bot_keyboard() -> InlineKeyboardMarkup:
 def wallet_topup_action_keyboard() -> InlineKeyboardMarkup:
     from app.bots.main_bot.texts import wallet_topup_action_label
 
+    # P22: چهار ردیفِ تک ⇒ دو ردیفِ دونفره
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=wallet_topup_action_label(), callback_data="topup_start")],
-            [InlineKeyboardButton(text="📂 پرداخت‌هایِ باز", callback_data="topup_open_list")],
-            [InlineKeyboardButton(text="🧮 محاسبه‌گرِ هزینه‌ی ماهانه", callback_data="cost_calc_start")],
-            [InlineKeyboardButton(text="📜 تاریخچه‌ی تراکنش‌ها", callback_data="wallet_history")],
-        ]
+        inline_keyboard=grid(
+            [
+                InlineKeyboardButton(text=wallet_topup_action_label(), callback_data="topup_start"),
+                InlineKeyboardButton(text="📂 پرداخت‌هایِ باز", callback_data="topup_open_list"),
+                InlineKeyboardButton(text="🧮 محاسبه‌گرِ هزینه‌ی ماهانه", callback_data="cost_calc_start"),
+                InlineKeyboardButton(text="📜 تاریخچه‌ی تراکنش‌ها", callback_data="wallet_history"),
+            ],
+            max_label=26,
+        )
     )
 
 
@@ -418,27 +466,23 @@ def confirm_customer_broadcast_keyboard() -> InlineKeyboardMarkup:
 
 
 def audit_filter_keyboard(group: str | None, window: str | None) -> InlineKeyboardMarkup:
-    """P21-E (F9): دسته‌بندی + بازهٔ زمانی + خروجیِ CSV در همان صفحهٔ گزارشِ ممیزی."""
+    """P21-E (F9): دسته‌بندی + بازهٔ زمانی + خروجیِ CSV در همان صفحهٔ گزارشِ ممیزی.
+    P22: همه در ردیف‌هایِ دونفره (قبلاً سه‌تا/چهارتا در هر خط)."""
     from app.bots.main_bot import texts
 
-    rows = []
-    for offset in range(0, len(texts.AUDIT_FILTER_GROUPS), 3):
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=("✅ " if (group or "all") == code else "") + label, callback_data=f"audit_filter:{code}"
-                )
-                for code, label in texts.AUDIT_FILTER_GROUPS[offset : offset + 3]
-            ]
+    group_buttons = [
+        InlineKeyboardButton(
+            text=("✅ " if (group or "all") == code else "") + label, callback_data=f"audit_filter:{code}"
         )
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text=("✅ " if (window or "all") == code else "") + label, callback_data=f"audit_window:{code}"
-            )
-            for code, label in texts.AUDIT_FILTER_WINDOWS
-        ]
-    )
+        for code, label in texts.AUDIT_FILTER_GROUPS
+    ]
+    window_buttons = [
+        InlineKeyboardButton(
+            text=("✅ " if (window or "all") == code else "") + label, callback_data=f"audit_window:{code}"
+        )
+        for code, label in texts.AUDIT_FILTER_WINDOWS
+    ]
+    rows = grid(group_buttons) + grid(window_buttons)
     rows.append([InlineKeyboardButton(text=texts.AUDIT_CSV_BUTTON, callback_data="audit_csv")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -456,21 +500,31 @@ def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
     تنظیماتِ قیمت/تخفیف، تنظیماتِ کلیدها، استخرِ کلیدهایِ AI، و مدیریتِ
     ادمین‌ها. اگه is_super_admin=True باشه، دقیقاً همونِ کیبوردِ قبل از
     RBAC رو می‌بینه (به‌علاوه‌ی دکمه‌ی جدیدِ مدیریتِ ادمین‌ها).
+
+    P22: چینشِ دونفره با حفظِ ترتیب (قبلاً «⏱ اعتبار و زمان» و برایِ ادمینِ عملیاتی
+    «📜 گزارشِ ممیزی» تنها در ردیفِ خودش بودند و منو دُم‌دار می‌شد).
     """
-    rows = [
-        [KeyboardButton(text="📢 مدیریت کانال‌های اجباری"), KeyboardButton(text="🧾 صف تایید پرداخت‌ها")],
+    buttons = [
+        KeyboardButton(text="📢 مدیریت کانال‌های اجباری"),
+        KeyboardButton(text="🧾 صف تایید پرداخت‌ها"),
     ]
     if is_super_admin:
-        rows.append([KeyboardButton(text="💰 تنظیمات قیمت و تخفیف"), KeyboardButton(text="🔑 تنظیمات کلیدها")])
-    rows.append([KeyboardButton(text="📊 آمار سراسری"), KeyboardButton(text="📣 پیام همگانی")])
-    rows.append([KeyboardButton(text="👥 مدیریت فروشگاه‌دارها"), KeyboardButton(text="🛡 نگهبانِ محتوا")])
-    rows.append([KeyboardButton(text="⏱ اعتبار و زمان")])  # W5 · K1–K4
+        buttons += [KeyboardButton(text="💰 تنظیمات قیمت و تخفیف"), KeyboardButton(text="🔑 تنظیمات کلیدها")]
+    buttons += [
+        KeyboardButton(text="📊 آمار سراسری"),
+        KeyboardButton(text="📣 پیام همگانی"),
+        KeyboardButton(text="👥 مدیریت فروشگاه‌دارها"),
+        KeyboardButton(text="🛡 نگهبانِ محتوا"),
+        KeyboardButton(text="⏱ اعتبار و زمان"),  # W5 · K1–K4
+        KeyboardButton(text="📜 گزارشِ ممیزی"),
+    ]
     if is_super_admin:
-        rows.append([KeyboardButton(text="📜 گزارشِ ممیزی"), KeyboardButton(text="🔑 استخرِ کلیدهایِ AI")])
-        rows.append([KeyboardButton(text="👑 مدیریتِ ادمین‌ها"), KeyboardButton(text="📤 دفترِ کیف‌پول (اکسل)")])
-    else:
-        rows.append([KeyboardButton(text="📜 گزارشِ ممیزی")])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+        buttons += [
+            KeyboardButton(text="🔑 استخرِ کلیدهایِ AI"),
+            KeyboardButton(text="👑 مدیریتِ ادمین‌ها"),
+            KeyboardButton(text="📤 دفترِ کیف‌پول (اکسل)"),
+        ]
+    return ReplyKeyboardMarkup(keyboard=grid(buttons), resize_keyboard=True)
 
 
 def mandatory_channels_list_keyboard(channels) -> InlineKeyboardMarkup:
@@ -1046,22 +1100,21 @@ def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
     from app.bots.main_bot import texts
 
     current = shop_bot.message_batch_seconds
-    preset_row = [
+    buttons = [
         InlineKeyboardButton(text=("✅ " if current == seconds else "") + label, callback_data=f"bs_batch:{seconds}")
         for seconds, label in texts.BATCH_PRESETS
     ]
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            preset_row,
-            [InlineKeyboardButton(text="✍️ مقدارِ دلخواه (۲ تا ۶۰ ثانیه)", callback_data="bs_batch_custom")],
-            [InlineKeyboardButton(text="↩️ پیش‌فرضِ سیستم", callback_data="bs_batch_reset")],
-            [InlineKeyboardButton(text="📈 گزارشِ دوره‌ای", callback_data="rp_open")],
-            [InlineKeyboardButton(text="✏️ بیوگرافیِ ربات", callback_data="br_open")],
-            [InlineKeyboardButton(text="⏱ مهلت‌ها و حافظه", callback_data="sp_prefs_open")],
-            [InlineKeyboardButton(text=texts.stock_alert_button_label(shop_bot), callback_data="bs_stock")],
-            [InlineKeyboardButton(text="📞 پشتیبانیِ مشتری‌ها", callback_data="sp_open")],
-        ]
-    )
+    buttons += [
+        InlineKeyboardButton(text="✍️ مقدارِ دلخواه (۲ تا ۶۰ ثانیه)", callback_data="bs_batch_custom"),
+        InlineKeyboardButton(text="↩️ پیش‌فرضِ سیستم", callback_data="bs_batch_reset"),
+        InlineKeyboardButton(text="📈 گزارشِ دوره‌ای", callback_data="rp_open"),
+        InlineKeyboardButton(text="✏️ بیوگرافیِ ربات", callback_data="br_open"),
+        InlineKeyboardButton(text="⏱ مهلت‌ها و حافظه", callback_data="sp_prefs_open"),
+        InlineKeyboardButton(text=texts.stock_alert_button_label(shop_bot), callback_data="bs_stock"),
+        InlineKeyboardButton(text="📞 پشتیبانیِ مشتری‌ها", callback_data="sp_open"),
+    ]
+    # P22: چهار preset هم دونادونه شد (۲×۲)؛ قبلاً یکِ ردیفِ چهارتایی و هفت ردیفِ تک بود.
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=30))
 
 
 def shop_prefs_menu_keyboard(shop_bot, admin_settings, prefs) -> InlineKeyboardMarkup:
@@ -1156,16 +1209,17 @@ def shop_branding_keyboard(shop_bot) -> InlineKeyboardMarkup:
 
 
 def bale_shop_bot_keyboard(shop_bot) -> InlineKeyboardMarkup:
-    """P19: صفحه‌یِ مدیریتِ اتصالِ بله‌یِ همین فروشگاه (روشن/خاموش، توکن، حذف)."""
+    """P19: صفحه‌یِ مدیریتِ اتصالِ بله‌یِ همین فروشگاه (روشن/خاموش، توکن، حذف).
+    P22: فعل‌ها دونادونه؛ «بازگشت» تمام‌عرض و آخر می‌ماند تا همیشه پیدا باشد."""
     has_token = bool(shop_bot.bale_encrypted_token)
-    rows = []
+    actions = []
     if has_token:
         toggle = "⏸ خاموش‌کردنِ اتصالِ بله" if shop_bot.bale_bot_enabled else "✅ روشن‌کردنِ اتصالِ بله"
-        toggle_data = "bale_off" if shop_bot.bale_bot_enabled else "bale_on"
-        rows.append([InlineKeyboardButton(text=toggle, callback_data=toggle_data)])
-    rows.append([InlineKeyboardButton(text="🔑 توکنِ تازه" if has_token else "🔑 ثبتِ توکن ربات بله", callback_data="bale_edit")])
+        actions.append(InlineKeyboardButton(text=toggle, callback_data="bale_off" if shop_bot.bale_bot_enabled else "bale_on"))
+    actions.append(InlineKeyboardButton(text="🔑 توکنِ تازه" if has_token else "🔑 ثبتِ توکن ربات بله", callback_data="bale_edit"))
     if has_token:
-        rows.append([InlineKeyboardButton(text="🗑 حذفِ اتصالِ بله", callback_data="bale_clear")])
+        actions.append(InlineKeyboardButton(text="🗑 حذفِ اتصالِ بله", callback_data="bale_clear"))
+    rows = grid(actions, max_label=26)
     rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="bale_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1271,22 +1325,25 @@ def receipt_reject_reasons_keyboard(payment_id: int, reasons: tuple[str, ...]) -
 
 
 def payments_menu_keyboard(row, shop_bot) -> InlineKeyboardMarkup:
-    def tog(label: str, enabled: bool, code: str) -> list[InlineKeyboardButton]:
-        return [InlineKeyboardButton(text=f"{'✅' if enabled else '⛔️'} {label}", callback_data=f"pays_tog:{code}")]
+    def tog(label: str, enabled: bool, code: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=f"{'✅' if enabled else '⛔️'} {label}", callback_data=f"pays_tog:{code}")
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="💳 تنظیمِ کارت (شماره/نام/بانک)", callback_data="pays_card")],
-            tog("کارت‌به‌کارت", row.card_enabled, "card"),
-            tog("بله‌پی", row.bale_enabled, "bale"),
-            tog("زرین‌پال", row.zarinpal_enabled, "zarinpal"),
-            tog("پرداختِ دستی/هماهنگی", row.manual_enabled, "manual"),
-            tog("تاییدِ خودکارِ آنلاین", row.auto_accept_online, "auto"),
-            [InlineKeyboardButton(text="⏱ مهلتِ کارت", callback_data="pays_dl:card"), InlineKeyboardButton(text="⏱ مهلتِ بله‌پی", callback_data="pays_dl:bale")],
-            [InlineKeyboardButton(text="⏱ مهلتِ زرین‌پال", callback_data="pays_dl:zarinpal"), InlineKeyboardButton(text="🕒 مهلتِ بررسیِ رسید", callback_data="pays_hold")],
-            [InlineKeyboardButton(text="🔑 مرچنتِ زرین‌پال", callback_data="pays_zp")],
-        ]
-    )
+    # P22: صفحه‌ای با ۱۱ فعل؛ قبلاً هفت ردیفِ تک داشت. دونادونه شد، با حفظِ همین ترتیب.
+    buttons = [
+        InlineKeyboardButton(text="💳 تنظیمِ کارت (شماره/نام/بانک)", callback_data="pays_card"),
+        tog("کارت‌به‌کارت", row.card_enabled, "card"),
+        tog("بله‌پی", row.bale_enabled, "bale"),
+        tog("زرین‌پال", row.zarinpal_enabled, "zarinpal"),
+        tog("پرداختِ دستی/هماهنگی", row.manual_enabled, "manual"),
+        tog("تاییدِ خودکارِ آنلاین", row.auto_accept_online, "auto"),
+        InlineKeyboardButton(text="🔑 توکنِ درگاهِ بله‌پی", callback_data="pays_bale_token"),
+        InlineKeyboardButton(text="⏱ مهلتِ کارت", callback_data="pays_dl:card"),
+        InlineKeyboardButton(text="⏱ مهلتِ بله‌پی", callback_data="pays_dl:bale"),
+        InlineKeyboardButton(text="⏱ مهلتِ زرین‌پال", callback_data="pays_dl:zarinpal"),
+        InlineKeyboardButton(text="🕒 مهلتِ بررسیِ رسید", callback_data="pays_hold"),
+        InlineKeyboardButton(text="🔑 مرچنتِ زرین‌پال", callback_data="pays_zp"),
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=30))
 
 
 def payments_entry_keyboard() -> InlineKeyboardMarkup:

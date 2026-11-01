@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.handlers import order_ops
-from app.bots.main_bot.states import PaymentOpsStates, PaymentSettingsStates
+from app.bots.main_bot.states import BaleProviderTokenStates, PaymentOpsStates, PaymentSettingsStates
 from app.bots.shop_bot import keyboards as shop_keyboards
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.shop_bot.handlers.orders import send_invoice_to_customer
@@ -247,7 +247,7 @@ async def pays_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
     elif code == "bale":
         # A1: توکنِ درگاهِ سراسریِ مدیر پشتیبانِ توکنِ فروشگاه است، پس با هر کدام می‌شود روشن کرد.
         if not row.bale_enabled and not await bale_credentials_service.provider_token(session, shop_bot):
-            await callback.answer("اول توکنِ درگاهِ بله‌پی رو ثبت کن: «💳 پرداختِ آنلاینِ سفارش‌ها».", show_alert=True)
+            await callback.answer("اول «🔑 توکنِ درگاهِ بله‌پی» را همین صفحه ثبت کن.", show_alert=True)
             return
         row.bale_enabled = not row.bale_enabled
     elif code == "zarinpal":
@@ -373,6 +373,24 @@ async def pays_zarinpal_start(callback: CallbackQuery, state: FSMContext) -> Non
     await state.set_state(PaymentSettingsStates.waiting_zarinpal_merchant)
     await callback.answer()
     await callback.message.answer(texts.PAYS_ASK_ZARINPAL)
+
+
+@router.callback_query(F.data == "pays_bale_token")
+async def pays_bale_token_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """مشکلِ ۳ کاربر: ثبتِ توکنِ درگاهِ بله‌پی از *همین* صفحه. تا پیشِ این برایِ پرداختِ آنلاین
+    باید دکمهٔ «💳 پرداختِ آنلاینِ سفارش‌ها» را در منویِ اصلی پیدا می‌کردی؛ داخلِ «روش‌هایِ
+    پرداختِ مشتری» هیچ راهِ ورودی نبود (برایِ زرین‌پال بود: «🔑 مرچنتِ زرین‌پال»).
+
+    ذخیره را همان هندلرِ مشترکِ `panel.save_bale_provider_token` انجام می‌دهد ⇒ یکِ مسیر، دوِ ورودی."""
+    _owner, shop_bot, row = await _settings_ctx(session, callback.from_user.id)
+    if shop_bot is None:
+        await callback.answer(texts.SHOP_BOT_NOT_SET_UP, show_alert=True)
+        return
+    status = await bale_credentials_service.shop_status(session, shop_bot, row)
+    await state.clear()
+    await state.set_state(BaleProviderTokenStates.waiting_token)
+    await callback.answer()
+    await callback.message.answer(texts.bale_provider_token_current(shop_bot, status.missing))
 
 
 @router.message(PaymentSettingsStates.waiting_zarinpal_merchant, F.text)
