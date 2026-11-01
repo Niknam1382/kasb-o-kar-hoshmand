@@ -328,6 +328,23 @@ def reset_all_circuits_for_tests() -> None:
     _circuit_states.clear()
 
 
+def circuit_health() -> dict[str, int]:
+    """نمایِ سلامتِ استخرِ AI برایِ پنلِ ادمین (P21-E · F10).
+
+    خودِ failover از قبل وجود داشت (PooledAiService سراغِ کلیدِ بعدی می‌رود)؛ چیزی که نبود
+    «دیدنِ» آن بود: ادمین نمی‌فهمید کدامِ کلید الان کنار گذاشته شده و چرا پاسخ‌ها کند
+    شده‌اند. هیچ کلید/مدلِ حساسی در خروجی نیست — فقط شمارش.
+    """
+    now = time.monotonic()
+    open_keys: set[int] = set()
+    failures = 0
+    for (key_id, _model), state in _circuit_states.items():
+        failures += int(state.consecutive_failures)
+        if state.open_until > now:
+            open_keys.add(key_id)
+    return {"open_keys": len(open_keys), "tracked": len(_circuit_states), "failures": failures}
+
+
 class ModelChainAiService(BaseAiService):
     """P18 · A4: یک کلید + زنجیره‌یِ ترتیبیِ مدل‌ها (مدلِ اصلی، بعد پشتیبان‌هایِ همان کلید).
 

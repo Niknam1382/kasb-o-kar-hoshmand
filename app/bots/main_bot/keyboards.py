@@ -417,6 +417,32 @@ def confirm_customer_broadcast_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def audit_filter_keyboard(group: str | None, window: str | None) -> InlineKeyboardMarkup:
+    """P21-E (F9): دسته‌بندی + بازهٔ زمانی + خروجیِ CSV در همان صفحهٔ گزارشِ ممیزی."""
+    from app.bots.main_bot import texts
+
+    rows = []
+    for offset in range(0, len(texts.AUDIT_FILTER_GROUPS), 3):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=("✅ " if (group or "all") == code else "") + label, callback_data=f"audit_filter:{code}"
+                )
+                for code, label in texts.AUDIT_FILTER_GROUPS[offset : offset + 3]
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=("✅ " if (window or "all") == code else "") + label, callback_data=f"audit_window:{code}"
+            )
+            for code, label in texts.AUDIT_FILTER_WINDOWS
+        ]
+    )
+    rows.append([InlineKeyboardButton(text=texts.AUDIT_CSV_BUTTON, callback_data="audit_csv")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def scheduled_cancel_keyboard(rows) -> InlineKeyboardMarkup:
     """لغوِ هر ارسالِ زمان‌بندی‌شده با عددِ خودش (بدونِ فاش‌کردنِ شناسهٔ داخلی در متن)."""
     buttons = [[InlineKeyboardButton(text=f"🗑 لغوِ ارسالِ شمارهٔ {row.id}", callback_data=f"sched_cancel:{row.id}")] for row in rows]
@@ -697,6 +723,7 @@ def admin_roles_list_keyboard(roles, labels: dict[int, str] | None = None) -> In
 def admin_role_detail_keyboard(role_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=texts.ADMIN_ROLE_SCOPE_BUTTON, callback_data=f"admin_role_scope:{role_id}")],
             [InlineKeyboardButton(text="🗑 حذفِ این ادمین", callback_data=f"admin_role_revoke:{role_id}")],
             [InlineKeyboardButton(text="🔙 بازگشت به فهرست", callback_data="admin_role_list")],
         ]

@@ -1671,6 +1671,19 @@ def admin_shop_owners_intro(total: int, page: int, total_pages: int) -> str:
 
 
 ADMIN_OWNER_NO_SHOP_BOT = "این فروشگاه‌دار هنوز ربات فروشگاهی‌ای وصل نکرده."
+# P21-E (F8): دامنهٔ دسترسیِ ادمینِ عملیاتی
+ADMIN_OWNER_OUT_OF_SCOPE = "🚫 این فروشگاه‌دار در فهرستِ دسترسیِ تو نیست. برایِ افزودنش از سوپرادمین بخواه."
+ADMIN_OWNER_OUT_OF_SCOPE_TOAST = "خارج از دامنهٔ دسترسیِ تو"
+ADMIN_ROLE_SCOPE_BUTTON = "🏪 دامنهٔ فروشگاه‌ها"
+ADMIN_ROLE_SCOPE_UNLIMITED = "بدونِ محدودیت: همهٔ فروشگاه‌دارها"
+ASK_ROLE_SCOPE = (
+    "شناسه‌یِ کاربریِ تلگرامِ فروشگاه‌دارهایی که این ادمینِ عملیاتی باید ببیند را با کاما بفرست\n"
+    "(مثال: 123456789,987654321). برایِ بازگشت به «همه» کلمه‌ی «همه» را بنویس."
+)
+ROLE_SCOPE_SAVED = "✅ دامنه ذخیره شد: {detail}"
+ROLE_SCOPE_UNLIMITED_LABEL = "همهٔ فروشگاه‌ها"
+ROLE_SCOPE_COUNT_LABEL = "{count} فروشگاه"
+ROLE_SCOPE_UNKNOWN_IDS = " ⚠️ این شناسه‌ها فروشگاه‌دارِ ثبت‌نام‌کرده ندارند و نادیده گرفته شدند: {ids}"
 
 
 def admin_owner_suspended_confirmation(owner_name: str) -> str:
@@ -1791,6 +1804,30 @@ def moderation_rule_toggled_confirmation(is_active: bool) -> str:
 
 AUDIT_LOG_EMPTY = "هنوز هیچ رویدادی در گزارشِ ممیزی ثبت نشده."
 AUDIT_LOG_INTRO = "📜 گزارشِ ممیزی — ۲۰ رویدادِ اخیر:"
+# P21-E (F9): فیلترِ دسته/بازه + خروجیِ CSV (تا پیش‌ازاین فقط ۲۰ ردیفِ آخر دیده می‌شد)
+AUDIT_FILTER_GROUPS: tuple[tuple[str, str], ...] = (
+    ("all", "همه"),
+    ("money", "💰 پول"),
+    ("shops", "🏪 فروشگاه‌ها"),
+    ("settings", "⚙️ تنظیمات"),
+    ("roles", "👑 نقش‌ها"),
+    ("brand", "🧴 برند/نگهبان"),
+)
+AUDIT_FILTER_WINDOWS: tuple[tuple[str, str], ...] = (("all", "همیشه"), ("24", "۲۴ ساعت"), ("7d", "۷ روز"), ("30d", "۳۰ روز"))
+AUDIT_CSV_BUTTON = "📥 خروجیِ CSV"
+AUDIT_FILTER_EMPTY = "📜 با این فیلتر هیچ رویدادی نبود. دسته یا بازهٔ زمانی را عوض کن."
+AUDIT_CSV_EMPTY = "📥 برایِ این فیلتر ردیفی نبود که خروجی گرفته شود."
+AUDIT_CSV_READY = "📥 خروجیِ CSVِ دفترِ ممیزی (با خنثی‌سازیِ فرمول) — {count} ردیف"
+
+
+def audit_report_intro(group: str | None, window: str | None, count: int) -> str:
+    group_label = dict(AUDIT_FILTER_GROUPS).get(group or "all", "همه")
+    window_label = dict(AUDIT_FILTER_WINDOWS).get(window or "all", "همیشه")
+    return f"📜 گزارشِ ممیزی · دسته: {group_label} · بازه: {window_label} · {count} ردیفِ آخر:"
+
+
+def audit_csv_headers() -> list[str]:
+    return ["id", "created_at_utc", "event_type", "actor_telegram_id", "shop_bot_id", "details", "row_hash"]
 
 AI_POOL_MENU_INTRO = (
     "🔑 استخرِ کلیدهایِ AI\n\n"
@@ -1799,6 +1836,17 @@ AI_POOL_MENU_INTRO = (
     "اگه اینجا هیچ کلیدی ثبت نکنی، همون تنظیماتِ قدیمیِ «تنظیماتِ کلیدها» (ai_api_key) کار می‌کنه."
 )
 AI_POOL_EMPTY = "هنوز هیچ کلیدی به استخر اضافه نشده."
+
+
+def ai_pool_health_line(health: dict[str, int]) -> str:
+    """P21-E (F10): failover از قبل کار می‌کرد؛ این خط «چرا کند شده» را برایِ ادمین می‌گوید."""
+    if not health.get("open_keys") and not health.get("failures"):
+        return ""
+    return (
+        f"\n\n⚠️ سلامتِ استخر: {health['open_keys']} کلید فعلاً کنار گذاشته شده · "
+        f"{health['failures']} شکستِ پیاپی در {health['tracked']} مسیرِ پایش‌شده.\n"
+        "هر کلیدِ بازشده ۶۰ ثانیه بعد دوباره امتحان می‌شود."
+    )
 ASK_AI_POOL_ENTRY = (
     "اطلاعاتِ کلیدِ جدید را در ۵ یا ۶ خط بفرست (دقیقاً به همین ترتیب):\n\n"
     "برچسب (فقط برایِ خودت، تا کلیدها را از هم تشخیص بدی)\n"
@@ -1876,13 +1924,22 @@ def admin_role_added_confirmation(label: str) -> str:
 def admin_role_detail_text(role, label: str = "ادمین", granter_label: str = "سوپرادمین") -> str:
     """صفحه‌یِ مدیریتیِ نقش‌ها (فقط سوپرادمین): هویتِ متنی؛ شناسه‌یِ عددی فقط در خطِ «🔧 فنی» (استثنایِ مجازِ H2)."""
     when = role.created_at.strftime("%Y-%m-%d %H:%M")
+    scope = admin_role_scope_label(role)
     return (
         f"👤 {label}\n"
         f"نقش: ادمینِ عملیاتی\n"
+        f"دامنهٔ دسترسی: {scope}\n"
         f"اضافه‌شده توسطِ: {granter_label}\n"
         f"تاریخ: {when}\n"
         f"🔧 شناسه‌یِ فنی: {role.telegram_id}"
     )
+
+
+def admin_role_scope_label(role) -> str:
+    ids = getattr(role, "allowed_owner_ids", None)
+    if not ids:
+        return ROLE_SCOPE_UNLIMITED_LABEL
+    return ROLE_SCOPE_COUNT_LABEL.format(count=len([part for part in ids.split(",") if part.strip()]))
 
 
 _AUDIT_EVENT_LABELS = {

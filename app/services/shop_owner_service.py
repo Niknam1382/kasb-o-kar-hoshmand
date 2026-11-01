@@ -24,6 +24,18 @@ async def get_by_referral_code(session: AsyncSession, code: str) -> ShopOwner | 
     return result.scalar_one_or_none()
 
 
+async def ids_by_telegram_ids(session: AsyncSession, telegram_ids: list[int]) -> dict[int, int]:
+    """نگاشتِ «شناسهٔ تلگرام ← شناسهٔ دیتابیسی» فقط برایِ کسانی که وجود دارند.
+
+    P21-E (F8): دامنهٔ ادمینِ عملیاتی را سوپرادمین با «آیدیِ تلگرام» وارد می‌کند (چیزی که می‌بیند)
+    ولی ذخیره با شناسهٔ داخلی می‌شود؛ ناشناخته‌ها بی‌صدا رد نمی‌شوند — UI آن‌ها را گزارش می‌دهد.
+    """
+    if not telegram_ids:
+        return {}
+    result = await session.execute(select(ShopOwner.telegram_id, ShopOwner.id).where(ShopOwner.telegram_id.in_(list(telegram_ids))))
+    return {int(telegram_id): int(owner_id) for telegram_id, owner_id in result.all()}
+
+
 async def get_all_registered(session: AsyncSession) -> list[ShopOwner]:
     result = await session.execute(select(ShopOwner).where(ShopOwner.registration_completed.is_(True)).order_by(ShopOwner.id))
     return list(result.scalars().all())

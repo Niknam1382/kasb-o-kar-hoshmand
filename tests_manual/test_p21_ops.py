@@ -183,12 +183,36 @@ async def test_periodic_pass_prunes_the_outbox(bot_manager) -> None:
     print("✅ test_periodic_pass_prunes_the_outbox PASSED")
 
 
+# ============================================================================= ۵ — قفلِ جاب برایِ چندپروسه
+async def test_periodic_pass_is_single_flight(bot_manager) -> None:
+    """O4: اگر نسخهٔ دیگری قفلِ advisory را گرفته باشد، این دور هیچ کاری نمی‌کند."""
+    from sqlalchemy import text as sql_text
+
+    await reset_database()
+    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    marker = await _insert(notification_service.SENT, 45)
+
+    async with session_scope() as holder:  # «نسخهٔ دومِ اپ» که همین حالا جاب را اجرا می‌کند
+        assert (await holder.execute(sql_text("SELECT pg_try_advisory_lock(:k)"), {"k": scheduler.SCHEDULER_LOCK_KEY})).scalar_one()
+        main_bot = make_shop_bot("000000:MAIN_FAKE")
+        await scheduler.run_periodic_pass(main_bot, bot_manager)
+        still_there = len((await _statuses()).get("sent", []))
+        await holder.execute(sql_text("SELECT pg_advisory_unlock(:k)"), {"k": scheduler.SCHEDULER_LOCK_KEY})
+    assert still_there == 1, "با قفلِ گرفته‌شده، پاک‌سازیِ صف اجرا نشد ⇒ دو نسخهٔ اپ جاب را دوباره انجام نمی‌دهند"
+
+    main_bot = make_shop_bot("000000:MAIN_FAKE")
+    await scheduler.run_periodic_pass(main_bot, bot_manager)
+    assert marker not in [row_id for ids in (await _statuses()).values() for row_id in ids], "بعد از آزادشدنِ قفل، جاب دوباره کار می‌کند"
+    print("✅ test_periodic_pass_is_single_flight PASSED")
+
+
 async def main() -> None:
     _main_dp, _shop_dp, bot_manager, _main_bot = build_test_dispatchers()
     await test_health_app_exposes_only_two_routes()
     await test_health_reflects_bot_initialization()
     await test_prune_aged_keeps_pending_and_recent_history()
     await test_periodic_pass_prunes_the_outbox(bot_manager)
+    await test_periodic_pass_is_single_flight(bot_manager)
 
 
 if __name__ == "__main__":

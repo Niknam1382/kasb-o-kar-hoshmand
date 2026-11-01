@@ -5,6 +5,7 @@ import logging
 import time
 
 from aiogram import Bot
+from sqlalchemy import text as sql_text
 
 from app.database.session import session_scope
 from app.services import (
@@ -29,6 +30,8 @@ from app.services.admin_settings_service import get_admin_settings
 
 logger = logging.getLogger(__name__)
 
+# P21-E (O4): کلیدِ قفلِ advisoryِ جاب — یک عددِ ثابتِ قرارداد؛ تغییرش یعنی دو قفلِ جدا.
+SCHEDULER_LOCK_KEY = 72_530_311
 CHECK_INTERVAL_SECONDS = 30 * 60
 # PHASE 5E: همسنجیِ دفتر گران‌تر از بقیه است؛ ساعتی یک‌بار کافی است تا یک اختلافِ
 # حسابداری حداکثر یک ساعت بعد به ادمین بگوید، بدونِ اینکه کوئریِ گروهی در هر دورِ جاب بزنیم.
@@ -43,7 +46,33 @@ def reset_reconcile_clock_for_tests() -> None:
 
 
 async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
-    """یک دورِ کاملِ جاب‌هایِ دوره‌ای (قابلِ تست). K3: ازسرگیریِ خودکارِ توقفِ زمان؛ K4: هر گروه جدا قابلِ توقف است (فقط رد می‌شه)."""
+    """یک دورِ کاملِ جاب‌هایِ دوره‌ای (قابلِ تست). K3: ازسرگیریِ خودکارِ توقفِ زمان؛ K4: هر گروه جدا قابلِ توقف است (فقط رد می‌شه).
+
+    P21-E (O4): کلِ دور داخلِ یکِ قفلِ advisoryِ dیتابیس می‌چرخد. تا پیش‌ازاین «دو نسخهٔ اپ»
+    یعنی دو scheduler مستقل ⇒ گزارش/انقضا/یادآوریِ دوباره. با `pg_try_advisory_lock` نسخهٔ
+    دوم همان لحظه رد می‌شود (تلاشِ مجدد در لوپِ بعدی) و لازم نیست تک‌نسخه باشد.
+    """
+    async with session_scope() as session:
+        if not await job_lock_acquired(session):
+            logger.debug("نسخهٔ دیگری از اپ در حالِ اجرای جاب‌هاست؛ این دور رد شد.")
+            return
+        try:
+            await _run_periodic_pass_locked(main_bot, bot_manager)
+        finally:
+            await release_job_lock(session)
+
+
+async def job_lock_acquired(session) -> bool:
+    """قفلِ sراسریِ جاب (کلیدِ ثابت؛ شماره‌اش بخشی از قرارداد است، تغییرش = دو قفلِ جدا)."""
+    value = (await session.execute(sql_text("SELECT pg_try_advisory_lock(:key)"), {"key": SCHEDULER_LOCK_KEY})).scalar_one()
+    return bool(value)
+
+
+async def release_job_lock(session) -> None:
+    await session.execute(sql_text("SELECT pg_advisory_unlock(:key)"), {"key": SCHEDULER_LOCK_KEY})
+
+
+async def _run_periodic_pass_locked(main_bot: Bot, bot_manager) -> None:
     async with session_scope() as session:
         await time_freeze_service.auto_resume_due(session)  # حتی با جاب‌هایِ متوقف؛ تاریخ‌ها باید جبران بشن
     async with session_scope() as session:

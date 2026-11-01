@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,4 +76,59 @@ async def get_recent(session: AsyncSession, limit: int = 20, shop_bot_id: int | 
     if shop_bot_id is not None:
         query = query.where(AuditLogEntry.shop_bot_id == shop_bot_id)
     result = await session.execute(query)
+    return list(result.scalars().all())
+
+
+# P21-E (F9): فیلترهایِ پنل. «همه» کلیدِ پیش‌فرض است؛ بقیه دسته‌بندیِ رویدادها به زبانِ ادمین.
+FILTER_GROUPS: dict[str, tuple[str, ...]] = {
+    "money": (
+        AuditEventType.PAYMENT_APPROVED.value,
+        AuditEventType.PAYMENT_REJECTED.value,
+        AuditEventType.OWNER_GIFT_GRANTED.value,
+        AuditEventType.ADMIN_BATCH_EXECUTED.value,
+        AuditEventType.OWNER_WALLET_CORRECTED.value,
+        AuditEventType.WALLET_LEDGER_EXPORTED.value,
+        AuditEventType.WALLET_RECONCILED.value,
+    ),
+    "shops": (
+        AuditEventType.SHOP_SUSPENDED.value,
+        AuditEventType.SHOP_UNSUSPENDED.value,
+        AuditEventType.OWNER_PROFILE_UPDATED.value,
+        AuditEventType.OWNER_BUSINESS_MODE_CHANGED.value,
+        AuditEventType.CUSTOMER_BLOCK_CHANGED.value,
+    ),
+    "settings": (
+        AuditEventType.ADMIN_SETTING_CHANGED.value,
+        AuditEventType.KILL_SWITCH_TOGGLED.value,
+        AuditEventType.TIME_FREEZE_CHANGED.value,
+        AuditEventType.JOBS_PAUSE_CHANGED.value,
+        AuditEventType.BRANDING_TEXT_CHANGED.value,
+    ),
+    "roles": (AuditEventType.OPERATOR_ADMIN_GRANTED.value, AuditEventType.OPERATOR_ADMIN_REVOKED.value),
+    "brand": (AuditEventType.BOT_BIO_TAMPERED.value, AuditEventType.MODERATION_MATCH.value),
+}
+WINDOW_HOURS: dict[str, int] = {"24": 24, "7d": 24 * 7, "30d": 24 * 30}
+
+
+async def query(
+    session: AsyncSession,
+    *,
+    group: str | None = None,
+    window: str | None = None,
+    actor_telegram_id: int | None = None,
+    limit: int = 25,
+    now: datetime.datetime | None = None,
+) -> list[AuditLogEntry]:
+    """دفترِ ممیزی با فیلترِ دسته/بازهٔ زمانی/اCTOR. هیچ فیلدی ⇒ همان `get_recent`."""
+    statement = select(AuditLogEntry).order_by(AuditLogEntry.id.desc()).limit(limit)
+    events = FILTER_GROUPS.get(group or "")
+    if events:
+        statement = statement.where(AuditLogEntry.event_type.in_(events))
+    hours = WINDOW_HOURS.get(window or "")
+    if hours:
+        since = (now or datetime.datetime.now(datetime.timezone.utc)) - datetime.timedelta(hours=hours)
+        statement = statement.where(AuditLogEntry.created_at >= since)
+    if actor_telegram_id is not None:
+        statement = statement.where(AuditLogEntry.actor_telegram_id == actor_telegram_id)
+    result = await session.execute(statement)
     return list(result.scalars().all())

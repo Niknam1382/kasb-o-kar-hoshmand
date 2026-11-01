@@ -109,6 +109,7 @@ TEST_FILES = [
     "test_p21_ops.py",
     "test_p21_money.py",
     "test_p21_growth.py",
+    "test_p21_access.py",
 ]
 
 

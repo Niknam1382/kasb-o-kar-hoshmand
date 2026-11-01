@@ -166,6 +166,7 @@ class AiPoolStates(StatesGroup):
 
 class AdminRoleStates(StatesGroup):
     waiting_telegram_id = State()
+    waiting_scope = State()  # P21-E (F8)
 
 
 class CampaignWizardStates(StatesGroup):

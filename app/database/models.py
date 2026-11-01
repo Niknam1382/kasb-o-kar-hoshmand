@@ -221,6 +221,7 @@ class AuditEventType(str, enum.Enum):
     BOT_BIO_TAMPERED = "bot_bio_tampered"  # P18 · A2
     WALLET_RECONCILED = "wallet_reconciled"  # PHASE 5E: نگاهِ ادمین به همسنجیِ دفتر
     BRANDING_TEXT_CHANGED = "branding_text_changed"  # P18 · A2
+    AUDIT_EXPORTED = "audit_exported"  # P21-E · F9 (خروجیِ CSVِ دفترِ ممیزی)
 
 
 class AdminRoleType(str, enum.Enum):
@@ -1034,6 +1035,10 @@ class AdminRole(Base, CreatedAtMixin):
     telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
     role: Mapped[AdminRoleType] = _enum_column(AdminRoleType, nullable=False, default=AdminRoleType.OPERATOR)
     granted_by_telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # P21-E (F8): دامنهٔ دسترسیِ ادمینِ عملیاتی — شناسهٔ دیتابیسیِ ShopOwner جدا‌شده با کاما.
+    # NULL ⇒ بدونِ محدودیت (همان رفتارِ امروز). فهرستِ خالی عملاً «هیچ‌کس» است و ساختنش لازم نیست:
+    # برایِ «هیچ‌کس» نقش را بردار.
+    allowed_owner_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PaymentEventLog(Base):

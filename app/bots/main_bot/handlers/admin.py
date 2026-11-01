@@ -31,6 +31,7 @@ from app.services import (
     admin_role_service,
     admin_settings_service,
     ai_pool_service,
+    ai_service,
     audit_log_service,
     bale_bot_service,
     bale_credentials_service,
@@ -55,6 +56,7 @@ from app.services import (
     wallet_service,
 )
 from app.services.admin_settings_service import get_admin_settings
+from app.utils import csv_export
 from app.utils.jalali import format_jalali_datetime
 from app.utils.validators import format_toman, normalize_telegram_username, parse_signed_toman_amount, to_e164_iran
 
@@ -1200,10 +1202,22 @@ async def _owners_list_payload(session: AsyncSession, owners, page: int):
     return texts.admin_shop_owners_intro(len(owners), shown_page, total_pages), keyboard
 
 
+async def _visible_owners(session: AsyncSession, actor_telegram_id: int, owners):
+    """P21-E (F8): ادمینِ عملیاتیِ دامنه‌دار فقط فروشگاه‌هایِ خودش را می‌بیند (و می‌تواند باز کند).
+
+    فیلتر *قبل* از صفحه‌بندی انجام می‌شود، وگرنه شمارِ «N فروشگاه» و شمارهٔ صفحه‌ها
+    به ردیف‌هایی اشاره می‌کردند که آن ادمین اجازه ندارد — یعنی نشتِ اطلاعات از راهِ عدد.
+    """
+    scope = await admin_role_service.scope_for(session, actor_telegram_id)
+    if scope is None:
+        return owners
+    return [owner for owner in owners if admin_role_service.is_in_scope(scope, owner.id)]
+
+
 @router.message(F.text == "👥 مدیریت فروشگاه‌دارها")
 async def open_owners_management(message: Message, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
-    owners = await shop_owner_service.get_all_registered(session)
+    owners = await _visible_owners(session, message.from_user.id, await shop_owner_service.get_all_registered(session))
     if not owners:
         await message.answer(texts.ADMIN_SHOP_OWNERS_EMPTY)
         return
@@ -1220,7 +1234,7 @@ async def cb_owners_list(callback: CallbackQuery, session: AsyncSession) -> None
         except ValueError:
             page = 0
 
-    owners = await shop_owner_service.get_all_registered(session)
+    owners = await _visible_owners(session, callback.from_user.id, await shop_owner_service.get_all_registered(session))
     await callback.answer()
     if not owners:
         await callback.message.edit_text(texts.ADMIN_SHOP_OWNERS_EMPTY)
@@ -1229,10 +1243,27 @@ async def cb_owners_list(callback: CallbackQuery, session: AsyncSession) -> None
     await callback.message.edit_text(text, reply_markup=keyboard)
 
 
-async def _render_owner_detail(message: Message, session: AsyncSession, owner_id: int) -> None:
+async def _scoped_owner(session: AsyncSession, actor_telegram_id: int, owner_id: int):
+    """P21-E (F8): دامنهٔ ادمینِ عملیاتی. خروجی (owner, allowed) — اگر allowed نبود، پیام داده شده.
+
+    عمداً پیامِ «خارج از دامنه» با «پیدا نشد» یکی نمی‌شود: ادمینِ تیم پشتیبانی باید بفهمد
+    ردیف وجود دارد ولی مالِ او نیست (وگرنه ساعت‌ها دنبالِ باگِ «فروشگاه‌دار ثبت‌نام نکرده» می‌گردد).
+    """
     owner = await shop_owner_service.get_by_id(session, owner_id)
     if owner is None:
+        return None, False
+    if not await admin_role_service.can_touch_owner(session, actor_telegram_id, owner.id):
+        return owner, False
+    return owner, True
+
+
+async def _render_owner_detail(message: Message, session: AsyncSession, owner_id: int, actor_id: int | None = None) -> None:
+    owner, allowed = await _scoped_owner(session, actor_id if actor_id is not None else getattr(message.from_user, "id", 0), owner_id)
+    if owner is None:
         await message.edit_text(texts.ADMIN_SHOP_OWNERS_EMPTY)
+        return
+    if not allowed:
+        await message.edit_text(texts.ADMIN_OWNER_OUT_OF_SCOPE)
         return
     shop_bot = await shop_bot_service.get_by_owner(session, owner)
     await message.edit_text(
@@ -1244,13 +1275,16 @@ async def _render_owner_detail(message: Message, session: AsyncSession, owner_id
 async def cb_owner_view(callback: CallbackQuery, session: AsyncSession) -> None:
     owner_id = int(callback.data.split(":")[1])
     await callback.answer()
-    await _render_owner_detail(callback.message, session, owner_id)
+    await _render_owner_detail(callback.message, session, owner_id, callback.from_user.id)
 
 
 @router.callback_query(F.data.startswith("admin_owner_suspend:"))
 async def cb_owner_suspend(callback: CallbackQuery, session: AsyncSession, bot_manager) -> None:
     owner_id = int(callback.data.split(":")[1])
-    owner = await shop_owner_service.get_by_id(session, owner_id)
+    owner, allowed = await _scoped_owner(session, callback.from_user.id, owner_id)
+    if owner is not None and not allowed:
+        await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
+        return
     shop_bot = await shop_bot_service.get_by_owner(session, owner) if owner else None
     if owner is None or shop_bot is None:
         await callback.answer(texts.ADMIN_OWNER_NO_SHOP_BOT, show_alert=True)
@@ -1268,13 +1302,16 @@ async def cb_owner_suspend(callback: CallbackQuery, session: AsyncSession, bot_m
 
     await callback.answer()
     await callback.message.answer(texts.admin_owner_suspended_confirmation(_owner_display_name(owner)))
-    await _render_owner_detail(callback.message, session, owner_id)
+    await _render_owner_detail(callback.message, session, owner_id, callback.from_user.id)
 
 
 @router.callback_query(F.data.startswith("admin_owner_unsuspend:"))
 async def cb_owner_unsuspend(callback: CallbackQuery, session: AsyncSession, bot_manager) -> None:
     owner_id = int(callback.data.split(":")[1])
-    owner = await shop_owner_service.get_by_id(session, owner_id)
+    owner, allowed = await _scoped_owner(session, callback.from_user.id, owner_id)
+    if owner is not None and not allowed:
+        await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
+        return
     shop_bot = await shop_bot_service.get_by_owner(session, owner) if owner else None
     if owner is None or shop_bot is None:
         await callback.answer(texts.ADMIN_OWNER_NO_SHOP_BOT, show_alert=True)
@@ -1290,13 +1327,17 @@ async def cb_owner_unsuspend(callback: CallbackQuery, session: AsyncSession, bot
 
     await callback.answer()
     await callback.message.answer(texts.admin_owner_unsuspended_confirmation(_owner_display_name(owner)))
-    await _render_owner_detail(callback.message, session, owner_id)
+    await _render_owner_detail(callback.message, session, owner_id, callback.from_user.id)
 
 
 # --- اعطای اشتراک هدیه (این‌جلسه) ---
 @router.callback_query(F.data.startswith("admin_owner_gift:"))
-async def cb_owner_gift_start(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_owner_gift_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     owner_id = int(callback.data.split(":")[1])
+    _owner, allowed = await _scoped_owner(session, callback.from_user.id, owner_id)
+    if not allowed:
+        await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
+        return
     await state.set_state(AdminGiftStates.waiting_amount)
     await state.update_data(gift_owner_id=owner_id)
     await callback.answer()
@@ -1566,7 +1607,9 @@ async def cb_moderation_rule_delete(callback: CallbackQuery, session: AsyncSessi
 @super_router.message(F.text == "🔑 استخرِ کلیدهایِ AI")
 async def open_ai_pool(message: Message, session: AsyncSession) -> None:
     entries = await ai_pool_service.get_all_entries(session)
-    text = texts.AI_POOL_MENU_INTRO if entries else texts.AI_POOL_MENU_INTRO + "\n\n" + texts.AI_POOL_EMPTY
+    text = (texts.AI_POOL_MENU_INTRO if entries else texts.AI_POOL_MENU_INTRO + "\n\n" + texts.AI_POOL_EMPTY) + texts.ai_pool_health_line(
+        ai_service.circuit_health()
+    )
     await message.answer(text, reply_markup=keyboards.ai_pool_list_keyboard(entries))
 
 
@@ -1574,7 +1617,9 @@ async def open_ai_pool(message: Message, session: AsyncSession) -> None:
 async def cb_ai_pool_list(callback: CallbackQuery, session: AsyncSession) -> None:
     entries = await ai_pool_service.get_all_entries(session)
     await callback.answer()
-    text = texts.AI_POOL_MENU_INTRO if entries else texts.AI_POOL_MENU_INTRO + "\n\n" + texts.AI_POOL_EMPTY
+    text = (texts.AI_POOL_MENU_INTRO if entries else texts.AI_POOL_MENU_INTRO + "\n\n" + texts.AI_POOL_EMPTY) + texts.ai_pool_health_line(
+        ai_service.circuit_health()
+    )
     await callback.message.edit_text(text, reply_markup=keyboards.ai_pool_list_keyboard(entries))
 
 
@@ -1694,16 +1739,87 @@ async def cb_ai_pool_delete(callback: CallbackQuery, session: AsyncSession) -> N
 # =============================================================================
 # گزارشِ ممیزی (Audit Log)
 # =============================================================================
+AUDIT_PAGE_LIMIT = 25
+AUDIT_CSV_LIMIT = 500
+
+
+async def _audit_filter_state(state: FSMContext) -> tuple[str | None, str | None]:
+    data = await state.get_data()
+    return data.get("audit_group"), data.get("audit_window")
+
+
+async def _render_audit_log(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    group, window = await _audit_filter_state(state)
+    entries = await audit_log_service.query(session, group=group, window=window, limit=AUDIT_PAGE_LIMIT)
+    markup = keyboards.audit_filter_keyboard(group, window)
+    if not entries:
+        await message.answer(texts.AUDIT_FILTER_EMPTY if (group or window) else texts.AUDIT_LOG_EMPTY, reply_markup=markup)
+        return
+    lines = [texts.audit_report_intro(group, window, len(entries)), ""]
+    lines.extend(texts.audit_log_entry_line(entry) for entry in entries)
+    await message.answer("\n\n".join(lines), reply_markup=markup)
+
+
 @router.message(F.text == "📜 گزارشِ ممیزی")
 async def open_audit_log(message: Message, state: FSMContext, session: AsyncSession) -> None:
     await state.clear()
-    entries = await audit_log_service.get_recent(session, limit=20)
-    if not entries:
-        await message.answer(texts.AUDIT_LOG_EMPTY)
+    await _render_audit_log(message, state, session)
+
+
+@router.callback_query(F.data.startswith("audit_filter:"))
+async def cb_audit_filter(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    group = callback.data.split(":", 1)[1]
+    if group not in audit_log_service.FILTER_GROUPS and group != "all":
+        await callback.answer("این دسته شناخته‌شده نیست.", show_alert=True)
         return
-    lines = [texts.AUDIT_LOG_INTRO, ""]
-    lines.extend(texts.audit_log_entry_line(entry) for entry in entries)
-    await message.answer("\n\n".join(lines))
+    await callback.answer()
+    await state.update_data(audit_group=None if group == "all" else group)
+    await _render_audit_log(callback.message, state, session)
+
+
+@router.callback_query(F.data.startswith("audit_window:"))
+async def cb_audit_window(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    window = callback.data.split(":", 1)[1]
+    if window not in audit_log_service.WINDOW_HOURS and window != "all":
+        await callback.answer("این بازه شناخته‌شده نیست.", show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(audit_window=None if window == "all" else window)
+    await _render_audit_log(callback.message, state, session)
+
+
+@super_router.callback_query(F.data == "audit_csv")
+async def cb_audit_csv(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """F9: خروجیِ CSVِ همان فیلتر. فقط سوپرادمین، و خودِ «گرفتنِ خروجی» هم ممیزی می‌شود."""
+    group, window = await _audit_filter_state(state)
+    entries = await audit_log_service.query(session, group=group, window=window, limit=AUDIT_CSV_LIMIT)
+    if not entries:
+        await callback.answer(texts.AUDIT_CSV_EMPTY, show_alert=True)
+        return
+    rows = [
+        [
+            entry.id,
+            entry.created_at.isoformat() if entry.created_at else "",
+            entry.event_type.value if hasattr(entry.event_type, "value") else str(entry.event_type),
+            entry.actor_telegram_id or "",
+            entry.shop_bot_id or "",
+            entry.details or "",
+            entry.row_hash or "",
+        ]
+        for entry in entries
+    ]
+    content = csv_export.build_csv(texts.audit_csv_headers(), rows)
+    await audit_log_service.log(
+        session,
+        AuditEventType.AUDIT_EXPORTED,
+        actor_telegram_id=callback.from_user.id,
+        details=f"خروجیِ CSV ({len(rows)} ردیف) · دسته={group or 'all'} · بازه={window or 'all'}",
+    )
+    await callback.answer()
+    await callback.message.answer_document(
+        BufferedInputFile(content, filename="audit-log.csv"),
+        caption=texts.AUDIT_CSV_READY.format(count=len(rows)),
+    )
 
 
 # =============================================================================
@@ -1817,6 +1933,58 @@ async def cb_admin_role_view(callback: CallbackQuery, session: AsyncSession) -> 
     await callback.message.edit_text(
         texts.admin_role_detail_text(role, names[role.telegram_id], names[role.granted_by_telegram_id]),
         reply_markup=keyboards.admin_role_detail_keyboard(role.id),
+    )
+
+
+@super_router.callback_query(F.data.startswith("admin_role_scope:"))
+async def cb_admin_role_scope(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    """P21-E (F8): دامنهٔ فروشگاه‌دارهایِ یکِ ادمینِ عملیاتی."""
+    role_id = int(callback.data.split(":")[1])
+    role = await admin_role_service.get_by_id(session, role_id)
+    if role is None:
+        await callback.answer(texts.GENERIC_ERROR, show_alert=True)
+        return
+    await state.clear()
+    await state.set_state(AdminRoleStates.waiting_scope)
+    await state.update_data(scope_role_id=role.id)
+    await callback.answer()
+    await callback.message.answer(texts.ASK_ROLE_SCOPE)
+
+
+@super_router.message(AdminRoleStates.waiting_scope, F.text)
+async def admin_role_scope_entered(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    role = await admin_role_service.get_by_id(session, int(data.get("scope_role_id", 0)))
+    if role is None:
+        await state.clear()
+        await message.answer(texts.GENERIC_ERROR)
+        return
+    raw = message.text.strip()
+    if raw in {"همه", "all", "خالی", "-"}:
+        await admin_role_service.set_scope(session, role, None)
+        await audit_log_service.log(
+            session, AuditEventType.OPERATOR_ADMIN_GRANTED, actor_telegram_id=message.from_user.id,
+            details=f"دامنهٔ ادمینِ عملیاتی {role.telegram_id} ⇒ همهٔ فروشگاه‌ها",
+        )
+        await state.clear()
+        await message.answer(texts.ROLE_SCOPE_SAVED.format(detail=texts.ROLE_SCOPE_UNLIMITED_LABEL))
+        return
+
+    wanted = {int(part) for part in re.split(r"[,\s]+", raw) if part.strip().lstrip("+").isdigit()}
+    if not wanted:
+        await message.answer(texts.ADMIN_INVALID_NUMBER)  # state می‌ماند تا دوباره بنویسد
+        return
+    known_ids = await shop_owner_service.ids_by_telegram_ids(session, list(wanted))
+    await admin_role_service.set_scope(session, role, sorted(known_ids.values()))
+    unknown = sorted(wanted - set(known_ids))
+    await audit_log_service.log(
+        session, AuditEventType.OPERATOR_ADMIN_GRANTED, actor_telegram_id=message.from_user.id,
+        details=f"دامنهٔ ادمینِ عملیاتی {role.telegram_id} ⇒ {len(known_ids)} فروشگاه",
+    )
+    await state.clear()
+    await message.answer(
+        texts.ROLE_SCOPE_SAVED.format(detail=texts.ROLE_SCOPE_COUNT_LABEL.format(count=len(known_ids)))
+        + (texts.ROLE_SCOPE_UNKNOWN_IDS.format(ids="، ".join(str(pk) for pk in unknown)) if unknown else "")
     )
 
 
