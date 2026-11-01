@@ -1437,6 +1437,8 @@ async def open_audit_log(message: Message, state: FSMContext, session: AsyncSess
 
 # =============================================================================
 # دفترِ کیف‌پول (اکسل) — فقط سوپرادمین، فقط‌خواندنی (فازِ ۴-ه)
+# PHASE 5E: سقفِ تعدادِ اختلافِ نمایش‌داده‌شده در پنل (کوئری هم با همان سقف محدود می‌ماند).
+RECONCILE_LIMIT = 100
 # =============================================================================
 @super_router.message(F.text == "📤 دفترِ کیف‌پول (اکسل)")
 async def export_wallet_ledger(message: Message, state: FSMContext, session: AsyncSession) -> None:
@@ -1448,7 +1450,25 @@ async def export_wallet_ledger(message: Message, state: FSMContext, session: Asy
         actor_telegram_id=message.from_user.id,
         details="خروجیِ اکسلِ دفترِ کیف‌پول",
     )
-    await message.answer_document(BufferedInputFile(content, filename="wallet-ledger.xlsx"), caption=texts.ADMIN_WALLET_LEDGER_READY)
+    await message.answer_document(
+        BufferedInputFile(content, filename="wallet-ledger.xlsx"),
+        caption=texts.ADMIN_WALLET_LEDGER_READY,
+        reply_markup=keyboards.wallet_ledger_keyboard(),
+    )
+
+
+@super_router.callback_query(F.data == "admin_reconcile_wallets")
+async def cb_admin_reconcile_wallets(callback: CallbackQuery, session: AsyncSession) -> None:
+    """PHASE 5E: نگاهِ ادمین به همسنجیِ دفتر (فقط‌خواندنی و ممیزی‌شده؛ هیچ داده‌ای عوض نمی‌شود)."""
+    gaps = await wallet_service.reconcile_balances(session, limit=RECONCILE_LIMIT)
+    await callback.answer()
+    await audit_log_service.log(
+        session,
+        AuditEventType.WALLET_RECONCILED,
+        actor_telegram_id=callback.from_user.id,
+        details="اختلافی نیست" if not gaps else f"{len(gaps)} اختلاف؛ نمونهٔ shop_owner_id={gaps[0]['owner_id']}",
+    )
+    await callback.message.answer(texts.ADMIN_RECONCILE_CLEAN if not gaps else texts.admin_reconcile_gaps(gaps, RECONCILE_LIMIT))
 
 
 # =============================================================================

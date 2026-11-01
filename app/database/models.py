@@ -217,6 +217,7 @@ class AuditEventType(str, enum.Enum):
     OWNER_BUSINESS_MODE_CHANGED = "owner_business_mode_changed"
     CUSTOMER_BLOCK_CHANGED = "customer_block_changed"  # P18 · B4
     BOT_BIO_TAMPERED = "bot_bio_tampered"  # P18 · A2
+    WALLET_RECONCILED = "wallet_reconciled"  # PHASE 5E: نگاهِ ادمین به همسنجیِ دفتر
     BRANDING_TEXT_CHANGED = "branding_text_changed"  # P18 · A2
 
 
@@ -489,15 +490,28 @@ class WalletTransaction(Base, CreatedAtMixin):
     دفترِ کاملِ تراکنش‌های کیف‌پول (هم شارژها، هم مصرف‌ها، هم انقضاها) — برای
     شفافیت با فروشگاه‌دار و برای ممیزی. مبلغِ مثبت یعنی افزایشِ اعتبار (شارژ/هدیه)،
     مبلغِ منفی یعنی کاهش (مصرف/انقضا). مجموعِ amount_toman برای یه فروشگاه‌دار
-    باید همیشه برابرِ wallet_balance_toman کش‌شده روی ShopOwner باشه.
+    باید همیشه برابرِ wallet_balance_toman کش‌شده روی ShopOwner باشه — این ادعا
+    حالا با `wallet_service.reconcile_balances` سنجیده می‌شود (PHASE 5E).
+
+    PHASE 5E (افزودنی، بدونِ حذف): `currency` (همیشه TOMAN؛ Rial فقط در payloadِ
+    بله‌پی ظاهر می‌شود)، `status` (settled | reserved | released — پایهٔ رزروِ کمیسیون)،
+    `idempotency_key` (یکتا؛ جلویِ دوباره‌ثبتِ یک رویدادِ تکراری)، و ارجاعِ مستقیمِ
+    `payment_id`/`order_id` به‌جایِ تکیه‌کردنِ کامل بر رشتهٔ آزادِ `reference`.
+    رکوردها فقط‌افزودنی‌اند: `wallet_service` نگهبانِ before_update/before_delete دارد.
     """
 
     __tablename__ = "wallet_transactions"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_wallet_tx_idempotency"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
     wallet_charge_id: Mapped[int | None] = mapped_column(ForeignKey("wallet_charges.id"), nullable=True)
+    payment_id: Mapped[int | None] = mapped_column(ForeignKey("payments.id", ondelete="SET NULL"), nullable=True)
+    order_id: Mapped[int | None] = mapped_column(ForeignKey("orders_consultations.id", ondelete="SET NULL"), nullable=True)
     amount_toman: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), default="TOMAN", server_default="TOMAN", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="settled", server_default="settled", nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     reason: Mapped[WalletTransactionReason] = _enum_column(WalletTransactionReason, nullable=False)
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
 

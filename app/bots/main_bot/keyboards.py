@@ -345,6 +345,13 @@ def topup_amount_keyboard(minimum_toman: int = 0) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def wallet_ledger_keyboard() -> InlineKeyboardMarkup:
+    """PHASE 5E: همسنجیِ دفتر از همان پیامی که اکسلِ دفتر را می‌فرستد (فقط سوپرادمین)."""
+    from app.bots.main_bot import texts
+
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=texts.ADMIN_WALLET_RECONCILE_LABEL, callback_data="admin_reconcile_wallets")]])
+
+
 def skip_discount_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏭ رد شدن از کد تخفیف", callback_data="skip_discount")]])
 

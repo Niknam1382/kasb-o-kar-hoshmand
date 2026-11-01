@@ -19,6 +19,7 @@ import datetime
 import logging
 
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.event import listens_for
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ShopOwner, WalletCharge, WalletTransaction, WalletTransactionReason
@@ -26,6 +27,26 @@ from app.services import time_freeze_service
 from app.services.admin_settings_service import get_admin_settings
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# PHASE 5E — دفترِ فقط‌افزودنی
+# ردیفِ مالیِ تاریخ‌مصرف‌شده هرگز ویرایش/حذف نمی‌شود؛ اصلاحِ اشتباه با یک ردیفِ
+# معکوسِ جدید انجام می‌شود. این دو نگهبانِ سطحِ ORM، هر مسیرِ کد (از جمله پنلِ ادمین)
+# را از بازنویسیِ تاریخچه منع می‌کنند.
+# =============================================================================
+class LedgerIsAppendOnlyError(RuntimeError):
+    """تلاش برای ویرایش یا حذفِ ردیفِ دفترِ کیف‌پول — همیشه یک باگ است، نه یک قابلیت."""
+
+
+@listens_for(WalletTransaction, "before_update", propagate=True)
+def _block_ledger_update(mapper, connection, target):  # pragma: no cover - نگهبان
+    raise LedgerIsAppendOnlyError(f"ردیفِ دفترِ کیف‌پول (id={target.id}) قابلِ ویرایش نیست؛ اصلاح با ردیفِ معکوس.")
+
+
+@listens_for(WalletTransaction, "before_delete", propagate=True)
+def _block_ledger_delete(mapper, connection, target):  # pragma: no cover - نگهبان
+    raise LedgerIsAppendOnlyError(f"ردیفِ دفترِ کیف‌پول (id={target.id}) قابلِ حذف نیست؛ تاریخچه پاک نمی‌شود.")
 
 
 async def _apply_balance_delta(session: AsyncSession, owner: ShopOwner, delta_toman: int) -> None:
@@ -88,7 +109,13 @@ async def add_charge(
     owner.wallet_low_balance_notified_at = None
     session.add(
         WalletTransaction(
-            shop_owner_id=owner.id, wallet_charge_id=charge.id, amount_toman=amount_toman, reason=reason, reference=reference
+            shop_owner_id=owner.id,
+            wallet_charge_id=charge.id,
+            payment_id=payment_id,
+            amount_toman=amount_toman,
+            reason=reason,
+            reference=reference,
+            idempotency_key=None if reference is None else f"charge:{reference}:owner:{owner.id}",
         )
     )
     await session.flush()
@@ -101,6 +128,8 @@ async def deduct(
     amount_toman: int,
     reason: WalletTransactionReason,
     reference: str | None = None,
+    order_id: int | None = None,
+    idempotency_key: str | None = None,
 ) -> bool:
     """
     از قدیمی‌ترین شارژِ منقضی‌نشده (FIFO) کم می‌کنه، حتی اگه بینِ چند بسته پخش
@@ -142,7 +171,13 @@ async def deduct(
         remaining_to_deduct -= take
         session.add(
             WalletTransaction(
-                shop_owner_id=owner.id, wallet_charge_id=charge.id, amount_toman=-take, reason=reason, reference=reference
+                shop_owner_id=owner.id,
+                wallet_charge_id=charge.id,
+                order_id=order_id,
+                amount_toman=-take,
+                reason=reason,
+                reference=reference,
+                idempotency_key=idempotency_key,
             )
         )
 
@@ -193,6 +228,62 @@ async def get_recent_transactions(session: AsyncSession, owner_id: int, limit: i
     return list(result.scalars().all())
 
 
+async def reconcile_balances(session: AsyncSession, limit: int = 100) -> list[dict]:
+    """
+    PHASE 5E — همسنجیِ ادعایِ کلیدیِ کیف‌پول: «مجموعِ ردیف‌هایِ دفتر باید برابرِ
+    موجودیِ کش‌شده باشد». اختلاف را به‌ازایِ هر فروشگاه‌دار برمی‌گرداند (خالی ⇒ سالم).
+
+    دو طرفِ مقایسه در SQL جمع زده می‌شود (نه کشیدنِ ردیف‌ها در پایتون) تا با رشدِ دفتر
+    هم ارزان بماند؛ فهرستِ خروجی حداکثر `limit` اختلاف است تا پنلِ ادمین قابلِ استفاده بماند.
+    """
+    ledger_sum = (
+        select(WalletTransaction.shop_owner_id, func.coalesce(func.sum(WalletTransaction.amount_toman), 0).label("ledger_total"))
+        .group_by(WalletTransaction.shop_owner_id)
+        .subquery()
+    )
+    charge_sum = (
+        select(WalletCharge.shop_owner_id, func.coalesce(func.sum(WalletCharge.remaining_toman), 0).label("lots_total"))
+        .where(WalletCharge.is_expired.is_(False), WalletCharge.remaining_toman > 0)
+        .group_by(WalletCharge.shop_owner_id)
+        .subquery()
+    )
+    result = await session.execute(
+        select(
+            ShopOwner.id,
+            ShopOwner.telegram_id,
+            ShopOwner.wallet_balance_toman,
+            ledger_sum.c.ledger_total,
+            charge_sum.c.lots_total,
+        )
+        .outerjoin(ledger_sum, ledger_sum.c.shop_owner_id == ShopOwner.id)
+        .outerjoin(charge_sum, charge_sum.c.shop_owner_id == ShopOwner.id)
+        .where(
+            or_(
+                ShopOwner.wallet_balance_toman != func.coalesce(ledger_sum.c.ledger_total, 0),
+                ShopOwner.wallet_balance_toman != func.coalesce(charge_sum.c.lots_total, 0),
+            )
+        )
+        .order_by(ShopOwner.id)
+        .limit(limit)
+    )
+    gaps: list[dict] = []
+    for owner_id, telegram_id, cached, ledger_total, lots_total in result.all():
+        ledger_total = int(ledger_total or 0)
+        lots_total = int(lots_total or 0)
+        gaps.append(
+            {
+                "owner_id": owner_id,
+                "telegram_id": telegram_id,
+                "cached_toman": int(cached or 0),
+                "ledger_toman": ledger_total,
+                "lots_toman": lots_total,
+                "ledger_delta_toman": int(cached or 0) - ledger_total,
+                "lots_delta_toman": int(cached or 0) - lots_total,
+            }
+        )
+    return gaps
+
+
 async def has_ever_had_wallet_activity(session: AsyncSession, owner: ShopOwner) -> bool:
     result = await session.execute(select(WalletCharge.id).where(WalletCharge.shop_owner_id == owner.id).limit(1))
     return result.scalar_one_or_none() is not None
@@ -239,6 +330,7 @@ async def expire_stale_charges(session: AsyncSession) -> int:
                 wallet_charge_id=charge.id,
                 amount_toman=-expired_amount,
                 reason=WalletTransactionReason.EXPIRY,
+                idempotency_key=f"expiry:{charge.id}",
             )
         )
         charge.remaining_toman = 0

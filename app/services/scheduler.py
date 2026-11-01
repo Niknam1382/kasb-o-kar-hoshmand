@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from aiogram import Bot
 
 from app.database.session import session_scope
 from app.services import (
+    admin_alert_service,
     conversation_service,
     grace_period_service,
     job_gate_service,
@@ -17,6 +19,7 @@ from app.services import (
     shop_prefs_service,
     time_freeze_service,
     wallet_expiry_service,
+    wallet_service,
 )
 from app.services import admin_settings_service
 from app.services.admin_settings_service import get_admin_settings
@@ -24,6 +27,16 @@ from app.services.admin_settings_service import get_admin_settings
 logger = logging.getLogger(__name__)
 
 CHECK_INTERVAL_SECONDS = 30 * 60
+# PHASE 5E: همسنجیِ دفتر گران‌تر از بقیه است؛ ساعتی یک‌بار کافی است تا یک اختلافِ
+# حسابداری حداکثر یک ساعت بعد به ادمین بگوید، بدونِ اینکه کوئریِ گروهی در هر دورِ جاب بزنیم.
+RECONCILE_INTERVAL_SECONDS = 60 * 60
+_last_reconcile_at = 0.0
+
+
+def reset_reconcile_clock_for_tests() -> None:
+    """فقط برایِ تست: دوربعدِ همسنجی بلافاصله مجاز باشد."""
+    global _last_reconcile_at
+    _last_reconcile_at = 0.0
 
 
 async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
@@ -43,6 +56,7 @@ async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
     if not job_gate_service.is_paused(admin_settings, "wallet"):
         async with session_scope() as session:
             await wallet_expiry_service.process_wallet_expiry_and_reminders(session, main_bot)
+        await reconcile_wallet_ledgers()
     if not job_gate_service.is_paused(admin_settings, "orders"):
         async with session_scope() as session:
             await order_expiry_service.process_order_expiry(session, main_bot)
@@ -58,6 +72,44 @@ async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
             default_days = shop_prefs_service.resolve(shop_prefs_service.CONVERSATION_RETENTION, None, admin_settings)
             retention_by_shop = await shop_prefs_service.retention_by_shop(session, admin_settings)
             await conversation_service.prune_old_messages_for_shops(session, retention_by_shop, default_days)
+
+
+async def reconcile_wallet_ledgers() -> int:
+    """
+    PHASE 5E — همسنجیِ «موجودیِ کش‌شده ↔ دفتر ↔ بسته‌هایِ شارژ».
+
+    عمداً هر دورِ جاب اجرا نمی‌شود (RECONCILE_INTERVAL_SECONDS) تا کوئریِ گروهیِ سنگینِ
+    رویِ دفترِ رو‌به‌رشد مسیرِ داغِ برنامه نشود. اختلاف فقط لاگ/هشدار می‌شود و هیچ داده‌ای
+    را «اصلاح» نمی‌کند: اصلاحِ حسابداری باید تصمیمِ ادمین با ردیفِ معکوسِ جدید باشد، نه
+    بازنویسیِ تاریخچه.
+    """
+    global _last_reconcile_at
+    now = time.monotonic()
+    if now - _last_reconcile_at < RECONCILE_INTERVAL_SECONDS:
+        return 0
+    _last_reconcile_at = now
+    try:
+        async with session_scope() as session:
+            gaps = await wallet_service.reconcile_balances(session)
+    except Exception:
+        logger.exception("همسنجیِ دفترِ کیف‌پول اجرا نشد (برنامه نباید بخوابد).")
+        return 0
+    if not gaps:
+        return 0
+    worst = gaps[0]
+    logger.error(
+        "اختلافِ همسنجیِ کیف‌پول: %s فروشگاه‌دار؛ نمونه owner_id=%s کشیده=%s دفتر=%s بسته‌ها=%s",
+        len(gaps),
+        worst["owner_id"],
+        worst["cached_toman"],
+        worst["ledger_toman"],
+        worst["lots_toman"],
+    )
+    admin_alert_service.record_event(
+        admin_alert_service.KIND_LEDGER,
+        f"{len(gaps)} فروشگاه‌دار اختلافِ دفتر دارد (نمونهٔ id={worst['owner_id']}، {worst['ledger_delta_toman']} تومان)",
+    )
+    return len(gaps)
 
 
 async def run_periodic_tasks(main_bot: Bot, stop_event: asyncio.Event, interval_seconds: int = CHECK_INTERVAL_SECONDS) -> None:

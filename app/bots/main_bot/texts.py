@@ -1974,6 +1974,24 @@ ACCOUNTING_NOTE = (
 ACCOUNTING_TRUNCATED_NOTE = "⚠️ تعدادِ سفارش‌هایِ این بازه خیلی زیاده و گزارش فقط ۲۰٬۰۰۰ موردش رو در بر می‌گیره؛ عددها ناقص‌ان."
 ACCOUNTING_EXCEL_READY = "📤 اکسلِ حسابداریِ این بازه آماده‌ست."
 ADMIN_WALLET_LEDGER_READY = "📤 دفترِ کیف‌پولِ همه‌یِ فروشگاه‌دارها آماده‌ست (فقط‌خواندنی؛ جدیدترین تراکنش‌ها اول)."
+ADMIN_WALLET_RECONCILE_LABEL = "🔎 همسنجیِ دفترِ کیف‌پول"
+ADMIN_RECONCILE_CLEAN = "✅ همسنجیِ دفترِ کیف‌پول: هیچ اختلافی نیست. (موجودیِ هر فروشگاه‌دار = مجموعِ ردیف‌هایِ دفتر = مجموعِ بسته‌هایِ فعال)"
+ADMIN_RECONCILE_NOTE = "هیچ داده‌ای خودکار اصلاح نمی‌شود؛ اصلاح با ردیفِ معکوسِ جدید و دلیلِ ادمین است."
+
+
+def admin_reconcile_gaps(gaps: list[dict], limit: int) -> str:
+    """گزارشِ فارسیِ اختلاف‌ها؛ شناسه‌یِ داخلی نمایش داده نمی‌شود و فهرست سقف دارد."""
+    lines = [f"⚠️ {len(gaps)} فروشگاه‌دار اختلافِ حسابداری دارد:"]
+    for gap in gaps[:8]:
+        lines.append(
+            f"• @{gap['telegram_id']} | کشیده: {format_toman(gap['cached_toman'])} | "
+            f"دفتر: {format_toman(gap['ledger_toman'])} (اختلاف {format_toman(gap['ledger_delta_toman'])}) | "
+            f"بسته‌ها: {format_toman(gap['lots_toman'])}"
+        )
+    if len(gaps) > 8:
+        lines.append(f"نمونه‌یِ ۸ مورد نمایش داده شد (سقفِ کوئری {limit}).")
+    lines.append(ADMIN_RECONCILE_NOTE)
+    return "\n".join(lines)
 _ACCOUNTING_STATUS_OVERRIDES = {"awaiting_customer_confirmation": "🕓 منتظرِ تاییدِ مشتری"}
 
 

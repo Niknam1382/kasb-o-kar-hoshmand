@@ -21,9 +21,12 @@ logger = logging.getLogger(__name__)
 KIND_ERROR = "error"
 KIND_PAYMENT = "payment"
 KIND_FORBIDDEN = "forbidden"
+KIND_LEDGER = "ledger"  # PHASE 5E: اختلافِ همسنجیِ دفترِ کیف‌پول
 
 WINDOW_SECONDS = 300.0
-THRESHOLDS: dict[str, int] = {KIND_ERROR: 5, KIND_PAYMENT: 3, KIND_FORBIDDEN: 10}
+# آستانهٔ ۱ برایِ ledger عمدی است: یک اختلافِ حسابداری هم باید دیده شود؛ cooldown و
+# سقفِ ساعتیِ خودِ سرویس از اسپمِ هشدار جلوگیری می‌کنند.
+THRESHOLDS: dict[str, int] = {KIND_ERROR: 5, KIND_PAYMENT: 3, KIND_FORBIDDEN: 10, KIND_LEDGER: 1}
 ALERT_COOLDOWN_SECONDS = 1800.0
 MAX_ALERTS_PER_HOUR = 12
 MAX_DETAIL_LENGTH = 300
@@ -32,6 +35,7 @@ KIND_LABELS: dict[str, str] = {
     KIND_ERROR: "خطایِ تکراریِ برنامه",
     KIND_PAYMENT: "شکستِ پرداخت",
     KIND_FORBIDDEN: "درخواستِ ردشده‌ی وب‌هوک (۴۰۳)",
+    KIND_LEDGER: "اختلافِ همسنجیِ دفترِ کیف‌پول",
 }
 
 _events: dict[str, collections.deque] = {}
