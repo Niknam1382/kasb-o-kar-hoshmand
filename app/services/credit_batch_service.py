@@ -51,8 +51,16 @@ async def _latest_subscriptions(session: AsyncSession) -> dict[int, Subscription
     return {s.shop_owner_id: s for s in rows}
 
 
-async def select_owner_ids(session: AsyncSession, flt: str) -> list[int]:
+async def select_owner_ids(session: AsyncSession, flt: str, *, allowed_owner_ids: set[int] | None = None) -> list[int]:
+    """مجموعهٔ هدف. `allowed_owner_ids` (P21-F): دامنهٔ ادمینِ عملیاتی — None ⇒ همه.
+
+    عملیاتِ گروهی دقیقاً همان جایی بود که «دامنه» معنا دارد: دکمهٔ «🎁 هدیهٔ اعتبار (گروهی)» برایِ
+    هر ادمین نمایش داده می‌شود، پس بدونِ این فیلتر یکِ ادمینِ دامنه‌دار می‌توانست به ۲۰۰۰
+    فروشگاه‌دارِ کلِ پلتفرم اعتبار هدیه بدهد.
+    """
     owner_ids = list((await session.execute(select(ShopOwner.id).order_by(ShopOwner.id))).scalars().all())
+    if allowed_owner_ids is not None:
+        owner_ids = [i for i in owner_ids if i in allowed_owner_ids]
     if flt == "all":
         return owner_ids
     subs = await _latest_subscriptions(session)
@@ -77,6 +85,7 @@ async def create_batch(
     amount: int | None = None,
     validity_months: int | None = None,
     days: int | None = None,
+    allowed_owner_ids: set[int] | None = None,
 ) -> AdminCreditBatch | None:
     """None وقتی پارامتر نامعتبر یا هدف خالی/بیشتر از سقف باشه."""
     if flt not in FILTERS:
@@ -93,7 +102,7 @@ async def create_batch(
         params = {"days": days}
     else:
         return None
-    owner_ids = await select_owner_ids(session, flt)
+    owner_ids = await select_owner_ids(session, flt, allowed_owner_ids=allowed_owner_ids)
     if not owner_ids or len(owner_ids) > MAX_TARGETS:
         return None
     params.update({"filter": flt, "owner_ids": owner_ids})

@@ -13,6 +13,7 @@
 ۵. لاگِ استثنا (traceback) هم از ماسکِ راز رد می‌شود، نه فقط پیامِ اصلی.
 ۶. نگهبانِ «رباتِ اصلی»: توکنِ بله‌یِ پلتفرم هم مثلِ توکنِ تلگرامِ اصلی رد می‌شود، و
    متنِ بیویِ دیده‌شده پیش ازِ ورود به دفترِ ممیزی تک‌خط می‌شود (جعلِ ردیفِ ممیزی).
+۷. عملیاتِ گروهی (هدیه/تمدید) هم به دامنهٔ ادمینِ عملیاتی محدود می‌شود.
 
 اجرا: python3 tests_manual/test_p21_security.py
 """
@@ -47,6 +48,7 @@ from app.services import (  # noqa: E402
     admin_role_service,
     audit_log_service,
     bot_branding_service,
+    credit_batch_service,
     notification_service,
 )
 
@@ -246,7 +248,7 @@ async def test_retry_failed_is_bounded_and_keeps_evidence() -> None:
 
 # ============================================================================= ۵ — ماسکِ راز در traceback
 def test_traceback_secrets_are_scrubbed() -> None:
-    token = "123456789:AAHnPk0lQ2mZxR7tYbCuVaBgT6sErI9oK"
+    token = "123456789:AAFAKEFAKEFAKEFAKEFAKEFAKEFAKE"
     try:
         raise RuntimeError(f"bad url https://api.telegram.org/bot{token}/sendMessage")
     except RuntimeError:
@@ -303,6 +305,29 @@ async def test_gift_write_rechecks_scope(main_dp) -> None:
     print("✅ test_gift_write_rechecks_scope PASSED")
 
 
+# ============================================================================= ۷ — دامنه در عملیاتِ گروهی
+async def test_batch_operations_are_scoped() -> None:
+    """«🎁 هدیهٔ اعتبار (گروهی)» برایِ هر ادمین نمایش داده می‌شود؛ مجموعهٔ هدف باید به دامنه
+    محدود شود، وگرنه یکِ ادمینِ دامنه‌دار به ۲۰۰۰ فروشگاه‌دارِ کلِ پلتفرم اعتبار می‌دهد."""
+    owner_a, owner_b = await _two_shops()
+    async with session_scope() as session:
+        everyone = await credit_batch_service.select_owner_ids(session, "all")
+        only_a = await credit_batch_service.select_owner_ids(session, "all", allowed_owner_ids={owner_a})
+        none_of_them = await credit_batch_service.select_owner_ids(session, "all", allowed_owner_ids=set())
+    assert owner_a in everyone and owner_b in everyone, everyone
+    assert only_a == [owner_a], only_a
+    assert none_of_them == [], none_of_them
+
+    async with session_scope() as session:
+        batch = await credit_batch_service.create_batch(
+            session, kind="gift", flt="all", by=str(OPERATOR_TG_ID), amount=5_000, allowed_owner_ids={owner_a}
+        )
+        assert batch is not None and batch.target_count == 1, batch
+        assert credit_batch_service.params_of(batch)["owner_ids"] == [owner_a]
+        await session.commit()
+    print("✅ test_batch_operations_are_scoped PASSED")
+
+
 async def main() -> None:
     main_dp, _shop_dp, _bot_manager, _main_bot = build_test_dispatchers()
     test_empty_scope_is_not_unlimited()
@@ -316,6 +341,7 @@ async def main() -> None:
     await test_wallet_correction_respects_scope(main_dp)
     await test_wallet_correction_survives_bad_callback_and_repeats(main_dp)
     await test_gift_write_rechecks_scope(main_dp)
+    await test_batch_operations_are_scoped()
 
 
 if __name__ == "__main__":

@@ -19,6 +19,7 @@ from app.bots.main_bot.states import AdminTimeStates
 from app.config import settings
 from app.database.models import AuditEventType
 from app.services import (
+    admin_role_service,
     audit_log_service,
     credit_batch_service,
     job_gate_service,
@@ -138,7 +139,16 @@ async def filter_chosen(callback: CallbackQuery, state: FSMContext) -> None:
 async def _make_preview(message: Message, state: FSMContext, session: AsyncSession, **kwargs) -> None:
     data = await state.get_data()
     flt = data.get("at_filter")
-    batch = await credit_batch_service.create_batch(session, flt=flt, by=str(message.from_user.id), **kwargs) if flt else None
+    # P21-F: دامنهٔ ادمینِ عملیاتی رویِ عملیاتِ گروهی هم اثر دارد — مجموعهٔ هدف از همین‌جا
+    # منجمد می‌شود، پس اجرایِ بعدی هم نمی‌تواند بیرونِ دامنه چیزی بسازد.
+    allowed = await admin_role_service.scope_for(session, message.from_user.id)
+    batch = (
+        await credit_batch_service.create_batch(
+            session, flt=flt, by=str(message.from_user.id), allowed_owner_ids=allowed, **kwargs
+        )
+        if flt
+        else None
+    )
     if batch is None:
         await message.answer("هدفی پیدا نشد یا مقدار نامعتبر است (حداکثر ۲۰۰۰ نفر در هر دسته).")
         return
