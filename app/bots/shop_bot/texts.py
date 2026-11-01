@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.services import cart_edit_service
+from app.utils.text_limits import TELEGRAM_CAPTION_LIMIT, clip
 from app.utils.validators import format_toman
 
 SHOP_WELCOME = "سلام! خوش اومدی 👋 هر سوالی درباره‌ی محصولات یا خدمات داری بپرس، یا از دکمه‌ی «🛍 محصولات» برای دیدنِ مستقیمِ فهرست استفاده کن."
@@ -64,7 +65,9 @@ VOICE_TRANSCRIBE_ERROR = "متاسفانه نتونستم پیامِ صوتیت 
 
 
 def customer_photo_forward_caption(customer_name: str, caption_note: str) -> str:
-    return f"📸 مشتری «{customer_name}» یه عکس فرستاد.{caption_note}"
+    # کپشنِ خودِ تلگرام تا ۱۰۲۴ نویسه است و پیشوندِ ما هم حساب می‌شود؛ بدونِ برش،
+    # عکسِ یک مشتریِ پرحرف برایِ فروشگاه‌دار *هیچ‌وقت* نمی‌رود (خطا فقط لاگ می‌شود).
+    return clip(f"📸 مشتری «{(customer_name or '').strip()[:60]}» یه عکس فرستاد.{caption_note}", TELEGRAM_CAPTION_LIMIT)
 
 
 # =============================================================================

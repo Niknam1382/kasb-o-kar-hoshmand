@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import OrderConsultation, OrderPayment, OrderStatus
-from app.services import order_state, order_transition_service
+from app.services import order_state, order_transition_service, product_service
 from app.services.payment_settings_service import deadline_minutes, normalize_digits
 
 # --- وضعیتِ پرداخت ---
@@ -457,7 +457,7 @@ async def _reactivate_expired(session: AsyncSession, rows: list[OrderConsultatio
     for row in rows:
         if row.product_id is None:
             continue
-        product = await session.get(Product, row.product_id)
+        product = await product_service.lock_for_update(session, row.product_id)
         if product is None or product.stock_quantity is None:
             continue
         qty = row.quantity or 1
@@ -466,6 +466,10 @@ async def _reactivate_expired(session: AsyncSession, rows: list[OrderConsultatio
             row.stock_reserved = True
         else:
             oversold = True
+    if rows:
+        # گروه دوباره واردِ جریانِ پرداخت شده ⇒ رزروِ کمیسیون هم باید دوباره گرفته شود
+        # (چک‌اوتِ عادی همین کار را می‌کند؛ این مسیرِ «پرداختِ دیرهنگام» از آن رد می‌شد).
+        await order_transition_service.apply_commission(session, rows, order_state.AWAITING_PAYMENT)
     return oversold
 
 

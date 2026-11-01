@@ -12,13 +12,16 @@
 from __future__ import annotations
 
 import datetime
+import logging
 from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import OrderConsultation, OrderEvent, OrderStatus, Product, ShopBot
-from app.services import admin_settings_service, commission_service, order_state
+from app.services import admin_settings_service, commission_service, order_state, product_service
+
+logger = logging.getLogger(__name__)
 
 
 async def apply_commission(session: AsyncSession, rows: list[OrderConsultation], to: str) -> None:
@@ -26,8 +29,8 @@ async def apply_commission(session: AsyncSession, rows: list[OrderConsultation],
     PHASE 5D — چرخهٔ عمرِ کمیسیون در تنها نقطهٔ گذارِ گروه:
 
     ورود به جریانِ پرداخت (`awaiting_payment` / `receipt_submitted`) ← رزرو
-    تاییدِ پرداخت (`paid`)                                            ← تسویه
-    رد/انقضا/لغو                                                     ← آزادسازیِ رزرو
+    تاییدِ پرداختِ راستی‌آزمایی‌شده در سرور (`paid`)                    ← تسویه
+    هر وضعیتِ دیگر (تاییدِ دستی، رد، انقضا، لغو، بازگشت به عقب)        ← آزادسازیِ رزرو
     استرداد (`refunded`)                                             ← برگشتِ گرفته‌شده یا آزادسازی
 
     مسیرِ چک‌اوت که ردیف‌ها را مستقیم در `awaiting_payment` می‌سازد هم همین تابع را صدا
@@ -45,9 +48,16 @@ async def apply_commission(session: AsyncSession, rows: list[OrderConsultation],
     key = group_key(rows[0])
 
     if to in (order_state.AWAITING_PAYMENT, order_state.RECEIPT_SUBMITTED):
-        await commission_service.reserve(
+        result = await commission_service.reserve(
             session, owner_id=owner_id, group_key=key, rows=rows, admin_settings=admin_settings
         )
+        if not result.changed and result.reason == "insufficient":
+            # رزرو نشد (موجودیِ کم‌شده از holdهایِ دیگر جواب نمی‌دهد). تسویه در همان لحظهٔ
+            # `paid` نرخِ snapshotِ خودِ ردیف‌ها را حساب می‌کند، پس درآمد از دست نمی‌رود؛ فقط
+            # دیگر دو سفارشِ هم‌زمان نمی‌توانند یک اعتبار را دو بار «آزاد» ببینند.
+            logger.warning(
+                "رزروِ کمیسیونِ گروه %s انجام نشد (موجودیِ قابل‌رزرو کافی نیست)؛ تسویه در لحظهٔ پرداخت.", key
+            )
     elif to == order_state.PAID:
         await commission_service.settle(
             session, owner_id=owner_id, group_key=key, rows=rows, admin_settings=admin_settings
@@ -56,7 +66,12 @@ async def apply_commission(session: AsyncSession, rows: list[OrderConsultation],
         reversed_result = await commission_service.reverse(session, owner_id=owner_id, group_key=key, rows=rows)
         if not reversed_result.changed:
             await commission_service.release(session, owner_id=owner_id, group_key=key, rows=rows)
-    elif to in order_state.RELEASES_RESERVATION:
+    else:
+        # هر وضعیتی جزِ جریانِ پرداخت و `paid` ⇒ رزرو آزاد می‌شود.
+        # این شاخهٔ «بقیه» عمدی است: قبلاً فقط رد/انقضا/لغو/استرداد آزاد می‌کردند، پس گذارِ
+        # مجازِ `awaiting_payment → pending` (تاییدِ دستیِ فروشگاه‌دار که وجه به حسابِ *خودش*
+        # نشسته) hold را برایِ همیشه رویِ کیف‌پول قفل می‌کرد بدونِ اینکه پلتفرم چیزی بگیرد.
+        # کمیسیون عمداً فقط بعد از پرداختِ راستی‌آزمایی‌شدهٔ سمتِ سرور گرفته می‌شود؛ اینجا می‌بخشیم.
         await commission_service.release(session, owner_id=owner_id, group_key=key, rows=rows)
 
 
@@ -120,7 +135,7 @@ async def _release_reservation(session: AsyncSession, row: OrderConsultation) ->
     if not row.stock_reserved:
         return
     if row.product_id is not None:
-        product = await session.get(Product, row.product_id)
+        product = await product_service.lock_for_update(session, row.product_id)
         if product is not None:
             product.reserved_quantity = max(0, product.reserved_quantity - (row.quantity or 1))
     row.stock_reserved = False
@@ -129,7 +144,7 @@ async def _release_reservation(session: AsyncSession, row: OrderConsultation) ->
 async def _consume_stock(session: AsyncSession, row: OrderConsultation) -> None:
     """مثلِ order_service.confirm_order: رزرو آزاد و موجودیِ واقعی کم می‌شود (فقط محصولِ موجودی‌دار)."""
     if row.product_id is not None:
-        product = await session.get(Product, row.product_id)
+        product = await product_service.lock_for_update(session, row.product_id)
         if product is not None and product.stock_quantity is not None:
             qty = row.quantity or 1
             if row.stock_reserved:
@@ -324,7 +339,7 @@ async def restock_group(session: AsyncSession, rows: list[OrderConsultation]) ->
     for row in locked:
         if row.restocked_at is not None or order_state.value_of(row.status) != order_state.REFUNDED or row.product_id is None:
             continue
-        product = await session.get(Product, row.product_id)
+        product = await product_service.lock_for_update(session, row.product_id)
         if product is None or product.stock_quantity is None:
             continue
         product.stock_quantity += row.quantity or 1

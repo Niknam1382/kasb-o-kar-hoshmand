@@ -261,6 +261,22 @@ async def attach_text_receipt(
     return dup_text, dup_tracking
 
 
+async def _claim_for_approval(session: AsyncSession, payment: Payment) -> bool:
+    """قفلِ سطریِ ردیفِ پرداخت + مطمئن‌شدن از PENDING بودنش در DB (نه در حافظهٔ پایتون).
+
+    سه مسیر می‌توانند یک پرداخت را «تایید» کنند: وب‌هوک/getUpdates بله، صفحهٔ بازگشتِ
+    زرین‌پال (که کاربر می‌تواند رفرشش کند) و تاییدِ دستیِ ادمین. هر سه یک خوانشِ ساده
+    می‌کنند و بعد بینِ آن خوانش و نوشتن، یک استعلامِ شبکه (چند صد میلی‌ثانیه) فاصله است ⇒
+    بدونِ قفل، هر دو «برنده» می‌شوند و کیف‌پول دوباره شارژ می‌شود. اینجا قفل نگه‌داشته
+    می‌ماند تا commit؛ بازنده `False` می‌گیرد و هیچ اثری (اعتبار، تخفیف، پاداشِ معرف) نمی‌سازد."""
+    result = await session.execute(
+        select(Payment)
+        .where(Payment.id == payment.id, Payment.status == PaymentStatus.PENDING)
+        .with_for_update()
+    )
+    return result.scalar_one_or_none() is not None
+
+
 async def _apply_payment_effect(session: AsyncSession, payment: Payment) -> Subscription | WalletCharge:
     """بسته به هدفِ پرداخت، اثرِ واقعیِ اون رو اعمال می‌کنه: برای شارژِ کیف‌پول،
     مبلغ به کیف‌پولِ فروشگاه‌دار اضافه می‌شه؛ برای اشتراک (میراثی)، همون منطقِ
@@ -273,7 +289,10 @@ async def _apply_payment_effect(session: AsyncSession, payment: Payment) -> Subs
     return await subscription_service.purchase_or_renew(session, payment.shop_owner_id, payment.duration_months)
 
 
-async def approve_zarinpal_payment(session: AsyncSession, payment: Payment, ref_id: str) -> tuple[Subscription | WalletCharge, dict | None]:
+async def approve_zarinpal_payment(session: AsyncSession, payment: Payment, ref_id: str) -> tuple[Subscription | WalletCharge | None, dict | None]:
+    if not await _claim_for_approval(session, payment):
+        # این پرداخت پیش‌تر تایید/رد شده (وب‌هوکِ تکراری یا دو تاییدِ هم‌زمان) ⇒ هیچ اثری نمی‌سازیم.
+        return None, None
     is_first = await _is_first_approved_payment(session, payment.shop_owner_id, payment.id)
 
     payment.status = PaymentStatus.APPROVED
@@ -293,7 +312,10 @@ async def approve_zarinpal_payment(session: AsyncSession, payment: Payment, ref_
     return effect, reward_info
 
 
-async def approve_bale_payment(session: AsyncSession, payment: Payment, transaction_id: str) -> tuple[Subscription | WalletCharge, dict | None]:
+async def approve_bale_payment(session: AsyncSession, payment: Payment, transaction_id: str) -> tuple[Subscription | WalletCharge | None, dict | None]:
+    if not await _claim_for_approval(session, payment):
+        # این پرداخت پیش‌تر تایید/رد شده (وب‌هوکِ تکراری یا دو تاییدِ هم‌زمان) ⇒ هیچ اثری نمی‌سازیم.
+        return None, None
     is_first = await _is_first_approved_payment(session, payment.shop_owner_id, payment.id)
 
     payment.status = PaymentStatus.APPROVED
@@ -313,7 +335,10 @@ async def approve_bale_payment(session: AsyncSession, payment: Payment, transact
     return effect, reward_info
 
 
-async def approve_payment(session: AsyncSession, payment: Payment, admin_telegram_id: int) -> tuple[Subscription | WalletCharge, dict | None]:
+async def approve_payment(session: AsyncSession, payment: Payment, admin_telegram_id: int) -> tuple[Subscription | WalletCharge | None, dict | None]:
+    if not await _claim_for_approval(session, payment):
+        # این پرداخت پیش‌تر تایید/رد شده (وب‌هوکِ تکراری یا دو تاییدِ هم‌زمان) ⇒ هیچ اثری نمی‌سازیم.
+        return None, None
     is_first = await _is_first_approved_payment(session, payment.shop_owner_id, payment.id)
 
     payment.status = PaymentStatus.APPROVED

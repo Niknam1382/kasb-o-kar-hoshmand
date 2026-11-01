@@ -1614,6 +1614,21 @@ def admin_shop_owner_detail(owner, shop_bot, wallet_balance_toman: int) -> str:
 ADMIN_ASK_GIFT_AMOUNT = "چقدر اعتبارِ هدیه (به تومان) به کیف‌پولش اضافه کنیم؟ (عدد صحیح):"
 
 
+def admin_gift_preview(owner_name: str, amount_toman: int, minimum: int, maximum: int) -> str:
+    return (
+        f"🎁 تاییدِ اعطای هدیه\n\n"
+        f"فروشگاه‌دار: {owner_name}\n"
+        f"مبلغ: {format_toman(amount_toman)}\n\n"
+        f"این مبلغ به کیف‌پولش اضافه می‌شود و در دفترِ کیف‌پول با نامِ شما ثبت می‌شود. "
+        f"سقفِ هر هدیه {format_toman(maximum)} و کمترین {format_toman(minimum)} است."
+    )
+
+
+ADMIN_GIFT_OUT_OF_RANGE = "مبلغِ هدیه باید بینِ {min} تا {max} باشد."
+ADMIN_GIFT_CANCELLED = "هدیه داده نشد."
+ADMIN_GIFT_STALE = "این تایید قبلاً استفاده شده یا منقضی شده. اگر هدیه هنوز داده نشده، از اول شروع کن."
+
+
 def admin_gift_confirmation(owner_name: str, amount_toman: int) -> str:
     return f"🎁 {format_toman(amount_toman)} اعتبارِ هدیه به کیف‌پولِ {owner_name} اضافه شد."
 

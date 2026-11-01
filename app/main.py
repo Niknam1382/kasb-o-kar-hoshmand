@@ -541,6 +541,10 @@ async def _handle_bale_successful_payment(successful_payment: dict) -> None:
             return
 
         _effect, reward_info = await payment_service.approve_bale_payment(session, payment, transaction_id)
+        if _effect is None:
+            # وب‌هوکِ تکراریِ همان تراکنش (بله گاهی دو بار می‌فرستد) ⇒ بدونِ شارژِ دوباره و بدونِ پیامِ تکراری.
+            logger.info("پرداختِ بله (%s) پیش‌تر تایید شده بود؛ شارژِ دوباره انجام نشد.", transaction_id)
+            return
         owner = await shop_owner_service.get_by_id(session, payment.shop_owner_id)
         owner_telegram_id = owner.telegram_id
         is_topup = payment.purpose == PaymentPurpose.WALLET_TOPUP
@@ -795,6 +799,10 @@ async def zarinpal_callback(Authority: str, Status: str) -> HTMLResponse:
             return HTMLResponse(main_texts.ZARINPAL_PAYMENT_FAILED_PAGE)
 
         _effect, reward_info = await payment_service.approve_zarinpal_payment(session, payment, ref_id)
+        if _effect is None:
+            # رفرشِ صفحهٔ بازگشت ⇒ همان پرداخت یک بارِ دیگر تایید می‌شد؛ صفحهٔ موفق را می‌دهیم ولی شارژِ دوباره نه.
+            logger.info("پرداختِ زرین‌پال (authority=%s) پیش‌تر تایید شده بود.", Authority)
+            return HTMLResponse(main_texts.ZARINPAL_PAYMENT_SUCCESSFUL_PAGE)
         owner = await shop_owner_service.get_by_id(session, payment.shop_owner_id)
         owner_telegram_id = owner.telegram_id
         is_topup = payment.purpose == PaymentPurpose.WALLET_TOPUP

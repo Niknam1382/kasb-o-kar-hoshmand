@@ -240,7 +240,9 @@ async def test_reminders_pick_the_nearest_honest_threshold_once() -> None:
     await _set_days_left(5)  # نزدیک‌ترین مرزِ صادق = ۷ روز، نه ۳۰
     async with session_scope() as session:
         due = await wallet_service.find_charges_needing_reminder(session)
-        assert [(c.id, d) for c, d in due] == [(charge_id, 7)], due
+        # (ردیف، آستانه، روزهایِ *واقعی*) — سومی همان چیزی است که به کاربر نشان داده می‌شود؛
+        # P20: قبلاً آستانه (۷) نشان داده می‌شد در حالی که ۵ روز مانده بود.
+        assert [(c.id, threshold, days_left) for c, threshold, days_left in due] == [(charge_id, 7, 5)], due
         await wallet_service.mark_reminder_sent(session, due[0][0], due[0][1])
     async with session_scope() as session:
         assert await wallet_service.find_charges_needing_reminder(session) == [], "مرزِ رفته‌شده تکرار نمی‌شود"

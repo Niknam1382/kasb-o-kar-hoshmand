@@ -27,12 +27,12 @@ async def process_wallet_expiry_and_reminders(session: AsyncSession, main_bot: B
         logger.info("تعداد %s بسته‌ی کیف‌پول منقضی شد.", expired_count)
 
     due_reminders = await wallet_service.find_charges_needing_reminder(session)
-    for charge, days_left in due_reminders:
+    for charge, threshold, days_left in due_reminders:
         owner = await session.get(ShopOwner, charge.shop_owner_id)
         if owner is None:
             continue
         try:
             await main_bot.send_message(owner.telegram_id, texts.wallet_expiry_reminder(days_left, charge.remaining_toman))
-            await wallet_service.mark_reminder_sent(session, charge, days_left)
+            await wallet_service.mark_reminder_sent(session, charge, threshold)
         except TelegramAPIError:
             logger.exception("یادآوریِ انقضای کیف‌پول برای %s ناموفق بود.", owner.telegram_id)

@@ -37,6 +37,7 @@ from app.services import (
     bale_service,
     bot_branding_service,
     channel_service,
+    credit_batch_service,
     discount_service,
     excel_export_service,
     moderation_service,
@@ -52,7 +53,7 @@ from app.services import (
     wallet_service,
 )
 from app.services.admin_settings_service import get_admin_settings
-from app.utils.validators import normalize_telegram_username, parse_signed_toman_amount, to_e164_iran
+from app.utils.validators import format_toman, normalize_telegram_username, parse_signed_toman_amount, to_e164_iran
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,10 @@ async def cb_admin_approve_payment(callback: CallbackQuery, session: AsyncSessio
     owner = await shop_owner_service.get_by_id(session, payment.shop_owner_id)
     is_topup = payment.purpose == PaymentPurpose.WALLET_TOPUP
     _effect, reward_info = await payment_service.approve_payment(session, payment, callback.from_user.id)
+    if _effect is None:
+        # دو ادمین (یا ادمین + وب‌هوک) هم‌زمان زده‌اند؛ برندهٔ رقابت اعتبار را اضافه کرده است.
+        await callback.answer("این پرداخت همین حالا توسطِ دیگری بررسی شد.", show_alert=True)
+        return
 
     await callback.answer()
     new_caption = (callback.message.caption or "") + f"\n\n{texts.admin_payment_approved_confirmation(_owner_display_name(owner))}"
@@ -1187,6 +1192,16 @@ async def owner_gift_amount_entered(message: Message, state: FSMContext, session
         await message.answer(texts.ADMIN_INVALID_NUMBER)
         return
 
+    if not credit_batch_service.GIFT_MIN_TOMAN <= amount_toman <= credit_batch_service.GIFT_MAX_TOMAN:
+        # همان سقفِ هدیهٔ گروهی (K1). قبلاً این مسیر تک‌نفره هیچ حدی نداشت ⇒ یک اشتباهِ تایپی
+        # می‌توانست اعتبارِ نامحدود بسازد در حالی که نسخهٔ گروهی محدود بود.
+        await message.answer(
+            texts.ADMIN_GIFT_OUT_OF_RANGE.format(
+                min=format_toman(credit_batch_service.GIFT_MIN_TOMAN), max=format_toman(credit_batch_service.GIFT_MAX_TOMAN)
+            )
+        )
+        return
+
     data = await state.get_data()
     owner_id = data["gift_owner_id"]
     owner = await shop_owner_service.get_by_id(session, owner_id)
@@ -1195,26 +1210,60 @@ async def owner_gift_amount_entered(message: Message, state: FSMContext, session
         await message.answer(texts.ADMIN_SHOP_OWNERS_EMPTY)
         return
 
-    await wallet_service.add_charge(session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_GRANT)
+    await state.update_data(gift_amount_toman=amount_toman, gift_nonce=secrets.token_hex(8))
+    await state.set_state(AdminGiftStates.waiting_confirmation)
+    await message.answer(
+        texts.admin_gift_preview(_owner_display_name(owner), amount_toman, credit_batch_service.GIFT_MIN_TOMAN, credit_batch_service.GIFT_MAX_TOMAN),
+        reply_markup=keyboards.yes_no_keyboard("admin_gift_confirm", "admin_gift_cancel"),
+    )
+
+
+@router.callback_query(AdminGiftStates.waiting_confirmation, F.data == "admin_gift_cancel")
+async def owner_gift_cancelled(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.answer()
+    await callback.message.edit_text(texts.ADMIN_GIFT_CANCELLED)
+
+
+@router.callback_query(AdminGiftStates.waiting_confirmation, F.data == "admin_gift_confirm")
+async def owner_gift_confirmed(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    owner_id = data.get("gift_owner_id")
+    amount_toman = data.get("gift_amount_toman")
+    nonce = data.get("gift_nonce")
+    # state پیش ازِ نوشتن پاک می‌شود: دابل‌تپِ همین دکمه (یا بازنشرِ همان کال‌بک) دیگر به این
+    # nonce نمی‌رسد، و حتی اگر برسد قیدِ یکتای `idempotency_key` در دفتر جلویِ دومین شارژ را می‌گیرد.
+    await state.clear()
+    if not owner_id or not amount_toman or not nonce:
+        await callback.answer(texts.ADMIN_GIFT_STALE, show_alert=True)
+        return
+
+    owner = await shop_owner_service.get_by_id(session, owner_id)
+    if owner is None:
+        await callback.answer(texts.ADMIN_SHOP_OWNERS_EMPTY, show_alert=True)
+        return
+
+    await wallet_service.add_charge(
+        session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_GRANT, reference=f"gift:{nonce}"
+    )
     gift_shop_bot = await shop_bot_service.get_by_owner(session, owner)
     await audit_log_service.log(
         session,
         AuditEventType.OWNER_GIFT_GRANTED,
         shop_bot_id=gift_shop_bot.id if gift_shop_bot else None,
-        actor_telegram_id=message.from_user.id,
-        details=f"owner_id={owner_id}, amount_toman={amount_toman}",
+        actor_telegram_id=callback.from_user.id,
+        details=f"owner_id={owner_id}, amount_toman={amount_toman}, ref=gift:{nonce}",
     )
 
-    await state.clear()
-    await message.answer(texts.admin_gift_confirmation(_owner_display_name(owner), amount_toman))
+    await callback.answer()
+    await callback.message.edit_text(
+        texts.admin_gift_confirmation(_owner_display_name(owner), amount_toman), reply_markup=None
+    )
 
     try:
-        await message.bot.send_message(owner.telegram_id, texts.owner_gift_notification(amount_toman))
+        await callback.bot.send_message(owner.telegram_id, texts.owner_gift_notification(amount_toman))
     except TelegramAPIError:
         logger.exception("اطلاع‌رسانیِ هدیه‌ی کیف‌پول به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
-
-    # نکته: اینجا از _render_owner_detail استفاده نمی‌کنیم چون اون از .edit_text
-    # استفاده می‌کنه که فقط روی پیام‌های خودِ ربات کار می‌کنه، نه پیام ورودیِ ادمین.
 
 
 # --- استرداد/اصلاحِ تراکنشِ کیف‌پول (فازِ ۲-ب، زیربخشِ ۳) ---

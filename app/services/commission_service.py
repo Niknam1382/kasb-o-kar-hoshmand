@@ -96,7 +96,12 @@ def usable_credit(owner: ShopOwner) -> int:
 
 
 async def _lock_owner(session: AsyncSession, owner_id: int) -> ShopOwner | None:
-    result = await session.execute(select(ShopOwner).where(ShopOwner.id == owner_id).with_for_update())
+    # populate_existing: همان session ممکن است ShopOwner را زودتر خوانده باشد (مثلاً مسیرِ
+    # تاییدِ پرداخت)؛ بدونِ بازخوانی، `+=` رویِ عددِ بیاتِ پایتونی = گم‌شدنِ تغییرِ تراکنشِ دیگر
+    # (همان الگویی که `_apply_balance_delta` با UPDATE ستونی ازش فرار می‌کند).
+    result = await session.execute(
+        select(ShopOwner).where(ShopOwner.id == owner_id).with_for_update().execution_options(populate_existing=True)
+    )
     return result.scalar_one_or_none()
 
 
@@ -208,7 +213,14 @@ async def settle(
             idempotency_key=f"comm-settle:{group_key}",
         )
         if not ok:
-            logger.warning("کمیسیونِ گروه %s از کیف‌پولِ %s کم نشد (موجودیِ ناکافی در لحظهٔ تسویه).", group_key, owner_id)
+            # موجودیِ فروشگاه‌دار در لحظهٔ تسویه تمام شده. قبلاً اینجا `return` می‌شد و hold
+            # برایِ همیشه رویِ کیف‌پول قفل می‌ماند (پولِ مسکوت، بدونِ هیچ ردیفِ دفتری).
+            # درستِ همین: hold آزاد می‌شود، ردیف‌ها released می‌شوند و هیچ پولی گرفته نمی‌شود ⇒
+            # دفتر و کشِ موجودی هم‌راستا می‌مانند؛ کمبودِ درآمد در لاگِ هشدار دیده می‌شود.
+            logger.warning(
+                "کمیسیونِ گروه %s از کیف‌پولِ %s کم نشد (موجودیِ ناکافی در لحظهٔ تسویه)؛ رزرو آزاد شد.", group_key, owner_id
+            )
+            await release(session, owner_id=owner_id, group_key=group_key, rows=rows)
             return CommissionResult("settle", actual, False, "insufficient")
 
     owner.commission_reserved_toman = max(0, int(owner.commission_reserved_toman or 0) - hold)

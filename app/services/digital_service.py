@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import DigitalCode, OrderConsultation, OrderStatus, Product
 from app.services import order_state
 from app.utils.encryption import decrypt_token, encrypt_token
+from app.utils.text_limits import TELEGRAM_CAPTION_LIMIT, clip
 
 logger = logging.getLogger(__name__)
 
@@ -106,20 +107,29 @@ def can_download_again(product: Product, download_count: int) -> bool:
 
 
 def build_delivery_text(product: Product, codes: list[str], again: bool = False) -> str:
-    """متنِ پیامِ تحویل (بدونِ parse_mode). برایِ حالتِ file، خودِ فایل جدا (با همین متن به‌عنوانِ caption) می‌ره."""
+    """متنِ پیامِ تحویل (بدونِ parse_mode). برایِ حالتِ file، خودِ فایل جدا (با همین متن به‌عنوانِ caption) می‌ره.
+
+    خروجی همیشه زیرِ سقفِ کپشنِ تلگرام (۱۰۲۴) برمی‌گردد: `digital_instructions` متنِ آزادِ
+    فروشگاه‌دار است و بدونِ برش، پیامِ تحویلِ یک محصولِ *فایلی* برایِ همیشه BadRequest می‌داد —
+    و چون تحویل پیش ازِ ارسال در DB ثبت شده بود، «دریافتِ دوباره» هم دقیقاً همان‌طور شکست
+    می‌خورد و مشتری هرگز فایل را نمی‌گرفت.
+    """
     head = "📥 دریافتِ دوباره" if again else "✅ سفارشِ شما آماده‌ست"
-    lines = [f"{head}: {product.name}"]
+    lines = [f"{head}: {clip(product.name, 120)}"]
     mode = product.digital_delivery
+    # راهنما حداکثر ۴۰۰ نویسه بریده می‌شود تا همیشه جایِ کافی برایِ خودِ کدها بماند
+    # (کد، چیزی است که مشتری باید کامل ببیند؛ راهنما نه).
+    instructions = clip(product.digital_instructions, 400)
     if mode == "link" and product.digital_link:
         lines.append(f"🔗 لینک: {product.digital_link}")
-    elif mode == "text" and product.digital_instructions:
-        lines.append(product.digital_instructions)
+    elif mode == "text" and instructions:
+        lines.append(instructions)
     elif mode == "code_pool" and codes:
         lines.append("🔑 " + ("کدِ شما:" if len(codes) == 1 else "کدهایِ شما:"))
         lines.extend(codes)
-    if mode != "text" and product.digital_instructions:
-        lines.append(f"\nℹ️ راهنما:\n{product.digital_instructions}")
-    return "\n".join(lines)
+    if mode != "text" and instructions:
+        lines.append(f"\nℹ️ راهنما:\n{instructions}")
+    return clip("\n".join(lines), TELEGRAM_CAPTION_LIMIT)
 
 
 def again_keyboard(order_id: int) -> InlineKeyboardMarkup:

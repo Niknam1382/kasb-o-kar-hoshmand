@@ -86,6 +86,7 @@ async def add_charge(
     payment_id: int | None = None,
     validity_months: int | None = None,
     reference: str | None = None,
+    idempotency_key: str | None = None,
 ) -> WalletCharge:
     """یه بسته‌ی شارژِ جدید می‌سازه (با انقضای مستقل) و موجودیِ کش‌شده رو آپدیت می‌کنه."""
     if amount_toman <= 0:
@@ -119,11 +120,25 @@ async def add_charge(
             amount_toman=amount_toman,
             reason=reason,
             reference=reference,
-            idempotency_key=None if reference is None else f"charge:{reference}:owner:{owner.id}",
+            # قیدِ یکتای `idempotency_key` آخرین سدِ «شارژِ دوباره» است. برایِ شارژِ کیف‌پول
+            # کلید از خودِ ردیفِ پرداخت می‌آید (نه فقط reference که some مسیرها آن را نمی‌دهند)،
+            # پس حتی اگر محافظِ قفلِ سطری در payment_service روزی برداشته شود، دو وب‌هوکِ
+            # تکراریِ همان پرداختِ واحدِ ثانیه نمی‌توانند دو بار اعتبار بسازند.
+            idempotency_key=_charge_idempotency_key(owner.id, payment_id, reference, idempotency_key),
         )
     )
     await session.flush()
     return charge
+
+
+def _charge_idempotency_key(owner_id: int, payment_id: int | None, reference: str | None, explicit: str | None) -> str | None:
+    if explicit:
+        return explicit
+    if payment_id is not None:
+        return f"charge:payment:{payment_id}:owner:{owner_id}"
+    if reference is not None:
+        return f"charge:{reference}:owner:{owner_id}"
+    return None
 
 
 async def deduct(
@@ -374,7 +389,10 @@ async def find_charges_needing_reminder(session: AsyncSession) -> list[tuple[Wal
         reminder_query = reminder_query.where(WalletCharge.shop_owner_id.notin_(frozen_ids))
     result = await session.execute(reminder_query)
     for charge in result.scalars().all():
-        days_left = (charge.expires_at - now).days
+        # سقف (نه کف): «۵ روزِ دیگه» برایِ ۴ روز و ۲۳ ساعتِ باقی‌مانده صادق‌تر از «۴ روز» است،
+        # و آستانه‌ها هم دقیقاً سرِ مرز زده می‌شوند نه یک روز دیر.
+        remaining_seconds = (charge.expires_at - now).total_seconds()
+        days_left = int(-(-remaining_seconds // 86400))
         # هر آستانه فقط وقتی کاندیدِ معتبره که نه خودش قبلاً رفته، نه هیچ
         # آستانه‌ی محکم‌ترِ (نزدیک‌تر به انقضا) دیگه‌ای رفته باشه — وگرنه بعد
         # از فرستادنِ «۷ روز مونده»، ممکنه بعداً به‌اشتباه «۳۰ روز مونده» هم
@@ -387,7 +405,10 @@ async def find_charges_needing_reminder(session: AsyncSession) -> list[tuple[Wal
         if days_left <= 30 and not charge.reminder_30d_sent and not charge.reminder_7d_sent and not charge.reminder_1d_sent:
             candidates.append(30)
         if candidates:
-            due.append((charge, min(candidates)))
+            # دومی آستانه است (برایِ فلگِ «رفته») و سومی روزهایِ *واقعی* باقی‌مانده (برایِ متنِ پیام).
+            # قبلاً آستانه به‌جایِ روزهایِ واقعی به کاربر نشان داده می‌شد ⇒ بسته‌ای که ۲ روز
+            # فرصت دارد پیامِ «۷ روزِ دیگه منقضی می‌شه» می‌گرفت و فروشگاه‌دار دیرِ کار می‌کرد.
+            due.append((charge, min(candidates), max(days_left, 0)))
 
     return due
 

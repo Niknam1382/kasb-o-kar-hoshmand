@@ -69,6 +69,20 @@ async def get_active_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> lis
     return list(result.scalars().all())
 
 
+async def lock_for_update(session: AsyncSession, product_id: int) -> Product | None:
+    """قفلِ سطریِ ردیفِ محصول *پیش* از خواندن/نوشتنِ موجودی.
+
+    موجودیِ محصول (stock/reserved) تنها چیزی است که دو مشتریِ هم‌زمان رویِ آن رقابت می‌کنند.
+    هر READ-modify-WRITE‌ای که این تابع را صدا نزند می‌تواند آخرینِ واحد را دو بار بفروشد
+    یا شمارنده را برای همیشه خراب بگذارد. `populate_existing` هم لازم است: همان session
+    ممکن است محصول را از قبل در حافظه داشته باشد (فهرستِ محصولات) و بدونِ بازخوانی عددِ
+    قدیمی برگردانده شود. ردیف‌ها تا commit قفل می‌مانند ⇒ فقط برنده رقابت می‌نویسد."""
+    result = await session.execute(
+        select(Product).where(Product.id == product_id).with_for_update().execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_by_id(session: AsyncSession, product_id: int) -> Product | None:
     """
     توجه: این تابع مالکیت رو چک نمی‌کنه — فقط برای مسیرهایی مناسبه که

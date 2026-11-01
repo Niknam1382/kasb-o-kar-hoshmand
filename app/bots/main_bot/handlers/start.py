@@ -7,6 +7,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
@@ -434,9 +435,21 @@ async def cb_activate_trial(callback: CallbackQuery, session: AsyncSession) -> N
         await callback.answer("قبلاً از اعتبار آزمایشی استفاده کرده‌ای.", show_alert=True)
         return
     admin_settings = await get_admin_settings(session)
-    await wallet_service.add_charge(
-        session, owner, admin_settings.wallet_trial_credit_toman, reason=WalletTransactionReason.TRIAL
-    )
+    try:
+        await wallet_service.add_charge(
+            session,
+            owner,
+            admin_settings.wallet_trial_credit_toman,
+            reason=WalletTransactionReason.TRIAL,
+            reference="trial",
+        )
+    except IntegrityError:
+        # دو تپِ هم‌زمان رویِ همان دکمه: چکِ «فعالیت داشته؟» هر دو رد می‌کند چون هیچ‌کدام هنوز
+        # چیزی ننوشته. کلیدِ `charge:trial:owner:{id}` در دفتر تنها سدِ واقعی است ⇒ یکی می‌برد.
+        await session.rollback()
+        logger.info("تلاشِ دوباره برایِ اعتبارِ آزمایشیِ فروشگاه‌دار %s رد شد.", owner.id)
+        await callback.answer("قبلاً از اعتبار آزمایشی استفاده کرده‌ای.", show_alert=True)
+        return
     await callback.answer()
     await callback.message.edit_text(texts.trial_activated(admin_settings.wallet_trial_credit_toman))
     await callback.message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(owner.business_mode, bale_visible=await bale_bot_service.visible_for(session)))

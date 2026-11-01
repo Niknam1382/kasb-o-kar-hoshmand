@@ -145,6 +145,7 @@ class AdminSettingsStates(StatesGroup):
 
 class AdminGiftStates(StatesGroup):
     waiting_amount = State()
+    waiting_confirmation = State()
 
 
 class AdminWalletCorrectionStates(StatesGroup):

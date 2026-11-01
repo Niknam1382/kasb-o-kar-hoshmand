@@ -1171,12 +1171,13 @@ async def cb_confirm_order(callback: CallbackQuery, session: AsyncSession, bot_m
 
     prev_status = order.status
     confirmed = await order_service.confirm_order(session, order)
-    if confirmed:
-        await order_transition_service.record_event(session, order, prev_status, order.status, actor_type="owner")
-    await callback.answer()
     if not confirmed:
+        # یک `answer()` دوباره مجاز نیست و باعثِ «دکمه مرده» شدنِ اخطار می‌شد؛ اینک
+        # تنها یک بار پاسخ داده می‌شود و اخطارِ «قبلاً تایید شده» واقعاً نمایش داده می‌شود.
         await callback.answer(texts.ORDER_ALREADY_CONFIRMED, show_alert=True)
         return
+    await order_transition_service.record_event(session, order, prev_status, order.status, actor_type="owner")
+    await callback.answer()
 
     delivery_status = await _deliver_digital_after_confirm(session, order, shop_bot, bot_manager, callback.bot)
     delivery_note = texts.digital_delivery_owner_note(delivery_status) if delivery_status else ""

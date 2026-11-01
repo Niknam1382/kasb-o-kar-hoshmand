@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import OrderConsultation, OrderStatus, OrderType, Product
-from app.services import order_state, shop_prefs_service
+from app.services import order_state, order_transition_service, product_service, shop_prefs_service
 from app.services.admin_settings_service import get_admin_settings
 
 # وضعیت‌هایی که با دکمه‌ی «مرحله‌ی بعد» می‌شه ازشون جلو رفت، به همین ترتیب.
@@ -77,7 +77,7 @@ async def create_order(
     await session.flush()
 
     if product_id is not None:
-        product = await session.get(Product, product_id)
+        product = await _lock_product(session, product_id)
         if product is not None and product.stock_quantity is not None:
             qty = quantity or 1
             available = product.stock_quantity - product.reserved_quantity
@@ -152,6 +152,10 @@ async def get_awaiting_confirmation_for_customer(session: AsyncSession, order_id
     return result.scalar_one_or_none()
 
 
+async def _lock_product(session: AsyncSession, product_id: int) -> Product | None:
+    return await product_service.lock_for_update(session, product_id)
+
+
 async def customer_confirm_order(session: AsyncSession, order: OrderConsultation) -> None:
     """
     خودِ مشتری صحتِ اطلاعاتِ تشخیص‌داده‌شده رو تایید کرد: سفارش از حالتِ کاندید
@@ -163,7 +167,7 @@ async def customer_confirm_order(session: AsyncSession, order: OrderConsultation
     order.status = OrderStatus.PENDING
 
     if order.product_id is not None:
-        product = await session.get(Product, order.product_id)
+        product = await _lock_product(session, order.product_id)
         if product is not None and product.stock_quantity is not None:
             qty = order.quantity or 1
             available = product.stock_quantity - product.reserved_quantity
@@ -299,7 +303,7 @@ async def _release_reservation(session: AsyncSession, order: OrderConsultation) 
     if not order.stock_reserved:
         return
     if order.product_id is not None:
-        product = await session.get(Product, order.product_id)
+        product = await _lock_product(session, order.product_id)
         if product is not None:
             qty = order.quantity or 1
             product.reserved_quantity = max(0, product.reserved_quantity - qty)
@@ -329,7 +333,7 @@ async def confirm_order(session: AsyncSession, order: OrderConsultation) -> bool
     order.status = OrderStatus.CONFIRMED
 
     if order.product_id is not None:
-        product = await session.get(Product, order.product_id)
+        product = await _lock_product(session, order.product_id)
         if product is not None and product.stock_quantity is not None:
             qty = order.quantity or 1
             if order.stock_reserved:
@@ -338,6 +342,9 @@ async def confirm_order(session: AsyncSession, order: OrderConsultation) -> bool
 
     order.stock_reserved = False
     await session.flush()
+    # رزروِ کمیسیون (اگر گروه از جریانِ پرداخت بیاید) باید همین‌جا آزاد شود؛ این مسیر از
+    # `transition_group` رد نمی‌شود، پس بدونِ این خط hold رویِ کیف‌پول فروشگاه می‌ماند.
+    await order_transition_service.apply_commission(session, [order], order_state.CONFIRMED)
     return True
 
 
