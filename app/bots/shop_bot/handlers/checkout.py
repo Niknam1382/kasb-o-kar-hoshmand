@@ -39,6 +39,7 @@ from app.services import (
     digital_service,
     order_payment_service,
     order_service,
+    order_state,
     order_transition_service,
     payment_settings_service,
     shipping_service,
@@ -960,6 +961,9 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
         await order_transition_service.record_event(
             session, orders[0], None, OrderStatus.AWAITING_PAYMENT, actor_type="customer", actor_ref=str(customer.id)
         )
+        # PHASE 5D: همین‌جا جریانِ پرداخت شروع می‌شود ⇒ کمیسیونِ موردانتظار رزرو می‌شود
+        # (گذّار وضعیت اینجا اجرا نمی‌شود، پس رزرو صریح صدا زده می‌شود).
+        await order_transition_service.apply_commission(session, orders, order_state.AWAITING_PAYMENT)
         await session.flush()
 
     total_toman = order_transition_service.group_total_toman(orders)  # اقلام (بعد از تخفیف) + ارسال

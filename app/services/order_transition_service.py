@@ -17,8 +17,47 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import OrderConsultation, OrderEvent, OrderStatus, Product
-from app.services import order_state
+from app.database.models import OrderConsultation, OrderEvent, OrderStatus, Product, ShopBot
+from app.services import admin_settings_service, commission_service, order_state
+
+
+async def apply_commission(session: AsyncSession, rows: list[OrderConsultation], to: str) -> None:
+    """
+    PHASE 5D — چرخهٔ عمرِ کمیسیون در تنها نقطهٔ گذارِ گروه:
+
+    ورود به جریانِ پرداخت (`awaiting_payment` / `receipt_submitted`) ← رزرو
+    تاییدِ پرداخت (`paid`)                                            ← تسویه
+    رد/انقضا/لغو                                                     ← آزادسازیِ رزرو
+    استرداد (`refunded`)                                             ← برگشتِ گرفته‌شده یا آزادسازی
+
+    مسیرِ چک‌اوت که ردیف‌ها را مستقیم در `awaiting_payment` می‌سازد هم همین تابع را صدا
+    می‌زند (چون `transition_group` آنجا اجرا نمی‌شود). کمیسیون خاموش ⇒ همه‌یِ تابع‌ها
+    بی‌اثرند. این تابع commit نمی‌کند؛ با گذارِ وضعیت در همان transaction می‌آید یا هیچ‌کدام.
+    """
+    if not rows:
+        return
+    owner_id = (
+        await session.execute(select(ShopBot.shop_owner_id).where(ShopBot.id == rows[0].shop_bot_id))
+    ).scalar_one_or_none()
+    if owner_id is None:
+        return
+    admin_settings = await admin_settings_service.get_admin_settings(session)
+    key = group_key(rows[0])
+
+    if to in (order_state.AWAITING_PAYMENT, order_state.RECEIPT_SUBMITTED):
+        await commission_service.reserve(
+            session, owner_id=owner_id, group_key=key, rows=rows, admin_settings=admin_settings
+        )
+    elif to == order_state.PAID:
+        await commission_service.settle(
+            session, owner_id=owner_id, group_key=key, rows=rows, admin_settings=admin_settings
+        )
+    elif to == order_state.REFUNDED:
+        reversed_result = await commission_service.reverse(session, owner_id=owner_id, group_key=key, rows=rows)
+        if not reversed_result.changed:
+            await commission_service.release(session, owner_id=owner_id, group_key=key, rows=rows)
+    elif to in order_state.RELEASES_RESERVATION:
+        await commission_service.release(session, owner_id=owner_id, group_key=key, rows=rows)
 
 
 @dataclass
@@ -172,6 +211,7 @@ async def transition_group(
             session, r, to, now, reason=reason, tracking_code=tracking_code, carrier_name=carrier_name
         )
     await session.flush()
+    await apply_commission(session, rows, to)  # PHASE 5D: رزرو/تسویه/آزادسازی/برگشتِ کمیسیون
     await record_event(session, rows[0], from_status, to, actor_type=actor_type, actor_ref=actor_ref, reason=reason)
     return TransitionResult(ok=True, changed=True, rows=rows, from_status=from_status, to_status=to)
 

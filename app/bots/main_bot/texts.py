@@ -1206,6 +1206,14 @@ ADMIN_ASK_WALLET_COST_PER_1K_TOKENS = "هزینه‌ی هر ۱۰۰۰ توکن (�
 ADMIN_ASK_AI_COST_USD = "هزینه‌ی واقعیِ مدلِ AI به ازای هر ۱ میلیون توکن، به دلار چقدره؟ (عددِ اعشاری؛ همان نرخِ اعلامیِ سرویس‌دهنده):"
 ADMIN_ASK_USD_TO_TOMAN_RATE = "نرخِ تبدیلِ دلار به تومان (که باید خودتون به‌روز نگهش دارید) چنده؟ (فقط عددِ صحیح):"
 ADMIN_ASK_MARKUP_MULTIPLIER = "ضریبِ سودِ شما روی هزینه‌ی خامِ AI (که هزینه‌ی سرور هم توش لحاظ می‌شه) چند برابر باشه؟ (عددِ ۵ یعنی ۵ برابر):"
+# PHASE 5D — کمیسیونِ درصدیِ سفارشِ موفق
+ADMIN_ASK_COMMISSION_PERCENT = (
+    "درصدِ کمیسیونِ پلتفرم از هر سفارشِ موفق چقدر باشه؟ (۰ تا ۱۰۰؛ اعشاری مجازه: ۰٫۵ یعنی نیم‌درصد)\n\n"
+    "مبنای محاسبه: جمعِ ارزشِ اقلامِ همان گروه **پس از تخفیف و بدونِ هزینه‌ی ارسال**.\n"
+    "کمیسیون فقط بعد از تاییدِ پرداخت و از کیف‌پولِ خودِ فروشگاه‌دار کسر می‌شود."
+)
+COMMISSION_TOGGLED_ON = "🧾 کمیسیون روشن شد ✅ — {percent}٪ از هر سفارشِ موفق"
+COMMISSION_TOGGLED_OFF = "🧾 کمیسیون خاموش شد ⏸ — دیگر از سفارش‌هایِ تازه گرفته نمی‌شود"
 # P18 · A4: «هزینه‌ی تحلیلِ عکس» برداشته شد — تحلیلِ عکس فقط برایِ رسیدِ پرداخت است و هزینه‌یِ خودش را دارد.
 ADMIN_ASK_WALLET_COST_VOICE_TRANSCRIPTION = "هزینه‌ی هر بار رونویسیِ پیامِ صوتی، به تومان چقدر باشه؟"
 ADMIN_ASK_WALLET_COST_ORDER_DETECTION = "هزینه‌ی پیش‌فرضِ تشخیصِ سفارش (وقتی تعدادِ توکنِ واقعی در دسترس نباشه)، به تومان چقدر باشه؟"
@@ -1396,6 +1404,11 @@ def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
         ("ai_cost_usd_per_1m_tokens", f"💵 هزینه‌ی خامِ AI: ${admin_settings.ai_cost_usd_per_1m_tokens}/۱M توکن"),
         ("usd_to_toman_rate", f"💱 نرخِ دلار: {format_toman(admin_settings.usd_to_toman_rate)}"),
         ("wallet_markup_multiplier", f"📈 ضریبِ سود: {admin_settings.wallet_markup_multiplier}×"),
+        # PHASE 5D
+        (
+            "commission_percent",
+            f"🧾 کمیسیون: {admin_settings.commission_percent}٪ ({'روشن' if admin_settings.commission_enabled else 'خاموش'})",
+        ),
         ("wallet_cost_receipt_analysis_toman", f"🧾 هزینه‌ی تحلیلِ رسید (مشورتی): {format_toman(admin_settings.wallet_cost_receipt_analysis_toman)}"),
         ("wallet_cost_voice_transcription_toman", f"🎙 هزینه‌ی رونویسیِ صوت: {format_toman(admin_settings.wallet_cost_voice_transcription_toman)}"),
         ("wallet_cost_order_detection_toman", f"🔎 هزینه‌ی پیش‌فرضِ تشخیصِ سفارش: {format_toman(admin_settings.wallet_cost_order_detection_toman)}"),

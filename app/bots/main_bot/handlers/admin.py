@@ -466,6 +466,27 @@ async def cb_toggle_topups(callback: CallbackQuery, session: AsyncSession) -> No
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
+@super_router.callback_query(F.data == "admin_toggle_commission")
+async def cb_toggle_commission(callback: CallbackQuery, session: AsyncSession) -> None:
+    """PHASE 5D: روشن/خاموشِ کمیسیونِ درصدی. تغییر، سفارش‌هایِ درجریان را عوض نمی‌کند
+    (نرخِشان snapshot شده) و رویِ سفارش‌هایِ تسویه‌شده هیچ اثری ندارد."""
+    admin_settings = await get_admin_settings(session)
+    admin_settings.commission_enabled = not admin_settings.commission_enabled
+    await audit_log_service.log(
+        session,
+        AuditEventType.KILL_SWITCH_TOGGLED,
+        actor_telegram_id=callback.from_user.id,
+        details=f"commission_enabled -> {admin_settings.commission_enabled}، نرخ {admin_settings.commission_percent}٪",
+    )
+    await session.flush()
+    await callback.answer(
+        texts.COMMISSION_TOGGLED_ON.format(percent=admin_settings.commission_percent)
+        if admin_settings.commission_enabled
+        else texts.COMMISSION_TOGGLED_OFF
+    )
+    await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
+
+
 @super_router.callback_query(F.data == "admin_toggle_maintenance")
 async def cb_toggle_maintenance(callback: CallbackQuery, session: AsyncSession) -> None:
     admin_settings = await get_admin_settings(session)
@@ -647,7 +668,13 @@ _INT_FIELDS: dict[str, str] = {
 _DECIMAL_FIELDS: dict[str, str] = {
     "ai_cost_usd_per_1m_tokens": texts.ADMIN_ASK_AI_COST_USD,
     "wallet_markup_multiplier": texts.ADMIN_ASK_MARKUP_MULTIPLIER,
+    # PHASE 5D: درصدِ کمیسیونِ سفارشِ موفق (اعشاری: ۰٫۵٪، ۱٪، ۱٫۵٪).
+    "commission_percent": texts.ADMIN_ASK_COMMISSION_PERCENT,
 }
+
+# صفرِ این فیلدهایِ اعشاری معنا دارد (۰٪ = کمیسیون حذف شد)، برخلافِ هزینه/ضریب که صفر بی‌معناست.
+_DECIMAL_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset({"commission_percent"})
+_DECIMAL_FIELDS_MAX: dict[str, Decimal] = {"commission_percent": Decimal("100")}
 
 # این فیلدها استثنائاً اجازه‌ی صفر دارن (صفر یعنی «غیرفعال»، یا برایِ
 # nightly_report_hour_utc، یعنی نیمه‌شبِ UTC — یه ساعتِ کاملاً معتبر).
@@ -845,7 +872,11 @@ async def setting_value_entered(
     elif data["field_kind"] == "decimal":
         try:
             value = Decimal(raw.replace(",", "."))
-            if value <= 0:
+            # کمیسیون تنها فیلدِ اعشاری است که صفرِ معتبر دارد (۰٪ = برداشتنِ کاملِ کمیسیون).
+            if value < 0 or (value == 0 and field not in _DECIMAL_FIELDS_ALLOW_ZERO):
+                raise ValueError
+            maximum = _DECIMAL_FIELDS_MAX.get(field)
+            if maximum is not None and value > maximum:
                 raise ValueError
         except (ValueError, InvalidOperation):
             await message.answer(texts.ADMIN_INVALID_NUMBER)

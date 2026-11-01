@@ -182,6 +182,7 @@ class WalletTransactionReason(str, enum.Enum):
     ADMIN_GRANT = "admin_grant"
     ADMIN_CORRECTION = "admin_correction"
     EXPIRY = "expiry"
+    COMMISSION = "commission"  # PHASE 5D: کمیسیونِ درصدیِ سفارشِ موفق (settle/reverse)
 
 
 class ModerationAction(str, enum.Enum):
@@ -325,6 +326,11 @@ class AdminSettings(Base):
     ai_cost_usd_per_1m_tokens: Mapped[Decimal] = mapped_column(Numeric(10, 4), default=Decimal("0.014"), nullable=False)
     usd_to_toman_rate: Mapped[int] = mapped_column(Integer, default=100_000, nullable=False)
     wallet_markup_multiplier: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("5.00"), nullable=False)
+    # PHASE 5D: کمیسیونِ درصدیِ سفارشِ موفقِ فروشگاه‌دارها. فقط‌درصدی (بدونِ مبلغِ ثابت)،
+    # خاموش‌به‌پیش‌فرض، و اعشاری (۰٫۵٪ ممکن است). نرخِ لحظهٔ ورود به جریانِ پرداخت رویِ
+    # خودِ سفارش snapshot می‌شود؛ تغییرِ بعدیِ ادمین سفارشِ باز را عوض نمی‌کند.
+    commission_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    commission_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"), server_default="0", nullable=False)
     wallet_cost_photo_analysis_toman: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
     # W5 · 2.1: هزینه‌یِ تحلیلِ AIِ رسیدِ کارت‌به‌کارت (فقط مشورتی)
     wallet_cost_receipt_analysis_toman: Mapped[int] = mapped_column(Integer, default=500, server_default="500", nullable=False)
@@ -401,7 +407,10 @@ class ShopOwner(Base):
     registration_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     referral_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
     referred_by_id: Mapped[int | None] = mapped_column(ForeignKey("shop_owners.id"), nullable=True)
-    wallet_balance_toman: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    wallet_balance_toman: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # PHASE 5D: مبلغی که برایِ کمیسیونِ سفارش‌هایِ در‌جریانِ پرداخت قفل شده. از
+    # «اعتبارِ قابل‌مصرف» کم می‌شود، ولی موجودیِ واقعی را کم نمی‌کند (ردیفِ دفترِ ۰).
+    commission_reserved_toman: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     wallet_low_balance_notified_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     wallet_empty_notified_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -878,6 +887,12 @@ class OrderConsultation(Base, CreatedAtMixin):
     shipping_method_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # PHASE 5D: snapshotِ کمیسیون همین گروه. نرخِ لحظهٔ ورود به جریانِ پرداخت قفل می‌شود تا
+    # تغییرِ بعدیِ ادمین سفارشِ باز را بی‌سروصدا گران/ارزان نکند. status:
+    # None | reserved | settled | released | reversed.
+    commission_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    commission_toman: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    commission_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class ModerationRule(Base, CreatedAtMixin):

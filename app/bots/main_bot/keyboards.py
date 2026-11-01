@@ -510,6 +510,13 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🧮 محاسبه‌ی خودکارِ هزینه از فرمول", callback_data="admin_recalc_wallet_cost")],
         [InlineKeyboardButton(text=registrations_label, callback_data="admin_toggle_registrations")],
         [InlineKeyboardButton(text=topups_label, callback_data="admin_toggle_topups")],
+        # PHASE 5D: کمیسیونِ درصدی (روشن/خاموش؛ درصد از همان فهرستِ تنظیمات ویرایش می‌شود)
+        [
+            InlineKeyboardButton(
+                text="🧾 خاموش‌کردنِ کمیسیونِ سفارش" if admin_settings.commission_enabled else "🧾 روشن‌کردنِ کمیسیونِ سفارش",
+                callback_data="admin_toggle_commission",
+            )
+        ],
         [InlineKeyboardButton(text=maintenance_label, callback_data="admin_toggle_maintenance")],
         [InlineKeyboardButton(text=nightly_report_label, callback_data="admin_toggle_nightly_report")],
         [InlineKeyboardButton(text=knowledge_gap_label, callback_data="admin_toggle_knowledge_gap")],

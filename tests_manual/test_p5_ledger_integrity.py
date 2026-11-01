@@ -108,7 +108,9 @@ async def test_new_ledger_columns_are_filled_on_insert() -> None:
             session, owner, 50_000, WalletTransactionReason.CHAT_MESSAGE, reference="usage:7", idempotency_key="spend:7"
         )
     spend = (await _ledger_rows(owner_id))[-1]
-    assert spend.amount_toman == -50_000 and spend.idempotency_key == "spend:7"
+    assert spend.amount_toman == -50_000, spend.amount_toman
+    # کلیدِ ایدپوتنسیِ مصرف به بسته هم وابسته است (یک مصرفِ بزرگ بینِ چند بسته پخش می‌شود)
+    assert spend.idempotency_key.startswith("spend:7:lot:"), spend.idempotency_key
     assert spend.currency == "TOMAN" and spend.status == "settled"
     print("✅ test_new_ledger_columns_are_filled_on_insert PASSED")
 

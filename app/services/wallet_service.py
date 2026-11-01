@@ -68,7 +68,11 @@ async def _apply_balance_delta(session: AsyncSession, owner: ShopOwner, delta_to
     result = await session.execute(
         update(ShopOwner)
         .where(ShopOwner.id == owner.id)
-        .values(wallet_balance_toman=ShopOwner.wallet_balance_toman + delta_toman)
+        # PHASE 7: موجودیِ کش‌شده هرگز منفی نمی‌شود. معمولاً این هیچ‌وقت رخ نمی‌دهد
+        # (چون deduct از رویِ خودِ بسته‌ها کم می‌کند)، ولی اگر کشیده و بسته‌ها به هر
+        # دلیلی از هم جدا افتاده باشند، «گreatest(۰)» جلویِ بدهکارشدن را می‌گیرد و
+        # خطا لاگ می‌شود؛ همان روز همسنجیِ PHASE 5E اختلاف را به ادمین می‌گوید.
+        .values(wallet_balance_toman=func.greatest(0, ShopOwner.wallet_balance_toman + delta_toman))
         .returning(ShopOwner.wallet_balance_toman)
     )
     owner.wallet_balance_toman = result.scalar_one()
@@ -177,7 +181,10 @@ async def deduct(
                 amount_toman=-take,
                 reason=reason,
                 reference=reference,
-                idempotency_key=idempotency_key,
+                # کلیدِ ایدپوتنسی به‌ازایِ (رویداد، بسته) است: یک مصرفِ بزرگ ممکن است بینِ
+                # چند بسته پخش شود و قیدِ یکتا نباید جلویِ خودِ آن را بگیرد، ولی
+                # اجرایِ دوبارهٔ همان رویداد رویِ همان بسته را می‌گیرد.
+                idempotency_key=None if idempotency_key is None else f"{idempotency_key}:lot:{charge.id}",
             )
         )
 

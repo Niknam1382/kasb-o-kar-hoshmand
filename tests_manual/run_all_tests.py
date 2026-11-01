@@ -101,6 +101,7 @@ TEST_FILES = [
     "test_p2_credit_expiry_preserved.py",
     "test_p5_min_recharge.py",
     "test_p5_ledger_integrity.py",
+    "test_p5_commission.py",
 ]
 
 
