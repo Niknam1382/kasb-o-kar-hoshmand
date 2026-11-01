@@ -107,6 +107,10 @@ async def _run_periodic_pass_locked(main_bot: Bot, bot_manager) -> None:
         async with session_scope() as session:
             await bot_branding_service.sync_all(session, bot_manager, main_bot)
     # P20 · صندوقِ اعلان‌ها: خبری که تلگرام/بله نپذیرفت، تا ۶ بار با backoff دوباره تلاش می‌شود.
+    # P21-F: حلقهٔ ۶۰ثانیه‌ایِ `run_notification_loop` کارِ اصلی را انجام می‌دهد؛ این فراخوانی
+    # عمداً مانده (a) اگر کسی آن حلقه را خاموش/متوقف کند صف باز هم تخلیه شود، (b) تستِ سیم‌کشیِ
+    # `run_periodic_pass` همچنان واقعی بماند. تکرارِ اجرا بی‌ضرر است: `send_due` ردیف‌ها را
+    # `FOR UPDATE SKIP LOCKED` برمی‌دارد و dedupe_key صفِ دوتایی نمی‌سازد.
     if bot_manager is not None and not job_gate_service.is_paused(admin_settings, "notifications"):
         async with session_scope() as session:
             # P21-D (F2): اول ارسال‌هایِ زمان‌بندی‌شده به صف می‌روند، بعد صف تخلیه می‌شود
@@ -187,7 +191,39 @@ async def run_periodic_tasks(
             pass
 
 
+NOTIFICATION_INTERVAL_SECONDS = 60
 PAYMENT_EXPIRY_INTERVAL_SECONDS = 60
+
+
+async def run_notification_loop(
+    main_bot: Bot, bot_manager, stop_event: asyncio.Event, interval_seconds: int = NOTIFICATION_INTERVAL_SECONDS
+) -> None:
+    """P21-F: تخلیهٔ صندوقِ اعلان هر ۶۰ ثانیه، نه هر ۳۰ دقیقه.
+
+    خبرِ «سفارشت پرداخت شد» نباید تا سه‌نیم‌ساعتِ بعد رویِ صفحه بماند؛ جابِ ۳۰دقیقه‌ایِ کلی
+    برایِ این کار too-knees بود. همان backoffِ six-stage سرِ جایش است و `queue_due` (پخشِ
+    زمان‌بندی‌شده) هم از همین حلقه تغذیه می‌شود تا پیامِ «امشب ۲۱:۳۰» سرِ وقت برسد.
+    """
+    while not stop_event.is_set():
+        try:
+            async with session_scope() as session:
+                paused = job_gate_service.is_paused(await get_admin_settings(session), "notifications")
+            if not paused:
+                async with session_scope() as session:
+                    queued_broadcast = await scheduled_broadcast_service.queue_due(session)
+                async with session_scope() as session:
+                    result = await notification_service.send_due(session, bot_manager, main_bot)
+                if queued_broadcast["scheduled"] or result["sent"] or result["failed"]:
+                    logger.info(
+                        "تخلیهٔ صفِ اعلان: ارسال=%s درانتظار=%s قطعی=%s (پخشِ زمان‌بندی‌شده: %s)",
+                        result["sent"], result["retrying"], result["failed"], queued_broadcast["scheduled"],
+                    )
+        except Exception:
+            logger.exception("حلقهٔ ارسالِ اعلان‌ها با خطا مواجه شد.")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except asyncio.TimeoutError:
+            pass
 
 
 async def run_payment_expiry_loop(

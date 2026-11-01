@@ -146,7 +146,9 @@ async def test_outbox_backs_off_and_gives_up_loudly() -> None:
         await session.commit()
 
     manager = _Manager({shop_bot_id: _SendBot(fail_with=_api_error())})
-    base = datetime.datetime(2026, 11, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    # ساعتِ لنگر باید «الان» باشد، نه یکِ عددِ ثابتِ روز: صفِ تازه `next_attempt_at = now()`ِ واقعی
+    # می‌گیرد، پس با بیسِ ثابت، این تست بعد از ظهر می‌شکست (تستِ time-bomb، نه باگِ محصول).
+    base = datetime.datetime.now(datetime.timezone.utc)
     for attempt in range(1, notification_service.MAX_ATTEMPTS):
         now = base + datetime.timedelta(hours=3 * attempt)  # هر بار از backoffِ آن مرحله رد می‌شویم
         async with session_scope() as session:

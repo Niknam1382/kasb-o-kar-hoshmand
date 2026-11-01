@@ -171,6 +171,7 @@ async def run_polling() -> None:
     health = _start_health_server()
     scheduler_task = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, stop_event, bot_manager))
     payment_expiry_task = asyncio.create_task(scheduler.run_payment_expiry_loop(main_bot, bot_manager, stop_event))
+    notification_task = asyncio.create_task(scheduler.run_notification_loop(main_bot, bot_manager, stop_event))
     bale_updates_task = await _start_bale_updates_polling(stop_event)  # B6: بدونِ سرورِ HTTP هم پرداختِ بله‌پی دریافت می‌شه
 
     try:
@@ -180,6 +181,7 @@ async def run_polling() -> None:
         stop_event.set()
         await scheduler_task
         await payment_expiry_task
+        notification_task.cancel()
         if bale_updates_task is not None:
             await bale_updates_task
         _stop_health_server(health)
@@ -276,6 +278,10 @@ async def on_startup() -> None:
     _state["payment_expiry_task"] = asyncio.create_task(
         scheduler.run_payment_expiry_loop(main_bot, bot_manager, _state["stop_event"])
     )
+    # P21-F: تخلیهٔ صندوقِ اعلان هر ۶۰ ثانیه (خبرِ پرداخت نباید تا ۳۰ دقیقه معطل بماند)
+    _state["notification_task"] = asyncio.create_task(
+        scheduler.run_notification_loop(main_bot, bot_manager, _state["stop_event"])
+    )
 
 
 @app.on_event("shutdown")
@@ -283,6 +289,10 @@ async def on_shutdown() -> None:
     _state["stop_event"].set()
     await _state["scheduler_task"]
     await _state["payment_expiry_task"]
+    # حلقه‌ها با stop_event خودشان بیرون می‌آیند (wait_for رویِ event بیدار می‌شود) ⇒ await امن است
+    notification_task = _state.get("notification_task")
+    if notification_task is not None:
+        await notification_task
     bale_updates_task = _state.get("bale_updates_task")
     if bale_updates_task is not None:
         await bale_updates_task
