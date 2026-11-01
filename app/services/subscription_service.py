@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import datetime
 
-from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ShopOwner, Subscription, SubscriptionStatus
 from app.services.admin_settings_service import get_admin_settings
+from app.utils.dates import add_months
 
 TRIAL_DURATION_DAYS = 7
 
@@ -47,7 +47,7 @@ async def purchase_or_renew(session: AsyncSession, shop_owner_id: int, duration_
     latest = await get_latest_subscription_by_owner_id(session, shop_owner_id)
 
     start = latest.end_date if (latest is not None and latest.end_date > now) else now
-    end = start + relativedelta(months=duration_months)
+    end = add_months(start, duration_months)  # P22: همان قاعدهٔ کیف‌پول، یکِ جا تعریف شده
 
     subscription = Subscription(
         shop_owner_id=shop_owner_id,

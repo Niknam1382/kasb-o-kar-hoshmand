@@ -26,6 +26,7 @@ from app.database.models import ShopOwner, WalletCharge, WalletTransaction, Wall
 from app import observability
 from app.services import time_freeze_service
 from app.services.admin_settings_service import get_admin_settings
+from app.utils.dates import add_months
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,11 @@ async def add_charge(
         validity_months = admin_settings.wallet_topup_validity_months
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    expires_at = now + datetime.timedelta(days=validity_months * 30)
+    # P22: «یکِ ماه» یعنی یکِ ماهِ تقویمی، نه ۳۰ روز. اشتراک از اول با relativedelta حساب
+    # می‌شد و کیف‌پول ۳۰×N؛ یعنی «۱ ماه»ِ کیف‌پول در ماه‌هایِ ۳۱ روزه دو روز زودتر
+    # می‌رسید و پیامِ انقضا با اشتراکِ همان فروشگاه نمی‌خواند. روزِ سرِ ماه هم clamp می‌شود
+    # (۳۱ فروردین + ۱ ماه ⇒ ۲۹/۳۰ ماه بعد، نه خطا).
+    expires_at = add_months(now, validity_months)
 
     charge = WalletCharge(
         shop_owner_id=owner.id,

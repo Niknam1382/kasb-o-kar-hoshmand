@@ -5,7 +5,9 @@
 (به‌ویژه اضافه‌شدنِ کمیسیون/دفتر/دروازه‌یِ اعتبار) نباید معنا یا عددِ انقضایِ فعلی را عوض کند.
 قفل‌شده‌ها (از `app/services/wallet_service.py:56` و `:201` و `app/database/models.py:463`):
 
-۱. مدت = `AdminSettings.wallet_topup_validity_months × ۳۰ روز` و پیش‌فرضِ آن **۱۲** است (۳۶۰ روز).
+۱. مدت = **ماه‌هایِ تقویمیِ** `AdminSettings.wallet_topup_validity_months` (از P22؛ قبلاً
+   `×۳۰ روز` بود) و پیش‌فرضِ آن **۱۲** است. مثلِ اشتراک، «۱ ماه» یعنی همان روزِ ماهِ بعد
+   (با clamp برایِ روزهایِ سرِ ماه)، پس ۲۸ تا ۳۱ روز بسته به ماه تغییر می‌کند.
 ۲. مبدأ زمان = لحظهٔ ساختِ شارژ (یعنی موفق‌شدنِ شارژ)، به UTC.
 ۳. هر شارژ = یک بستهٔ مستقل (`wallet_charges`) با `expires_at/remaining_toman/is_expired` خودش.
 ۴. مصرف = FIFO از قدیمی‌ترین بستهٔ منقضی‌نشده؛ بستهٔ منقضی هرگز مصرف نمی‌شود.
@@ -29,6 +31,7 @@ sys.path.insert(0, ".")
 sys.path.insert(0, "tests_manual")
 
 from sqlalchemy import func, select  # noqa: E402
+from dateutil.relativedelta import relativedelta  # noqa: E402
 
 from harness import reset_database  # noqa: E402
 
@@ -39,7 +42,7 @@ from app.services.admin_settings_service import get_admin_settings  # noqa: E402
 
 OWNER_TG_ID = 999_411
 PINNED_DEFAULT_VALIDITY_MONTHS = 12  # models.py:315 (default=12) و مایگریشن 75d679f44f25 (server_default='12')
-PINNED_DAYS_PER_MONTH = 30  # wallet_service.add_charge: timedelta(days=validity_months * 30)
+# P22: «ماه» دیگر ۳۰ روزِ ثابت نیست؛ همان relativedelta که اشتراک مصرف می‌کند.
 
 
 async def _owner(telegram_id: int = OWNER_TG_ID) -> int:
@@ -73,22 +76,23 @@ async def _add(owner_id: int, amount: int, **kwargs) -> tuple[int, datetime.date
 
 
 # ============================================================================= ۱ و ۲ — مدت و مبدأ
-async def test_duration_is_config_months_times_30_days_from_the_recharge_moment() -> None:
+async def test_duration_is_config_calendar_months_from_the_recharge_moment() -> None:
     await reset_database()
     owner_id = await _owner()
     await _set_validity(7)
 
     charge_id, before, expires_at = await _add(owner_id, 100_000)
-    expected = 7 * PINNED_DAYS_PER_MONTH
+    expected = before + relativedelta(months=7)
+    assert abs((expires_at - expected).total_seconds()) < 5, f"انتظار {expected}، گرفتم {expires_at}"
     actual_days = (expires_at - before).total_seconds() / 86400
-    assert abs(actual_days - expected) < 0.01, f"{actual_days} روز انتظار {expected}"
+    assert 28 <= actual_days <= 32 * 7, actual_days
     assert expires_at.tzinfo is not None, "انقضا باید aware/UTC باشد وگرنه جابِ روزانه اشتباه می‌کند"
 
     # override کردنِ per-call همان قاعده را با عددِ خودش دارد
     _, before2, expires2 = await _add(owner_id, 50_000, validity_months=2)
-    assert abs((expires2 - before2).total_seconds() / 86400 - 60) < 0.01
+    assert abs((expires2 - (before2 + relativedelta(months=2))).total_seconds()) < 5
     assert charge_id  # فقط برایِ اطمینان از ساختِ ردیف
-    print("✅ test_duration_is_config_months_times_30_days_from_the_recharge_moment PASSED")
+    print("✅ test_duration_is_config_calendar_months_from_the_recharge_moment PASSED")
 
 
 async def test_default_validity_is_pinned_to_twelve_months() -> None:
@@ -104,7 +108,7 @@ async def test_default_validity_is_pinned_to_twelve_months() -> None:
         owner = (await session.execute(select(ShopOwner).where(ShopOwner.telegram_id == OWNER_TG_ID))).scalar_one()
         now = datetime.datetime.now(datetime.timezone.utc)
         charge = await wallet_service.add_charge(session, owner, 60_000)
-        assert abs((charge.expires_at - now).total_seconds() / 86400 - 360) < 0.01, "پیش‌فرضِ ۱۲ ⇒ ۳۶۰ روز"
+        assert abs((charge.expires_at - (now + relativedelta(months=PINNED_DEFAULT_VALIDITY_MONTHS))).total_seconds()) < 5, "پیش‌فرضِ ۱۲ ⇒ دوازده ماهِ تقویمی"
     print("✅ test_default_validity_is_pinned_to_twelve_months PASSED")
 
 
@@ -272,7 +276,7 @@ async def test_per_call_validity_does_not_change_global_config() -> None:
 
 
 async def main() -> None:
-    await test_duration_is_config_months_times_30_days_from_the_recharge_moment()
+    await test_duration_is_config_calendar_months_from_the_recharge_moment()
     await test_default_validity_is_pinned_to_twelve_months()
     await test_each_recharge_is_an_independent_lot_and_expired_lot_is_unusable()
     await test_expiry_job_is_idempotent_writes_ledger_and_never_goes_negative()
