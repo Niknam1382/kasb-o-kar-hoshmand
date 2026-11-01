@@ -486,7 +486,12 @@ async def test_segment_broadcast_reaches_only_that_segment(main_dp, bot_manager)
     assert owner.last_text == texts.crm_broadcast_ask(texts.CRM_SEGMENT_LABELS["loyal"], 2)
     await owner.say(message)
     assert owner.last_text == texts.customer_broadcast_preview(message, 2), "پیش‌نمایش تعدادِ اعضایِ بخش رو نشون می‌ده، نه کلِ مشتری‌ها"
-    assert callbacks(owner.last_markup) == ["customer_broadcast_confirm", "customer_broadcast_cancel"]
+    # P21-D (F2): «⏰ برایِ بعد از» به این کیبورد اضافه شد
+    assert callbacks(owner.last_markup) == [
+        "customer_broadcast_confirm",
+        "customer_broadcast_schedule",
+        "customer_broadcast_cancel",
+    ]
     assert shop_bot_instance.session.sent_messages == [], "تا تایید نشده چیزی نمی‌ره"
 
     await owner.tap("customer_broadcast_confirm")

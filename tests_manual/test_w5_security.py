@@ -35,9 +35,26 @@ async def test_secret_comparison_is_safe() -> None:
     print("✅ test_secret_comparison_is_safe PASSED")
 
 
+def _route_paths(routes) -> set[str]:
+    """مسیرها را از درختِ router جمع می‌کند. starlette 1.x موقعِ `include_router` یکِ
+    `_IncludedRouter` تنبل می‌گذارد (route‌های واقعی زیرِ `original_router`‌اند)؛ از P21-B اپِ
+    اصلی هم `observability_router` را include می‌کند، پس خواندنِ مستقیمِ `route.path` اینجا
+    می‌شکست (همان کمکی که `test_p21_ops.py` دارد)."""
+    found: set[str] = set()
+    for route in routes:
+        path = getattr(route, "path", None)
+        if path:
+            found.add(path)
+        for attr in ("routes", "original_router", "router"):
+            nested = getattr(route, attr, None)
+            if nested is not None and hasattr(nested, "routes"):
+                found |= _route_paths(nested.routes)
+    return found
+
+
 async def test_api_docs_are_disabled() -> None:
     assert app_main.app.docs_url is None and app_main.app.redoc_url is None and app_main.app.openapi_url is None
-    paths = {route.path for route in app_main.app.routes}
+    paths = _route_paths(app_main.app.routes)
     assert not ({"/docs", "/redoc", "/openapi.json"} & paths)
     print("✅ test_api_docs_are_disabled PASSED")
 

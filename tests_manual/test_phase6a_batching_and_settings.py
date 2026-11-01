@@ -290,9 +290,10 @@ async def test_owner_settings_screen_for_batch_window(main_dp) -> None:
     await owner.say("⚙️ تنظیماتِ ربات فروشگاه")
     assert "8 ثانیه (پیش‌فرضِ سیستم)" in owner.last_text
     # P18 · A2: «✏️ بیوگرافیِ ربات» (br_open) به این صفحه اضافه شده است.
+    # P21-D: «📦 اخطارِ موجودی» (bs_stock) هم همین‌جا نشسته است.
     assert callbacks(owner.last_markup) == [
         "bs_batch:3", "bs_batch:8", "bs_batch:15", "bs_batch:30", "bs_batch_custom", "bs_batch_reset",
-        "rp_open", "br_open", "sp_prefs_open", "sp_open",
+        "rp_open", "br_open", "sp_prefs_open", "bs_stock", "sp_open",
     ]
 
     await owner.tap("bs_batch:15")

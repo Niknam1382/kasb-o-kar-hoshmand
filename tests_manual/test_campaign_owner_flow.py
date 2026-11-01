@@ -412,7 +412,12 @@ async def test_announce_sends_default_text_through_shop_bot(main_dp, bot_manager
     await owner.tap(f"campaign_announce:{campaign_id}")
     expected_preview = texts.customer_broadcast_preview(announcement, 2)
     assert owner.last_text == expected_preview, "پیش‌نمایش باید همون متنِ آماده و تعدادِ درستِ مشتری رو نشون بده"
-    assert _callbacks(owner.last_markup) == ["customer_broadcast_confirm", "customer_broadcast_cancel"]
+    # P21-D (F2): دکمهٔ «⏰ برایِ بعد از» به این کیبورد اضافه شد ⇒ تایید و لغو دیگر تنها دکمه‌ها نیستند
+    assert _callbacks(owner.last_markup) == [
+        "customer_broadcast_confirm",
+        "customer_broadcast_schedule",
+        "customer_broadcast_cancel",
+    ]
     assert shop_bot_instance.session.sent_messages == [], "تا تایید نشده نباید چیزی برایِ مشتری‌ها بره"
 
     await owner.tap("customer_broadcast_confirm")

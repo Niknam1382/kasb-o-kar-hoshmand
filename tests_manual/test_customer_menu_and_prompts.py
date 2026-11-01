@@ -82,8 +82,9 @@ def test_bot_tools_section_is_dynamic_and_optional() -> None:
 def test_customer_keyboard_per_mode_pure() -> None:
     assert _labels(keyboards.customer_main_keyboard(TenantMode.SALES, False)) == [texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_MY_ORDERS]
     assert _labels(keyboards.customer_main_keyboard("sales", True)) == [texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_MY_ORDERS, texts.BTN_SUPPORT]
-    assert _labels(keyboards.customer_main_keyboard(TenantMode.CONSULTATION, False)) == [texts.BTN_SERVICES]
-    assert _labels(keyboards.customer_main_keyboard("consultation", True)) == [texts.BTN_SERVICES, texts.BTN_SUPPORT]
+    # P21-D: منویِ مشاوره‌ای «🧾 سفارش‌های من» را هم گرفت (پیگیریِ وضعیتِ درخواست/مراجعه)
+    assert _labels(keyboards.customer_main_keyboard(TenantMode.CONSULTATION, False)) == [texts.BTN_SERVICES, texts.BTN_MY_ORDERS]
+    assert _labels(keyboards.customer_main_keyboard("consultation", True)) == [texts.BTN_SERVICES, texts.BTN_MY_ORDERS, texts.BTN_SUPPORT]
     assert _labels(keyboards.customer_main_keyboard()) == [texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_MY_ORDERS], "بدونِ آرگومان = فروشگاهی (سازگاری)"
     every = {b for mode in ("sales", "consultation") for flag in (True, False) for b in _labels(keyboards.customer_main_keyboard(mode, flag))}
     assert every <= texts.CUSTOMER_MENU_BUTTONS and texts.CUSTOMER_MENU_BUTTONS == {texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_SERVICES, texts.BTN_SUPPORT, texts.BTN_MY_ORDERS}, "هر برچسب در مجموعه‌یِ escape هست"
@@ -161,10 +162,10 @@ async def test_customer_menu_support_stale_and_escape(shop_dp) -> None:
         await product_service.create_product(s, shop_bot_id, "جلسه‌یِ مشاوره", None, 500_000, None, None)
     await update_shop(tenant_mode=TenantMode.CONSULTATION)
     msg = await say("/start")
-    assert msg["text"] == texts.SHOP_WELCOME_CONSULTATION and _labels(msg["reply_markup"]) == [texts.BTN_SERVICES, texts.BTN_SUPPORT]
+    assert msg["text"] == texts.SHOP_WELCOME_CONSULTATION and _labels(msg["reply_markup"]) == [texts.BTN_SERVICES, texts.BTN_MY_ORDERS, texts.BTN_SUPPORT]
     for stale in (texts.BTN_PRODUCTS, texts.BTN_CART):
         msg = await say(stale)
-        assert msg["text"] == texts.STALE_BUTTON_REPLY and _labels(msg["reply_markup"]) == [texts.BTN_SERVICES, texts.BTN_SUPPORT]
+        assert msg["text"] == texts.STALE_BUTTON_REPLY and _labels(msg["reply_markup"]) == [texts.BTN_SERVICES, texts.BTN_MY_ORDERS, texts.BTN_SUPPORT]
     msg = await say(texts.BTN_SERVICES)
     assert "جلسه‌یِ مشاوره" in msg["text"] and msg["reply_markup"] is None, "فهرستِ خدمات: بدونِ دکمه‌یِ افزودن به سبد"
 
