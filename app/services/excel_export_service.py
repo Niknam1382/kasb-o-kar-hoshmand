@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import datetime
 import io
+from typing import Iterable
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,14 +15,31 @@ from app.database.models import Campaign, Customer, OrderConsultation, OrderType
 from app.services import accounting_service
 from app.utils.jalali import format_jalali_date, format_jalali_datetime
 
+# P22 (مشکلِ ۴): همانِ پالتِ فاکتورِ PDF ⇒ فایلِ اکسل و کاغذِ فاکتور یکِ برند باشند.
+_BRAND = "0F5E5C"
+_BRAND_SOFT = "E4EFEA"
+_ZEBRA = "F2F2F2"
+_INK = "1F2933"
+_MONEY_FORMAT = "#,##0;[Red]-#,##0"
+
 _HEADER_FONT = Font(name="Arial", bold=True, color="FFFFFF")
-_HEADER_FILL = PatternFill(fill_type="solid", start_color="2F5496", end_color="2F5496")
-_BODY_FONT = Font(name="Arial")
+_HEADER_FILL = PatternFill(fill_type="solid", start_color=_BRAND, end_color=_BRAND)
+_BODY_FONT = Font(name="Arial", color=_INK)
 _RTL_ALIGNMENT = Alignment(horizontal="right", readingOrder=2, vertical="center", wrap_text=True)
 _HEADER_ALIGNMENT = Alignment(horizontal="center", readingOrder=2, vertical="center", wrap_text=True)
 _THIN_SIDE = Side(style="thin", color="BFBFBF")
 _CELL_BORDER = Border(left=_THIN_SIDE, right=_THIN_SIDE, top=_THIN_SIDE, bottom=_THIN_SIDE)
-_ALT_ROW_FILL = PatternFill(fill_type="solid", start_color="F2F2F2", end_color="F2F2F2")
+_ALT_ROW_FILL = PatternFill(fill_type="solid", start_color=_ZEBRA, end_color=_ZEBRA)
+_TOTALS_FILL = PatternFill(fill_type="solid", start_color=_BRAND_SOFT, end_color=_BRAND_SOFT)
+_TOTALS_FONT = Font(name="Arial", bold=True, color=_BRAND)
+_TOTALS_BORDER = Border(
+    left=_THIN_SIDE,
+    right=_THIN_SIDE,
+    bottom=_THIN_SIDE,
+    top=Side(style="medium", color=_BRAND),
+)
+# رنگِ زبانه‌یِ برگه‌ها به‌ترتیبِ ساخته‌شدن (برگه‌هایِ چندگانه چشم‌نواز و قابلِ تشخیص می‌شوند)
+_TAB_COLORS = (_BRAND, "2F5496", "B07D00", "6B8E23", "7A3E63", "4F6B7C")
 
 
 def _workbook_bytes(wb: Workbook) -> bytes:
@@ -36,16 +55,19 @@ def _workbook_bytes(wb: Workbook) -> bytes:
     return buffer.getvalue()
 
 
-def _style_sheet(ws: Worksheet) -> None:
+def _style_sheet(ws: Worksheet, *, money_cols: Iterable[int] = (), totals: dict[int, object] | None = None, tab_index: int = 0) -> None:
+    """آرایشِ مشترکِ همهٔ برگه‌ها: راست‌به‌چپ، سرصفحهٔ برند، ردیف‌هایِ یک‌در‌میان، جداکنندهٔ
+    هزارگان، ردیفِ «جمعِ کل»، فیلترِ خودکار، ستون‌هایِ اندازه‌گیری‌شده و زبانهٔ رنگی."""
     ws.sheet_view.rightToLeft = True
     ws.freeze_panes = "A2"
+    ws.sheet_properties.tabColor = _TAB_COLORS[tab_index % len(_TAB_COLORS)]
 
     for cell in ws[1]:
         cell.font = _HEADER_FONT
         cell.fill = _HEADER_FILL
         cell.alignment = _HEADER_ALIGNMENT
         cell.border = _CELL_BORDER
-    ws.row_dimensions[1].height = 24
+    ws.row_dimensions[1].height = 26
 
     for row_idx, row in enumerate(ws.iter_rows(min_row=2), start=2):
         for cell in row:
@@ -55,13 +77,38 @@ def _style_sheet(ws: Worksheet) -> None:
             if row_idx % 2 == 0:
                 cell.fill = _ALT_ROW_FILL
 
+    money_indexes = {int(index) for index in money_cols}
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            if cell.column in money_indexes and isinstance(cell.value, (int, float)):
+                cell.number_format = _MONEY_FORMAT
+
+    last_data_row = ws.max_row
+    if totals and last_data_row >= 2:
+        totals_row = [None] * max(totals)
+        totals_row[0] = "جمعِ کل"
+        for column_index, value in totals.items():
+            totals_row[column_index - 1] = value
+        ws.append(totals_row)
+        for cell in ws[last_data_row + 1]:
+            cell.fill = _TOTALS_FILL
+            cell.font = _TOTALS_FONT
+            cell.border = _TOTALS_BORDER
+            cell.alignment = _RTL_ALIGNMENT
+            if cell.column in money_indexes and isinstance(cell.value, (int, float)):
+                cell.number_format = _MONEY_FORMAT
+
+    if ws.max_row > 1:
+        ws.auto_filter.ref = f"A1:{get_column_letter(ws.max_column)}{last_data_row}"
+
     for col in ws.columns:
         max_len = max((len(str(cell.value)) for cell in col if cell.value is not None), default=10)
         ws.column_dimensions[col[0].column_letter].width = min(max(max_len + 4, 12), 45)
 
 
 def _fmt(dt) -> str:
-    return dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+    """تاریخِ همهٔ فایل‌ها: جلالی و به وقتِ تهران (تا پیشِ این «۱۴۰۴» در اکسل با «2026-11-02 03:04» نوشته می‌شد)."""
+    return format_jalali_datetime(dt) if dt else ""
 
 
 async def build_customers_workbook(session: AsyncSession, shop_bot_id: int, consultation: bool = False) -> bytes:
@@ -92,12 +139,15 @@ async def build_customers_workbook(session: AsyncSession, shop_bot_id: int, cons
     ws.title = "مخاطبان" if consultation else "مشتریان"
     headers = ["نام", "یوزرنیم", "آیدی تلگرام", "اولین پیام", "آخرین پیام"]
     if not consultation:
-        headers.append("تعداد سفارش")
-    headers += ["تعداد مشاوره", "مجموع ارزش تخمینی (تومان)"]
+        headers.append("تعدادِ سفارش")
+    headers += ["تعدادِ مشاوره", "مجموعِ ارزشِ تخمینی (تومان)"]
+    value_col = len(headers)
     ws.append(headers)
 
+    total_value = 0
     for c in customers:
         stats = per_customer.get(c.id, {"order": 0, "consultation": 0, "value": 0})
+        total_value += stats["value"]
         row = [
             c.first_name or "",
             f"@{c.username}" if c.username else "",
@@ -110,7 +160,7 @@ async def build_customers_workbook(session: AsyncSession, shop_bot_id: int, cons
         row += [stats["consultation"], stats["value"]]
         ws.append(row)
 
-    _style_sheet(ws)
+    _style_sheet(ws, money_cols=(value_col,), totals={value_col: total_value})
     return _workbook_bytes(wb)
 
 
@@ -130,23 +180,26 @@ async def build_orders_workbook(session: AsyncSession, shop_bot_id: int, consult
     ws.title = "مشاوره‌ها" if consultation else "سفارش‌ها و مشاوره‌ها"
     ws.append(
         [
-            "تاریخ",
+            "تاریخِ ثبت",
             "نوع",
             "مشتری",
-            "آیدی تلگرام مشتری",
+            "آیدی تلگرامِ مشتری",
             "محصول",
             "تعداد",
             "خلاصه",
-            "ارزش تخمینی (تومان)",
-            "وضعیت تایید",
+            "ارزشِ تخمینی (تومان)",
+            "وضعیتِ تایید",
             # ستون‌هایِ کمپین (فازِ ۳) عمداً *آخر* اضافه شدن تا جایگاهِ ستون‌هایِ قبلی عوض نشه.
             # «ارزش تخمینی» همیشه مبلغِ بعد از تخفیفه.
-            "تخفیف کمپین (تومان)",
+            "تخفیفِ کمپین (تومان)",
             "کمپین",
         ]
     )
+    value_col, discount_col = 8, 10
 
     type_labels = {"order": "—", "consultation": "مشاوره"} if consultation else {"order": "سفارش", "consultation": "مشاوره"}
+    total_value = 0
+    total_discount = 0
     for order, customer, product, campaign in rows:
         order_type = order.type.value if hasattr(order.type, "value") else order.type
         if order_type == OrderType.ORDER.value or product is not None:
@@ -154,6 +207,8 @@ async def build_orders_workbook(session: AsyncSession, shop_bot_id: int, consult
         else:
             confirmed_label = "—"
 
+        total_value += order.estimated_value_toman or 0
+        total_discount += order.discount_toman or 0
         ws.append(
             [
                 _fmt(order.created_at),
@@ -170,7 +225,7 @@ async def build_orders_workbook(session: AsyncSession, shop_bot_id: int, consult
             ]
         )
 
-    _style_sheet(ws)
+    _style_sheet(ws, money_cols=(value_col, discount_col), totals={value_col: total_value, discount_col: total_discount})
     return _workbook_bytes(wb)
 
 
@@ -180,13 +235,23 @@ async def build_orders_workbook(session: AsyncSession, shop_bot_id: int, consult
 MAX_LEDGER_ROWS = 50_000
 
 
-def _plain_sheet(wb: Workbook, title: str, headers: list[str], rows: list[list], first: bool = False) -> Worksheet:
+def _plain_sheet(
+    wb: Workbook,
+    title: str,
+    headers: list[str],
+    rows: list[list],
+    first: bool = False,
+    *,
+    money_cols: Iterable[int] = (),
+    totals: dict[int, object] | None = None,
+    tab_index: int = 0,
+) -> Worksheet:
     ws = wb.active if first else wb.create_sheet()
     ws.title = title
     ws.append(headers)
     for row in rows:
         ws.append(row)
-    _style_sheet(ws)
+    _style_sheet(ws, money_cols=money_cols, totals=totals, tab_index=tab_index)
     return ws
 
 
@@ -224,7 +289,7 @@ def build_accounting_workbook(report) -> bytes:
         summary_rows.append([f"تعدادِ سفارشِ ثبت‌شده در بازه — {texts.accounting_status_label(status)}", count])
     if report.truncated:
         summary_rows.append(["⚠️ هشدار", "تعدادِ سفارش‌ها از سقفِ گزارش بیشتر بود؛ عددها ناقص‌ان."])
-    _plain_sheet(wb, "خلاصه", ["شاخص", "مقدار"], summary_rows, first=True)
+    _plain_sheet(wb, "خلاصه", ["شاخص", "مقدار"], summary_rows, first=True, money_cols=(2,))
 
     order_rows = []
     for row in report.rows:
@@ -260,24 +325,36 @@ def build_accounting_workbook(report) -> bytes:
             "پرداختِ آنلاین",
         ],
         order_rows,
+        money_cols=(6, 7),
+        totals={6: summary.net_toman, 7: summary.discount_toman},
+        tab_index=1,
     )
     _plain_sheet(
         wb,
         "محصولات",
         ["محصول", "تعدادِ فروخته‌شده", "فروشِ خالص (تومان)"],
         [[line.name, line.units, line.net_toman] for line in full.top_products],
+        money_cols=(3,),
+        totals={3: sum(line.net_toman for line in full.top_products)},
+        tab_index=2,
     )
     _plain_sheet(
         wb,
         "کمپین‌ها",
-        ["کمپین", "تعدادِ مصرف", "تخفیفِ داده‌شده (تومان)", "فروشِ خالصِ همون سفارش‌ها (تومان)"],
+        ["کمپین", "تعدادِ مصرف", "تخفیفِ داده‌شده (تومان)", "فروشِ خالصِ همان سفارش‌ها (تومان)"],
         [[line.name, line.uses, line.discount_toman, line.net_toman] for line in full.campaigns],
+        money_cols=(3, 4),
+        totals={3: sum(line.discount_toman for line in full.campaigns), 4: sum(line.net_toman for line in full.campaigns)},
+        tab_index=3,
     )
     _plain_sheet(
         wb,
         "روزانه",
         ["روز", "تعدادِ سفارشِ تاییدشده", "فروشِ خالص (تومان)"],
         [[line.day_label, line.orders, line.net_toman] for line in full.daily],
+        money_cols=(3,),
+        totals={3: sum(line.net_toman for line in full.daily)},
+        tab_index=4,
     )
 
     return _workbook_bytes(wb)
@@ -317,11 +394,13 @@ async def build_wallet_ledger_workbook(session: AsyncSession, limit: int = MAX_L
     _plain_sheet(
         wb,
         "دفترِ کیف‌پول",
-        ["شناسه", "تاریخ (UTC)", "شناسه‌یِ فروشگاه‌دار", "آیدی تلگرام", "نام", "دلیل", "مبلغ (تومان؛ منفی = مصرف)", "ارجاع"],
+        ["شناسه", "تاریخ (تهران)", "شناسهٔ فروشگاه‌دار", "آیدی تلگرام", "نام", "دلیل", "مبلغ (تومان؛ منفی = مصرف)", "ارجاع"],
         rows,
         first=True,
+        money_cols=(7,),
+        tab_index=0,
     )
-    note = "همه‌یِ تراکنش‌ها" if not truncated else f"فقط {limit} تراکنشِ جدیدتر (دفتر بزرگ‌تره)"
-    _plain_sheet(wb, "توضیحات", ["مورد", "مقدار"], [["محدوده", note], ["تعدادِ ردیف‌هایِ این فایل", len(rows)]])
+    note = "همهٔ تراکنش‌ها" if not truncated else f"فقط {limit} تراکنشِ جدیدتر (دفتر بزرگ‌تر است)"
+    _plain_sheet(wb, "توضیحات", ["مورد", "مقدار"], [["محدوده", note], ["تعدادِ ردیف‌هایِ این فایل", len(rows)]], money_cols=(2,), tab_index=1)
 
     return _workbook_bytes(wb)

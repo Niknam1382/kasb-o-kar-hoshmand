@@ -152,39 +152,69 @@ def format_invoice_text(data: dict) -> str:
 
 
 def build_invoice_html(data: dict) -> str:
-    """فایلِ HTMLِ چاپ‌پذیرِ RTL؛ همه‌یِ مقدارها escape می‌شن؛ بدونِ منبعِ خارجی."""
+    """فایلِ HTMLِ چاپ‌پذیرِ RTL (زاپاسِ فاکتورِ PDF) — P22 (مشکلِ ۴): همانِ پالتِ برند،
+    نوارِ سرصفحه، برچسبِ وضعیتِ رنگی، ردیف‌هایِ یک‌در‌میان و جمعِ کلِ برجسته.
+    همه‌یِ مقدارها escape می‌شوند و هیچِ منبعِ خارجی (فونت/CSS/تصویر) ندارند."""
     esc = html.escape
-    rows_html = "".join(
-        f"<tr><td>{esc(str(i['name']))}</td><td>{i['qty']}</td><td>{esc(format_toman(i['line_total']))}</td></tr>"
+    method_label = PAYMENT_METHOD_LABELS.get(data.get("payment_method") or "manual", "—")
+    if data.get("paid"):
+        status_class, status_text = "paid", f"✅ پرداخت‌شده · {method_label}"
+    elif (data.get("payment_method") or "manual") == "manual":
+        status_class, status_text = "manual", "📝 ثبت‌شده — پرداخت در محل/هماهنگی"
+    else:
+        status_class, status_text = "pending", f"⏳ منتظرِ پرداخت · {method_label}"
+
+    item_rows = "".join(
+        f"<tr><td>{esc(str(i['name']))}</td><td class='n'>{esc(str(i['qty']))}</td>"
+        f"<td class='m'>{esc(format_toman(i['line_total']))}</td></tr>"
         for i in data["items"]
     )
     extra = ""
     if data.get("discount"):
-        extra += f"<tr><td colspan='2'>تخفیف</td><td>{esc(format_toman(data['discount']))}</td></tr>"
+        extra += f"<tr><td>🎁 تخفیف</td><td></td><td class='m'>− {esc(format_toman(data['discount']))}</td></tr>"
     if data.get("shipping"):
-        extra += f"<tr><td colspan='2'>هزینه‌یِ ارسال</td><td>{esc(format_toman(data['shipping']))}</td></tr>"
-    method_label = PAYMENT_METHOD_LABELS.get(data.get("payment_method") or "manual", "—")
-    state = "پرداخت‌شده" if data.get("paid") else "ثبت‌شده — پرداخت در محل/هماهنگی"
+        ship_label = "🚚 هزینه‌یِ ارسال" + (f" ({esc(str(data['shipping_method']))})" if data.get("shipping_method") else "")
+        extra += f"<tr><td>{ship_label}</td><td></td><td class='m'>{esc(format_toman(data['shipping']))}</td></tr>"
+
     customer_block = esc(str(data.get("customer") or ""))
     if data.get("phone"):
         customer_block += f"<br>{esc(str(data['phone']))}"
     if data.get("address"):
         customer_block += f"<br>{esc(str(data['address'])).replace(chr(10), '<br>')}"
-    signature = "<p class='sig'>صادرشده با «کسب‌وکار هوشمند»</p>" if data.get("signature") else ""
+    signature = "<p class='foot'>صادرشده با «کسب‌وکار هوشمند»</p>" if data.get("signature") else ""
     return (
         "<!DOCTYPE html><html lang='fa' dir='rtl'><head><meta charset='utf-8'>"
-        f"<title>{esc(data['number'])}</title>"
-        "<style>body{font-family:Tahoma,Arial,sans-serif;margin:24px;color:#111}"
-        "table{width:100%;border-collapse:collapse;margin:16px 0}"
-        "th,td{border:1px solid #bbb;padding:8px;text-align:right}th{background:#f2f2f2}"
-        ".tot{font-weight:bold;font-size:1.1em}.sig{color:#777;font-size:.85em}"
-        "@media print{body{margin:0}}</style></head><body>"
-        f"<h2>فاکتور {esc(data['number'])}</h2>"
-        f"<p>تاریخ: {esc(data['date'])} — فروشگاه: {esc(str(data['shop']))}</p>"
-        f"<p>مشتری: {customer_block}</p>"
-        f"<table><tr><th>کالا</th><th>تعداد</th><th>مبلغ</th></tr>{rows_html}{extra}"
-        f"<tr class='tot'><td colspan='2'>جمعِ کل</td><td>{esc(format_toman(data['total']))}</td></tr></table>"
-        f"<p>وضعیتِ پرداخت: {esc(state)} ({esc(method_label)})</p>{signature}</body></html>"
+        f"<title>{esc(str(data['number']))}</title>"
+        "<style>"
+        "body{font-family:Tahoma,Arial,sans-serif;margin:24px;color:#1f2933;background:#fff;line-height:1.7}"
+        ".card{max-width:760px;margin:0 auto}"
+        ".band{background:#0f5e5c;color:#fff;padding:14px 18px;border-radius:10px;display:flex;"
+        "justify-content:space-between;align-items:center;gap:12px}"
+        ".band h2{margin:0;font-size:1.15em}"
+        ".pill{padding:4px 12px;border-radius:999px;font-size:.85em;white-space:nowrap}"
+        ".pill.paid{background:#167444;color:#fff}.pill.pending{background:#b06a0a;color:#fff}"
+        ".pill.manual{background:#e5e7eb;color:#374151}"
+        ".meta{display:flex;flex-wrap:wrap;gap:4px 24px;margin:16px 2px 4px;color:#4b5563;font-size:.92em}"
+        ".meta b{color:#1f2933;font-weight:600}"
+        "table{width:100%;border-collapse:collapse;margin-top:8px}"
+        "thead th{background:#e4efea;color:#0f5e5c;border-bottom:2px solid #0f5e5c;padding:9px;text-align:right}"
+        "td{border-bottom:1px solid #e5e7eb;padding:9px}"
+        "tbody tr:nth-child(even) td{background:#f7faf9}"
+        ".m,.n{text-align:left;white-space:nowrap}"
+        "tr.tot td{background:#0f5e5c;color:#fff;font-weight:700;font-size:1.05em;border:none}"
+        ".foot{margin-top:16px;color:#7b8794;font-size:.85em;text-align:center}"
+        "@media print{body{margin:0}.card{max-width:none}}"
+        "</style></head><body><div class='card'>"
+        f"<div class='band'><h2>🧾 فاکتورِ {esc(str(data['number']))}</h2>"
+        f"<span class='pill {status_class}'>{esc(status_text)}</span></div>"
+        f"<div class='meta'><span>🏪 <b>{esc(str(data['shop']))}</b></span>"
+        f"<span>📅 {esc(str(data['date']))}</span>"
+        f"<span>👤 {customer_block}</span></div>"
+        "<table><thead><tr><th>کالا</th><th>تعداد</th><th>مبلغ</th></tr></thead>"
+        f"<tbody>{item_rows}{extra}"
+        f"<tr class='tot'><td>جمعِ کل</td><td></td><td class='m'>{esc(format_toman(data['total']))}</td></tr>"
+        "</tbody></table>"
+        f"{signature}</div></body></html>"
     )
 
 

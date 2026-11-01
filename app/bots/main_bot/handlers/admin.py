@@ -1837,12 +1837,17 @@ async def cb_audit_csv(callback: CallbackQuery, state: FSMContext, session: Asyn
     if not entries:
         await callback.answer(texts.AUDIT_CSV_EMPTY, show_alert=True)
         return
+    shop_labels = {
+        bot.id: "@" + (bot.bot_username or "").lstrip("@")
+        for bot in await shop_bot_service.list_by_ids(session, sorted({entry.shop_bot_id for entry in entries if entry.shop_bot_id}))
+    }
     rows = [
         [
             entry.id,
-            entry.created_at.isoformat() if entry.created_at else "",
-            entry.event_type.value if hasattr(entry.event_type, "value") else str(entry.event_type),
+            format_jalali_datetime(entry.created_at) if entry.created_at else "",
+            texts.audit_event_label(entry.event_type),
             entry.actor_telegram_id or "",
+            shop_labels.get(entry.shop_bot_id, "") if entry.shop_bot_id else "",
             entry.shop_bot_id or "",
             entry.details or "",
             entry.row_hash or "",

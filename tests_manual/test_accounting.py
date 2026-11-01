@@ -245,13 +245,15 @@ def test_excel_workbook_content_pure() -> None:
     assert not any(str(key).startswith("⚠️") for key in pairs), "بدونِ truncated هشداری نیست"
 
     orders_sheet = workbook["سفارش‌ها"]
-    assert orders_sheet.max_row == len(rows) + 1, "سربرگ + همه‌یِ ردیف‌ها"
+    # P22: ردیفِ «جمعِ کل» به آخرِ هر برگه اضافه می‌شود ⇒ سربرگ + ردیف‌ها + جمع
+    assert orders_sheet.max_row == len(rows) + 2, "سربرگ + همهٔ ردیف‌ها + جمعِ کل"
     assert [cell.value for cell in orders_sheet[1]][:3] == ["شناسه", "نوع", "وضعیت"]
     first = [cell.value for cell in orders_sheet[2]]
     assert first[0] == 1 and first[3] == "چای" and first[4] == 2 and first[5] == 90_000 and first[6] == 10_000 and first[7] == "جشنواره"
 
     campaign_rows = [[cell.value for cell in row] for row in workbook["کمپین‌ها"].iter_rows(min_row=2)]
-    assert campaign_rows == [["جشنواره", 2, 20_000, 195_000]]
+    assert campaign_rows[0] == ["جشنواره", 2, 20_000, 195_000], campaign_rows
+    assert campaign_rows[-1][0] == "جمعِ کل" and campaign_rows[-1][2] == 20_000 and campaign_rows[-1][3] == 195_000, campaign_rows
 
     # هشدارِ ناقص‌بودن
     truncated_report = acc.AccountingReport(
@@ -272,9 +274,9 @@ def test_excel_lists_are_complete_even_when_summary_is_truncated() -> None:
 
     report = acc.AccountingReport(summary=summary, rows=rows, product_names=names, campaign_names={}, pending_total=0, truncated=False)
     workbook = load_workbook(io.BytesIO(excel_export_service.build_accounting_workbook(report)))
-    assert workbook["محصولات"].max_row == 9, "اکسل فهرستِ کاملِ ۸ محصول رو داره (نه فقط ۵ تایِ اول)"
+    assert workbook["محصولات"].max_row == 10, "اکسل فهرستِ کاملِ ۸ محصول + سربرگ + جمعِ کل را دارد (نه فقط ۵ تایِ اول)"
     assert workbook["کمپین‌ها"].max_row == 1, "بدونِ کمپین فقط سربرگ"
-    assert workbook["روزانه"].max_row == 2
+    assert workbook["روزانه"].max_row == 3, "سربرگ + یکِ روز + جمعِ کل"
 
     print("✅ test_excel_lists_are_complete_even_when_summary_is_truncated PASSED")
 
@@ -397,7 +399,7 @@ async def test_panel_screens_excel_download_and_no_customer_pii(main_dp) -> None
     workbook = load_workbook(io.BytesIO(document.data))
     pairs = _sheet_pairs(workbook, "خلاصه")
     assert pairs["فروشِ خالص (تومان)"] == 180_000 and pairs["تعدادِ سفارشِ تاییدشده"] == 3
-    assert workbook["سفارش‌ها"].max_row == 6, "۵ سفارشِ همین فروشگاه توی هفته + سربرگ؛ سفارشِ فروشگاهِ دیگه نیست"
+    assert workbook["سفارش‌ها"].max_row == 7, "۵ سفارشِ همین فروشگاه + سربرگ + جمعِ کل؛ سفارشِ فروشگاهِ دیگر نیست"
     everything = " | ".join(str(cell.value) for sheet in workbook for row in sheet.iter_rows() for cell in row if cell.value is not None)
     for secret in ("مشتریِ نمونه", "sample_user", "09121112233", "خیابانِ محرمانه", str(CUSTOMER_TG_ID), "مشتریِ فروشگاهِ دیگه"):
         assert secret not in everything, f"اکسلِ حسابداری نباید «{secret}» رو داشته باشه"

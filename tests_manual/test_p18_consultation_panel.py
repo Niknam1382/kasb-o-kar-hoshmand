@@ -138,12 +138,12 @@ async def test_excel_headers_per_mode() -> None:
     consult_sheet = load_workbook(io.BytesIO(customers_bytes)).active
     assert consult_sheet.title == "مخاطبان", consult_sheet.title
     headers = [cell.value for cell in consult_sheet[1]]
-    assert "تعداد سفارش" not in headers and "تعداد مشاوره" in headers, headers
+    assert "تعدادِ سفارش" not in headers and "تعدادِ مشاوره" in headers, headers
     assert headers[0] == "نام"
 
     sales_sheet = load_workbook(io.BytesIO(sales_bytes)).active
     assert sales_sheet.title == "مشتریان"
-    assert "تعداد سفارش" in [cell.value for cell in sales_sheet[1]], "مودِ فروشگاهی دست‌نخورده"
+    assert "تعدادِ سفارش" in [cell.value for cell in sales_sheet[1]], "مودِ فروشگاهی دست‌نخورده"
 
     orders_sheet = load_workbook(io.BytesIO(orders_bytes)).active
     assert orders_sheet.title == "مشاوره‌ها" and "سفارش" not in orders_sheet.title

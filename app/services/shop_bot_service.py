@@ -21,6 +21,15 @@ async def get_by_id(session: AsyncSession, shop_bot_id: int) -> ShopBot | None:
     return await session.get(ShopBot, shop_bot_id)
 
 
+async def list_by_ids(session: AsyncSession, bot_ids: list[int]) -> list[ShopBot]:
+    """چند ربات با شناسه‌هایِ مشخص — برایِ برچسبِ نامِ فروشگاه در فایل‌هایِ خروجی (فایلِ ممیزی
+    فقط «۳» نمی‌نویسد؛ صاحبِ فایل باید بفهمد آن ۳ کدامِ فروشگاه است)."""
+    if not bot_ids:
+        return []
+    result = await session.execute(select(ShopBot).where(ShopBot.id.in_(bot_ids)).order_by(ShopBot.id))
+    return list(result.scalars().all())
+
+
 async def get_by_bot_telegram_id(session: AsyncSession, bot_telegram_id: int) -> ShopBot | None:
     result = await session.execute(select(ShopBot).where(ShopBot.bot_telegram_id == bot_telegram_id))
     return result.scalar_one_or_none()

@@ -510,9 +510,14 @@ async def test_owner_confirm_stats_and_excel_use_discounted_values(shop_dp, main
 
     sheet = load_workbook(io.BytesIO(raw)).active
     headers = [cell.value for cell in sheet[1]]
-    assert headers[-2:] == ["تخفیف کمپین (تومان)", "کمپین"], "ستون‌هایِ کمپین باید *آخرِ* برگه اضافه شده باشن"
-    value_col = headers.index("ارزش تخمینی (تومان)")
-    rows = [[cell.value for cell in row] for row in sheet.iter_rows(min_row=2)]
+    assert headers[-2:] == ["تخفیفِ کمپین (تومان)", "کمپین"], "ستون‌هایِ کمپین باید *آخرِ* برگه اضافه شده باشن"
+    value_col = headers.index("ارزشِ تخمینی (تومان)")
+    all_rows = [[cell.value for cell in row] for row in sheet.iter_rows(min_row=2)]
+    # P22: ردیفِ آخر «جمعِ کل» است و از ردیف‌هایِ داده جدا می‌شود
+    totals_row = all_rows[-1]
+    assert totals_row[0] == "جمعِ کل", totals_row
+    assert totals_row[value_col] == 225_000, totals_row
+    rows = all_rows[:-1]
     assert len(rows) == 2
     assert sorted(row[value_col] for row in rows) == [45_000, 180_000], "ارزش تخمینی توی اکسل بعد از تخفیفه"
     assert sorted(row[-2] for row in rows) == [5_000, 20_000]

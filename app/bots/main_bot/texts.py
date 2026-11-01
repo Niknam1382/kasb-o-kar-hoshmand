@@ -1833,7 +1833,17 @@ def audit_report_intro(group: str | None, window: str | None, count: int, *, sco
 
 
 def audit_csv_headers() -> list[str]:
-    return ["id", "created_at_utc", "event_type", "actor_telegram_id", "shop_bot_id", "details", "row_hash"]
+    """سرستون‌هایِ فایلِ CSVِ ممیزی — فارسی، چون فایل را آدم می‌خواند نه ماشین."""
+    return [
+        "شناسه",
+        "تاریخ (به وقتِ تهران)",
+        "رویداد",
+        "آیدیِ تلگرامِ اقدام‌کننده",
+        "فروشگاه",
+        "شناسهٔ فروشگاه",
+        "جزئیات",
+        "هشِ ردیفِ زنجیره",
+    ]
 
 AI_POOL_MENU_INTRO = (
     "🔑 استخرِ کلیدهایِ AI\n\n"
@@ -1964,14 +1974,29 @@ _AUDIT_EVENT_LABELS = {
     "jobs_pause_changed": "⏸ توقفِ جاب‌هایِ زمان‌بندی",
     "operator_admin_granted": "👑 افزودنِ ادمینِ عملیاتی",
     "operator_admin_revoked": "👑 حذفِ ادمینِ عملیاتی",
+    "owner_wallet_corrected": "🧮 اصلاحِ دستیِ کیف‌پول",
     "wallet_ledger_exported": "📤 خروجیِ دفترِ کیف‌پول (اکسل)",
+    "wallet_reconciled": "🔍 نگاهِ همسنجیِ دفترِ کیف‌پول",
+    "owner_profile_updated": "🪪 تغییرِ پروفایلِ فروشگاه‌دار",
+    "owner_business_mode_changed": "🏬 تغییرِ نوعِ کسب‌وکار",
+    "customer_block_changed": "🚫 مسدود/بازکردنِ مشتری",
+    "bot_bio_tampered": "📝 تغییرِ بیوگرافیِ ربات",
+    "branding_text_changed": "🧴 تغییرِ متنِ برند",
+    "audit_exported": "📥 خروجیِ CSVِ دفترِ ممیزی",
 }
 
 
+def audit_event_label(event_type) -> str:
+    """برچسبِ فارسیِ هر رویدادِ ممیزی (در پنل و در فایلِ خروجی یکی)."""
+    value = event_type.value if hasattr(event_type, "value") else str(event_type or "")
+    return _AUDIT_EVENT_LABELS.get(value, value)
+
+
 def audit_log_entry_line(entry) -> str:
-    event_value = entry.event_type.value if hasattr(entry.event_type, "value") else entry.event_type
-    label = _AUDIT_EVENT_LABELS.get(event_value, event_value)
-    when = entry.created_at.strftime("%Y-%m-%d %H:%M")
+    from app.utils.jalali import format_jalali_datetime
+
+    label = audit_event_label(entry.event_type)
+    when = format_jalali_datetime(entry.created_at) if entry.created_at else ""
     line = f"{label} — {when}"
     if entry.actor_telegram_id:
         line += f" — کاربر: {entry.actor_telegram_id}"

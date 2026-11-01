@@ -67,7 +67,7 @@ async def test_customers_workbook_is_styled_and_correct() -> None:
     assert ws.freeze_panes == "A2", "ردیفِ هدر باید فریز شده باشه"
     header_cell = ws["A1"]
     assert header_cell.font.bold is True, "فونتِ هدر باید بولد باشه"
-    assert header_cell.fill.start_color.rgb in ("002F5496", "FF2F5496", "2F5496"), f"رنگِ پس‌زمینه‌ی هدر: {header_cell.fill.start_color.rgb}"
+    assert str(header_cell.fill.start_color.rgb).endswith("0F5E5C"), f"رنگِ پس‌زمینهٔ هدر باید پالتِ برند باشد: {header_cell.fill.start_color.rgb}"
     assert header_cell.border.left.style == "thin", "سلول‌ها باید بردر داشته باشن"
 
     body_cell = ws["A2"]
@@ -83,10 +83,11 @@ async def test_customers_workbook_is_styled_and_correct() -> None:
     # --- چکِ داده ---
     header_row = [cell.value for cell in ws[1]]
     assert header_row[0] == "نام"
-    assert "تعداد سفارش" in header_row and "تعداد مشاوره" in header_row and "مجموع ارزش تخمینی (تومان)" in header_row
+    assert "تعدادِ سفارش" in header_row and "تعدادِ مشاوره" in header_row and "مجموعِ ارزشِ تخمینی (تومان)" in header_row
 
     rows = list(ws.iter_rows(min_row=2, values_only=True))
-    assert len(rows) == 2, f"باید دقیقاً دو ردیفِ مشتری باشه، نه {len(rows)}"
+    # P22: ردیفِ «جمعِ کل» هم اضافه می‌شود ⇒ دو مشتری + یکِ ردیفِ جمع
+    assert len(rows) == 3, f"باید دقیقاً دو ردیفِ مشتری + جمعِ کل باشه، نه {len(rows)}"
 
     niloofar_row = next(r for r in rows if r[0] == "نیلوفر")
     assert niloofar_row[1] == "@niloofar_shop"
@@ -114,7 +115,8 @@ async def test_orders_workbook_is_valid() -> None:
     ws = wb.active
     assert ws.sheet_view.rightToLeft is True
     rows = list(ws.iter_rows(min_row=2, values_only=True))
-    assert len(rows) == 3, f"باید سه ردیفِ سفارش/مشاوره باشه، نه {len(rows)}"
+    # P22: سه سفارش/مشاوره + ردیفِ «جمعِ کل»
+    assert len(rows) == 4, f"باید سه ردیفِ سفارش/مشاوره + جمعِ کل باشه، نه {len(rows)}"
 
     print("✅ test_orders_workbook_is_valid PASSED")
 
