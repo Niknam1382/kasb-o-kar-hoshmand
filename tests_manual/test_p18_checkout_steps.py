@@ -224,7 +224,9 @@ async def test_customer_flow_uses_the_shops_config(shop_dp, main_dp, bot_manager
     await env.cust_say("تهران")
     await env.cust_say("خیابانِ آزادی، کوچه‌یِ دوم، پلاکِ ده")
     await env.cust_cb("ck_skip")  # کدپستی
-    # بدونِ هیچ روشِ ارسالِ فعال ⇒ گامِ ارسال نمی‌آید (B8) و مستقیم پیش‌نمایش
+    # P22 (مشکلِ ۵): فروشگاه روشِ ارسالی ندارد ⇒ گام حذف نمی‌شود؛ «هماهنگیِ ارسال» پرسیده می‌شود
+    assert "هماهنگی" in env.customer_msgs()[-1], env.customer_msgs()[-1]
+    await env.cust_cb("ck_ship:0")
     assert "💳 مبلغِ قابلِ پرداخت" in env.customer_msgs()[-1], env.customer_msgs()[-1]
     assert "توضیحِ سفارش" not in env.customer_msgs()[-1], "گامِ توضیح خاموش ⇒ در پیش‌نمایش هم نیست"
     await env.cust_cb("cart_checkout_confirm")
@@ -271,6 +273,8 @@ async def test_customer_flow_uses_the_shops_config(shop_dp, main_dp, bot_manager
     assert env.customer_msgs()[-1] == "آدرس و پلاکت رو کامل بنویس", env.customer_msgs()[-1]
     await env.cust_say("میدانِ آزادی، پلاکِ ۱۲")
     await env.cust_cb("ck_skip")  # کدپستی
+    assert "هماهنگی" in env.customer_msgs()[-1], env.customer_msgs()[-1]  # P22: گامِ ارسال همیشه هست
+    await env.cust_cb("ck_ship:0")
     assert env.customer_msgs()[-1] == checkout_ui.ASK_NOTE, "گامِ توضیح دوباره روشن است"
     await env.cust_say("لطفاً زنگ بزنید")
     assert "💳 مبلغِ قابلِ پرداخت" in env.customer_msgs()[-1], env.customer_msgs()[-1]
