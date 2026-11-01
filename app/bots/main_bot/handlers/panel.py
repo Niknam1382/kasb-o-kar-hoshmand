@@ -476,10 +476,18 @@ async def open_stats(message: Message, session: AsyncSession) -> None:
 # =============================================================================
 # کیف‌پول و پرداخت
 # =============================================================================
+async def _wallet_status_line(session: AsyncSession, owner) -> str:
+    """موجودی + «چقدرش واقعاً قابلِ خرج است» + «چقدرش دارد منقضی می‌شود»."""
+    usable, expiring_toman, expiring_days = await wallet_service.credit_summary(session, owner)
+    return texts.wallet_status_text(
+        owner.wallet_balance_toman, usable_toman=usable, expiring_toman=expiring_toman, expiring_days=expiring_days
+    )
+
+
 @router.message(F.text == "💰 کیف‌پول")
 async def open_wallet(message: Message, session: AsyncSession) -> None:
     owner = await _current_owner(message, session)
-    await message.answer(texts.wallet_status_text(owner.wallet_balance_toman), reply_markup=keyboards.wallet_topup_action_keyboard())
+    await message.answer(await _wallet_status_line(session, owner), reply_markup=keyboards.wallet_topup_action_keyboard())
 
 
 @router.callback_query(F.data == "wallet_history")
@@ -760,7 +768,7 @@ async def cb_wallet_status(callback: CallbackQuery, state: FSMContext, session: 
     await state.clear()
     await callback.answer()
     await callback.message.answer(
-        texts.wallet_status_text(owner.wallet_balance_toman), reply_markup=keyboards.wallet_topup_action_keyboard()
+        await _wallet_status_line(session, owner), reply_markup=keyboards.wallet_topup_action_keyboard()
     )
 
 

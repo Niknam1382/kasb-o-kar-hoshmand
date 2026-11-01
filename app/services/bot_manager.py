@@ -123,9 +123,12 @@ class ShopBotManager:
             logger.exception("حذف وب‌هوکِ ربات %s فروشگاهی %s ناموفق بود.", label, shop_bot_id)
 
         offset = None
+        # فهرستِ نوعِ آپدیت‌هایِ مصرف‌شونده یک‌بار حساب می‌شود: این کوئری رویِ گرافِ روترهاست
+        # و در هر گردشِ حلقه (یعنی هر ~۲۰ ثانیه به‌ازایِ هر ربات) همان نتیجه را می‌دهد.
+        used_updates = self._dispatcher.resolve_used_update_types()
         while True:
             try:
-                updates = await bot.get_updates(offset=offset, timeout=20, allowed_updates=self._dispatcher.resolve_used_update_types())
+                updates = await bot.get_updates(offset=offset, timeout=20, allowed_updates=used_updates)
             except TelegramUnauthorizedError:
                 if bale:
                     logger.warning("توکنِ رباتِ بله‌یِ فروشگاه %s معتبر نیست؛ همان اتصال خاموش می‌شود.", shop_bot_id)

@@ -384,7 +384,8 @@ def _client_ip(request: Request) -> str:
         first = forwarded.split(",")[0].strip()
         if first:
             return first[:64]
-    return ((request.client.host if request.client else "unknown"))[:64]
+    client = getattr(request, "client", None)
+    return (getattr(client, "host", None) or "unknown")[:64]
 
 
 def _too_many_requests(request: Request, path: str) -> Response | None:

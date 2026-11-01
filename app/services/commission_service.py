@@ -91,8 +91,10 @@ def eligible_group_amount(rows: list[OrderConsultation]) -> int:
 
 
 def usable_credit(owner: ShopOwner) -> int:
-    """آنچه برایِ شروعِ یک جریانِِ پرداختِ جدید آزاد است (موجودیِ کم‌شده از holdِ کمیسیون)."""
-    return int(owner.wallet_balance_toman or 0) - int(owner.commission_reserved_toman or 0)
+    """آنچه برایِ شروعِ یک جریانِِ پرداختِ جدید آزاد است (موجودیِ کم‌شده از holdِ کمیسیون).
+
+    تعریفِ اصلی در `wallet_service` است (یک تعریف، دو مصرف‌کننده: پنلِ کیف‌پول و رزروِ کمیسیون)."""
+    return wallet_service.usable_credit(owner)
 
 
 async def _lock_owner(session: AsyncSession, owner_id: int) -> ShopOwner | None:

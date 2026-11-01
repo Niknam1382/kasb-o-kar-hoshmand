@@ -12,7 +12,7 @@ from app.bots.main_bot import keyboards as main_keyboards
 from app.bots.shop_bot import texts as shop_texts
 from app.database.models import Customer, OrderConsultation, ShopBot, ShopOwner
 from app.database.session import session_scope
-from app.services import order_state, order_transition_service
+from app.services import notification_service, order_state, order_transition_service
 from app.utils.validators import format_toman
 
 logger = logging.getLogger(__name__)
@@ -53,7 +53,18 @@ async def notify_online_payment(main_bot: Bot, bot_manager, shop_bot_id: int, ro
             try:
                 await shop_bot_instance.send_message(customer_tid, shop_texts.payment_approved_message(code))
             except TelegramAPIError:
-                logger.exception("اعلامِ پرداخت به مشتری ناموفق بود.")
+                # «سفارشت پرداخت شد» پیامی است که گم‌شدنش هم ضررِ مالی دارد هم اعتمادی؛
+                # اگر موقتاً نرفت، در صفِ اعلان‌ها می‌ماند و دوباره تلاش می‌شود.
+                await notification_service.enqueue(
+                    session,
+                    customer_tid,
+                    shop_texts.payment_approved_message(code),
+                    platform=customer.platform,
+                    shop_bot_id=shop_bot_id,
+                    label=f"paid:{code}",
+                    dedupe_key=f"paid:{rows[0].id}:{customer_tid}",
+                )
+                logger.exception("اعلامِ پرداخت به مشتری ناموفق بود؛ در صفِ تلاشِ دوباره.")
             if not needs_review:
                 from app.bots.shop_bot.handlers.orders import send_invoice_to_customer
 

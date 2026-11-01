@@ -19,6 +19,7 @@ from sqlalchemy import (
     TypeDecorator,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -447,6 +448,7 @@ class OtpCode(Base):
 
 class Payment(Base, CreatedAtMixin):
     __tablename__ = "payments"
+    __table_args__ = (Index("ix_payments_pending_reserved", "status", "reserved_until", postgresql_where=text("status = 'pending'")),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
@@ -484,6 +486,7 @@ class WalletCharge(Base, CreatedAtMixin):
     """
 
     __tablename__ = "wallet_charges"
+    __table_args__ = (Index("ix_wallet_charges_owner_live_expires", "shop_owner_id", "expires_at", postgresql_where=text("is_expired = false AND remaining_toman > 0")),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
@@ -612,7 +615,11 @@ class ShopBot(Base):
     # سوییچِ خودِ فروشگاه‌دار (خاموش ⇒ رباتِ بله‌اش پیامی جواب نمی‌دهد، بدونِ حذفِ توکن).
     bale_bot_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
-    products: Mapped[list["Product"]] = relationship(back_populates="shop_bot", lazy="selectin")
+    # P20 · عمداً «lazy=raise»: این رابطه هیچ‌جا خوانده نمی‌شود، ولی با `selectin` هر بار که
+    # یک ShopBot (مثلاً در میدل‌ورِ هر پیامِ مشتری) بارگذاری می‌شد، کلِ فهرستِ محصولاتِ فروشگاه
+    # هم با یک کوئریِ اضافه می‌آمد. با raise، استفادهٔ تصادفیِ آینده به‌جایِ «کوئریِ پنهانِ گران»
+    # بلافاصله خطایِ روشن می‌دهد.
+    products: Mapped[list["Product"]] = relationship(back_populates="shop_bot", lazy="raise")
 
 
 class Subscription(Base):
@@ -677,6 +684,7 @@ class Customer(Base):
 
 class Product(Base, CreatedAtMixin):
     __tablename__ = "products"
+    __table_args__ = (Index("ix_products_shop_active", "shop_bot_id", "is_active"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), index=True, nullable=False)
@@ -822,6 +830,7 @@ class LearnedAnswer(Base, CreatedAtMixin):
 
 class ConversationMessage(Base, CreatedAtMixin):
     __tablename__ = "conversation_messages"
+    __table_args__ = (Index("ix_conversation_messages_customer_created", "customer_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True, nullable=False)
@@ -831,6 +840,7 @@ class ConversationMessage(Base, CreatedAtMixin):
 
 class OrderConsultation(Base, CreatedAtMixin):
     __tablename__ = "orders_consultations"
+    __table_args__ = (Index("ix_orders_consultations_shop_status_created", "shop_bot_id", "status", "created_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), index=True, nullable=False)
@@ -1239,3 +1249,36 @@ class AdminCreditBatchItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     batch_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
+
+class Notification(Base):
+    """صندوقِ خروجیِ اعلان‌ها (P20 · پیشنهادِ «تحویلِ تضمینیِ خبر»): هر اعلانی که ارسالش
+    شکست بخورد اینجا می‌ماند و جابِ هر ۳۰ دقیقه دوباره تلاش می‌کند.
+
+    چرا لازم بود: امروز اگر تلگرام لحظه‌ای ۵۰۳/۴۲۹ بدهد یا مشتری ربات را موقتاً آن‌بلاک
+    نکرده باشد، پیام در همان `except TelegramAPIError: logger...` گم می‌شود — یعنی سفارشِ
+    پرداخت‌شده می‌تواند بی‌خبر بماند و هیچ‌کس نفهمد. با این جدول، «نرفت» یعنی «در صفِ تلاشِ دوباره»
+    و بعد از سقفِ تلاش، `failed` که در پنلِ ادمین دیده می‌شود (نه حذفِ بی‌صدا).
+    """
+
+    __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("dedupe_key", name="uq_notifications_dedupe_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
+    # «همان خبر را دوباره در صف نگذار» — شناسهٔ یکتای رویداد (مثلاً order-status:1234:paid)
+    dedupe_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    platform: Mapped[str] = mapped_column(String(16), default="telegram", server_default="telegram", nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    # به‌ازایِ هر دو مقدار nullable، «چه کسی/چه چیزی» این پیام را باید بگیرد (برایِ رباتِ درست):
+    shop_bot_id: Mapped[int | None] = mapped_column(ForeignKey("shop_bots.id"), nullable=True, index=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("shop_owners.id"), nullable=True, index=True)
+    label: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(12), default="pending", server_default="pending", nullable=False, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    next_attempt_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+

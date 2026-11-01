@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 
 from aiogram import F, Router
@@ -21,6 +22,7 @@ from app.bots.shop_bot import texts as shop_texts
 from app.bots.shop_bot.handlers.orders import parse_key
 from app.database.models import Customer, DirectMessage
 from app.services import (
+    notification_service,
     order_service,
     order_state,
     order_transition_service,
@@ -66,8 +68,22 @@ async def notify_customer(session: AsyncSession, shop_bot, rows, text: str, bot_
         return False
     try:
         await bot.send_message(customer.telegram_id, text)
-    except (TelegramForbiddenError, TelegramAPIError):
-        logger.warning("اعلانِ وضعیتِ سفارش به مشتری نرسید (shop_bot=%s).", shop_bot.id)
+    except TelegramForbiddenError:
+        # مشتری ربات را بلاک کرده: تلاشِ دوباره بی‌معنی است ( صف نمی‌رود).
+        logger.info("مشتریِ %s ربات را بلاک کرده؛ اعلانِ وضعیتِ سفارش فرستاده نشد.", customer.id)
+        return False
+    except TelegramAPIError:
+        # خطایِ گذرا (۴۲۹/۵۰۳/شبکه) ⇒ در صفِ اعلان‌ها می‌ماند و جابِ دوره‌ای دوباره تلاش می‌کند.
+        await notification_service.enqueue(
+            session,
+            customer.telegram_id,
+            text,
+            platform=customer.platform,
+            shop_bot_id=shop_bot.id,
+            label=f"order-status:{rows[0].id}",
+            dedupe_key=f"ordstat:{rows[0].id}:{hashlib.sha1(text.encode()).hexdigest()[:8]}",
+        )
+        logger.warning("اعلانِ وضعیتِ سفارش به مشتری نرسید؛ در صفِ تلاشِ دوباره ثبت شد (shop_bot=%s).", shop_bot.id)
         return False
     return True
 

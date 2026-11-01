@@ -314,6 +314,50 @@ async def has_ever_had_wallet_activity(session: AsyncSession, owner: ShopOwner) 
     return result.scalar_one_or_none() is not None
 
 
+EXPIRING_SOON_DAYS = 30
+
+
+def usable_credit(owner: ShopOwner) -> int:
+    """آنچه برایِ شروعِ یک جریانِ پرداختِ تازه آزاد است: موجودی، کمِ holdِ کمیسیونِ سفارش‌هایِ باز.
+
+    مالِ این سرویس است (نه commission_service) چون commission_service به کیف‌پول وابسته است و
+    این‌طور حلقهٔ import ساخته نمی‌شود. این همان عددی است که فروشگاه‌دار باید در پنل ببیند:
+    موجودیِ خام، قابلِ خرجِ کامل نیست.
+    """
+    return int(owner.wallet_balance_toman or 0) - int(owner.commission_reserved_toman or 0)
+
+
+async def credit_summary(session: AsyncSession, owner: ShopOwner, within_days: int = EXPIRING_SOON_DAYS) -> tuple[int, int, int | None]:
+    """(قابل‌استفاده، مبلغِ در آستانهٔ انقضا، روزهایِ نزدیک‌ترین انقضا).
+
+    «قابل‌استفاده» = موجودیِ کم‌شده از holdِ کمیسیونِ سفارش‌هایِ باز: امروز فروشگاه‌دار عددی
+    می‌بیند که نمی‌تواند کاملِ آن را برایِ شروعِ یک جریانِ پرداختِ تازه استفاده کند، و
+    «در آستانهٔ انقضا» هم چیزی است که اگر گفته نشود، مصرف می‌شود یا از دست می‌رود.
+    """
+    now = datetime.datetime.now(datetime.timezone.utc)
+    total, earliest = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(WalletCharge.remaining_toman), 0),
+                func.min(WalletCharge.expires_at),
+            ).where(
+                WalletCharge.shop_owner_id == owner.id,
+                WalletCharge.is_expired.is_(False),
+                WalletCharge.remaining_toman > 0,
+                WalletCharge.expires_at > now,
+                WalletCharge.expires_at <= now + datetime.timedelta(days=within_days),
+            )
+        )
+    ).one()
+    days_left = None
+    if earliest is not None:
+        if earliest.tzinfo is None:
+            earliest = earliest.replace(tzinfo=datetime.timezone.utc)
+        days_left = max(0, int(-(-(earliest - now).total_seconds() // 86400)))
+    usable = usable_credit(owner)
+    return usable, int(total or 0), days_left
+
+
 async def expire_stale_charges(session: AsyncSession) -> int:
     """
     کارِ روزانه: بسته‌هایی که تاریخِ انقضاشون گذشته رو می‌بنده و از موجودیِ

@@ -105,6 +105,7 @@ TEST_FILES = [
     "test_p19_bale_shop_bot.py",
     "test_p20_money_integrity.py",
     "test_p20_security_observability.py",
+    "test_p20_performance_outbox.py",
 ]
 
 

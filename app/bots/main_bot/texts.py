@@ -412,8 +412,25 @@ def wallet_topup_action_label() -> str:
     return "💰 شارژ کیف‌پول"
 
 
-def wallet_status_text(balance_toman: int) -> str:
-    return f"موجودیِ فعلیِ کیف‌پولت: {format_toman(balance_toman)}"
+def wallet_status_text(
+    balance_toman: int,
+    *,
+    usable_toman: int | None = None,
+    expiring_toman: int | None = None,
+    expiring_days: int | None = None,
+) -> str:
+    """P20: دو عددی که فروشگاه‌دار واقعاً لازم دارد — «چقدرش قابلِ خرج است» و «چقدرش دارد می‌رود»."""
+    lines = [f"موجودیِ فعلیِ کیف‌پولت: {format_toman(balance_toman)}"]
+    if usable_toman is not None and usable_toman < balance_toman:
+        held = balance_toman - usable_toman
+        lines.append(
+            f"قابلِ استفاده برایِ شروعِ کارِ تازه: {format_toman(max(usable_toman, 0))} "
+            f"({format_toman(held)} به‌خاطرِ کمیسیونِ سفارش‌هایِ باز در انتظار است)"
+        )
+    if expiring_toman:
+        when = f"{expiring_days} روزِ دیگر" if expiring_days is not None else "به‌زودی"
+        lines.append(f"⏳ {format_toman(expiring_toman)} از این مبلغ تا {when} منقضی می‌شود.")
+    return "\n".join(lines)
 
 
 _WALLET_REASON_LABELS = {
