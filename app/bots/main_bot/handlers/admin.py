@@ -399,17 +399,41 @@ async def cb_toggle_sms(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @super_router.callback_query(F.data == "admin_branding_sync")
 async def cb_branding_sync(callback: CallbackQuery, session: AsyncSession, bot_manager, bot: Bot) -> None:
-    """A2: «همین الان» همگام‌سازیِ بیوگرافیِ همه‌یِ ربات‌هایِ فروشگاهی."""
+    """A2 + P21-A: «همین الان» بیوگرافیِ همه‌یِ ربات‌هایِ فروشگاهی (تلگرام و بله) را بازبینی کن.
+
+    force=True یعنی نوبتِ per-ربات نادیده گرفته می‌شود (درخواستِ صریحِ ادمین)، پس شمارشِ
+    `shops`/`total` با حالتِ عادیِ پاسِ دوره‌ای فرق می‌کند.
+    """
     await callback.answer()
-    counts = await bot_branding_service.sync_all(session, bot_manager, bot)
+    counts = await bot_branding_service.sync_all(session, bot_manager, bot, force=True)
     if not counts["total"]:
         await callback.message.answer(texts.BRANDING_SAVED_NO_BOTS)
         return
-    await callback.message.answer(
-        texts.BRANDING_SYNC_RESULT.format(**{key: counts[key] for key in ("applied", "tampered", "unchanged", "error")})
-    )
+    await callback.message.answer(texts.BRANDING_SYNC_RESULT.format(**counts))
     if counts["error"]:
         await callback.message.answer(texts.BRANDING_SYNC_FAILED.format(error=counts["error"]))
+
+
+@super_router.callback_query(F.data == "admin_branding_report")
+async def cb_branding_report(callback: CallbackQuery, session: AsyncSession) -> None:
+    """P21-A: کدام فروشگاه‌ها بیشترین دستکاری/حذفِ بیو را دارند (ستونِ شمارنده تا حالا هیچ‌جا دیده نمی‌شد)."""
+    await callback.answer()
+    admin_settings = await get_admin_settings(session)
+    rows = await bot_branding_service.tamper_report(session)
+    if not rows:
+        await callback.message.answer(texts.BRANDING_REPORT_EMPTY.format(minutes=bot_branding_service.interval_of(admin_settings)))
+        return
+    items = [
+        texts.BRANDING_REPORT_ITEM.format(
+            username=row["bot_username"] or f"رباتِ #{row['shop_bot_id']}",
+            count=row["tamper_count"],
+            checked=format_jalali_datetime(row["checked_at"]) if row["checked_at"] else texts.BRANDING_REPORT_NEVER,
+        )
+        for row in rows
+    ]
+    await callback.message.answer(
+        texts.BRANDING_REPORT_TITLE.format(minutes=bot_branding_service.interval_of(admin_settings)) + "\n".join(items)
+    )
 
 
 @super_router.callback_query(F.data == "admin_toggle_zarinpal")
@@ -706,6 +730,8 @@ _INT_FIELDS: dict[str, str] = {
     "wallet_trial_credit_toman": texts.ADMIN_ASK_WALLET_TRIAL_CREDIT,
     "wallet_low_balance_warning_toman": texts.ADMIN_ASK_WALLET_LOW_BALANCE_WARNING,
     "usd_to_toman_rate": texts.ADMIN_ASK_USD_TO_TOMAN_RATE,
+    # P21-A: فاصلهِ بازرسیِ بیو (دقیقه) — پیش‌تر ثابتِ ۶۰ در کد بود.
+    "branding_check_minutes": texts.ADMIN_ASK_BRANDING_CHECK_MINUTES,
 }
 
 # فیلدهای اعشاری (Decimal) — برای مقادیری مثل هزینه‌ی دلاری یا ضریب که به
@@ -730,7 +756,13 @@ _INT_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset({"referral_reward_value", "ni
 _INT_FIELDS_MAX: dict[str, int] = {
     "nightly_report_hour_utc": 23,
     "min_topup_amount_toman": 10_000_000,
+    "branding_check_minutes": 1440,
 }
+
+# کفِ مجاز برایِ بعضی فیلدها (پیش‌فرضِ عمومی ۱ است). بازدیدِ بیو زیرِ ۵ دقیقه یعنی هر لوپِ
+# زمان‌بند یک get_short_description به‌ازایِ هر ربات ⇒ با صدها ربات، خودِ بازرسی به بارِ
+# بی‌دلیلِ شبکه تبدیل می‌شود.
+_INT_FIELDS_MIN: dict[str, int] = {"branding_check_minutes": 5}
 
 # فیلدهای متنیِ قابل‌خالی‌کردن: اگه کاربر «خالی» بفرسته، به‌جای اینکه رشته‌ی
 # «خالی» ذخیره بشه، مقدار None ذخیره می‌شه (یعنی واقعاً پاک می‌شه).
@@ -985,7 +1017,7 @@ async def setting_value_entered(
     if data["field_kind"] == "int":
         try:
             value = int(raw)
-            minimum = 0 if field in _INT_FIELDS_ALLOW_ZERO else 1
+            minimum = _INT_FIELDS_MIN.get(field, 0 if field in _INT_FIELDS_ALLOW_ZERO else 1)
             maximum = _INT_FIELDS_MAX.get(field)
             if value < minimum or (maximum is not None and value > maximum):
                 raise ValueError
@@ -1040,12 +1072,12 @@ async def setting_value_entered(
             details="تنظیم شد" if cleaned is None else f"قدیمی: {(previous or '—')[:60]} → جدید: {cleaned[:60]}",
         )
         await state.clear()
-        counts = await bot_branding_service.sync_all(session, bot_manager, bot)
+        counts = await bot_branding_service.sync_all(session, bot_manager, bot, force=True)
         if counts["total"]:
             await message.answer(
-                texts.BRANDING_SAVED_WITH_BOTS.format(count=counts["total"])
+                texts.BRANDING_SAVED_WITH_BOTS.format(count=counts["shops"])
                 + "\n"
-                + texts.BRANDING_SYNC_RESULT.format(**{key: counts[key] for key in ("applied", "tampered", "unchanged", "error")})
+                + texts.BRANDING_SYNC_RESULT.format(**counts)
             )
             if counts["error"]:
                 await message.answer(texts.BRANDING_SYNC_FAILED.format(error=counts["error"]))

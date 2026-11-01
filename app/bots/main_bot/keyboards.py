@@ -552,6 +552,7 @@ def admin_settings_group_keyboard(group: str, admin_settings) -> InlineKeyboardM
         rows.append([InlineKeyboardButton(text="🔎 آخرین رویدادهایِ پرداخت", callback_data="admin_payment_events")])
     if group == "branding":
         rows.append([InlineKeyboardButton(text="🧴 همگام‌سازیِ بیوگرافیِ ربات‌ها", callback_data="admin_branding_sync")])
+        rows.append([InlineKeyboardButton(text="📊 گزارشِ دستکاریِ بیوگرافی", callback_data="admin_branding_report")])
     if group == "shops":
         rows.append([InlineKeyboardButton(text="📮 صفِ اعلان‌هایِ ارسال‌نشده", callback_data="admin_notification_queue")])
     rows.append([InlineKeyboardButton(text="🔙 بازگشت به فهرستِ تنظیمات", callback_data="admin_settings_menu")])
@@ -1110,6 +1111,7 @@ def shop_branding_keyboard(shop_bot) -> InlineKeyboardMarkup:
 
     rows = [
         [InlineKeyboardButton(text="✏️ متنِ خودت", callback_data="br_edit")],
+        [InlineKeyboardButton(text=texts.BRANDING_CHECK_NOW_BUTTON, callback_data="br_check")],
         [InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="br_back")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)

@@ -22,7 +22,6 @@ from app.services import (
     wallet_expiry_service,
     wallet_service,
 )
-from app.services import admin_settings_service
 from app.services.admin_settings_service import get_admin_settings
 
 logger = logging.getLogger(__name__)
@@ -61,12 +60,12 @@ async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
     if not job_gate_service.is_paused(admin_settings, "orders"):
         async with session_scope() as session:
             await order_expiry_service.process_order_expiry(session, main_bot)
-    # A2: بازرسیِ دوره‌ایِ بیوگرافی (هر ۶ ساعت) — دست‌کاری را برمی‌گرداند. بی‌خطر اگر bot_manager نباشد.
+    # A2 + P21-A: بازرسیِ دوره‌ایِ بیوگرافی — نوبتِ *هر ربات* در خودش ثبت می‌شود
+    # (branding_next_check_at)، پس این فراخوانی در هر لوپ بی‌هزینه است و یکِ رباتِ خراب،
+    # بقیه را درگیرِ درخواستِ API مجدد نمی‌کند. بی‌خطر اگر bot_manager نباشد.
     if bot_manager is not None and not job_gate_service.is_paused(admin_settings, "branding"):
         async with session_scope() as session:
-            fresh = await admin_settings_service.get_admin_settings(session)
-            if bot_branding_service.is_due(fresh.branding_synced_at):
-                await bot_branding_service.sync_all(session, bot_manager, main_bot)
+            await bot_branding_service.sync_all(session, bot_manager, main_bot)
     # P20 · صندوقِ اعلان‌ها: خبری که تلگرام/بله نپذیرفت، تا ۶ بار با backoff دوباره تلاش می‌شود.
     if bot_manager is not None and not job_gate_service.is_paused(admin_settings, "notifications"):
         async with session_scope() as session:

@@ -1183,13 +1183,39 @@ ADMIN_ASK_BRANDING_TEXT = (
 ADMIN_INVALID_BRANDING_TEXT = "این متن باید ۱ تا ۶۰ نویسه باشد."
 BRANDING_SAVED_WITH_BOTS = "✅ ذخیره شد. بیوگرافیِ {count} رباتِ فروشگاهی بررسی و در صورتِ نیاز به‌روز شد."
 BRANDING_SAVED_NO_BOTS = "✅ ذخیره شد. ربات‌هایی که بعداً وصل بشن هم همین متن را می‌گیرند."
-BRANDING_SYNC_RESULT = "🧴 بیوگرافی: {applied} تنظیم‌شده · {tampered} بازگردانی‌شده · {unchanged} درست · {error} خطا"
+BRANDING_SYNC_RESULT = (
+    "🧴 بیوگرافی: {shops} فروشگاه ({total} ربات) · {applied} تنظیم‌شده · {tampered} جایگزینیِ‌دست‌کاری · "
+    "{removed} بازگردانیِ‌حذف · {unchanged} درست · {skipped} بی‌متن · {error} خطا"
+)
 BRANDING_SYNC_FAILED = "🧴 {error} ربات به‌دلیلِ خطایِ شبکه در پاسِ بعدی دوباره تلاش می‌شود."
 BOT_BIO_TAMPERED_ALERT = (
     "🧴 بیوگرافیِ رباتت دستکاری شده بود و ما آن را به «متنِ خودت — متنِ پلتفرم» برگرداندیم.\n"
     "اگر خودت آن را عوض کرده‌ای، در بازرسیِ بعدی هم دوباره همین متن جایگزین می‌شود."
 )
+BOT_BIO_REMOVED_ALERT = (
+    "🧴 بیوگرافیِ رباتت حذف شده بود؛ ما متنِ «متنِ خودت — متنِ پلتفرم» را دوباره جای آن گذاشتیم.\n"
+    "اگر خودت پاک کرده‌ای، در بازرسیِ بعدی هم دوباره نوشته می‌شود — برایِ حذفِ دائمی، متنِ خودت را از همین صفحه خالی کن."
+)
 BRANDING_OWNER_BUTTON = "🧴 بیوگرافیِ ربات"
+ADMIN_ASK_BRANDING_CHECK_MINUTES = (
+    "فاصله‌یِ بازرسیِ بیوگرافیِ ربات‌ها چند دقیقه باشه؟ (۵ تا ۱۴۴۰)\n"
+    "هر دور، متنِ خودت و متنِ پلتفرم رویِ رباتِ تلگرام و بله‌یِ هر فروشگاه خوانده و در صورتِ حذف/دستکاری برگردانده می‌شود."
+)
+BRANDING_CHECK_NOW_BUTTON = "🔄 بازبینیِ همین الان"
+BRANDING_CHECK_HEALTHY = "✅ بیوگرافیِ رباتت دقیقاً همان متنی است که باید باشد (رویِ هر پلتفرمی که وصل هست)."
+BRANDING_CHECK_RESTORED = "🔄 بیوگرافیِ رباتت بازبینی شد و متنِ درست جایگزین شد."
+BRANDING_CHECK_REMOVED = "🧴 بیوگرافیِ رباتت حذف شده بود؛ متنِ «متنِ خودت — متنِ پلتفرم» دوباره نوشته شد."
+BRANDING_CHECK_TAMPERED = "⚠️ بیوگرافیِ رباتت دستکاری شده بود؛ همان لحظه به «متنِ خودت — متنِ پلتفرم» برگردانده شد."
+BRANDING_CHECK_NO_TEXT = "متنی برایِ بازبینی تنظیم نشده؛ اول «متنِ خودت» را بنویس."
+BRANDING_CHECK_NOT_CONNECTED = "رباتِ این فروشگاه فعلاً به این سرویس وصل نیست؛ متن ذخیره شد و در اولین اتصال اعمال می‌شود."
+BRANDING_CHECK_ERROR = "🧴 بازبینی ممکن نشد (خطایِ شبکه). در دورِ بعدی دوباره تلاش می‌شود."
+BRANDING_REPORT_EMPTY = (
+    "🧴 هیچ رباتی تا حالا بیویش دستکاری یا حذف نشده است.\n\n"
+    "بازرسیِ خودکار هر {minutes} دقیقه انجام می‌شود و فاصله‌اش را از همین دسته می‌توانی عوض کنی."
+)
+BRANDING_REPORT_TITLE = "🧴 گزارشِ دستکاریِ بیوگرافی (فاصلهٔ بازرسی: هر {minutes} دقیقه)\n\n"
+BRANDING_REPORT_ITEM = "• {username}: {count} بار · آخرینِ بازبینی: {checked}"
+BRANDING_REPORT_NEVER = "هنوز بازبینی نشده"
 BRANDING_OWNER_ASK = (
     "متنِ خودت برایِ بیوگرافیِ ربات رو بنویس (حداکثر ۱۲۰ نویسه؛ کنارِ متنِ پلتفرم نمایش داده می‌شود).\n"
     "برایِ پاک کردن «خالی» بنویس. برایِ انصراف /cancel رو بزن."
@@ -1209,21 +1235,26 @@ BRANDING_NOT_CONFIGURED = (
 
 def branding_owner_text(shop_bot, admin_text: str | None) -> str:
     from app.services import bot_branding_service
+    from app.utils.jalali import format_jalali_datetime
 
     composed = bot_branding_service.compose(shop_bot.branding_owner_text, admin_text)
+    owner = (shop_bot.branding_owner_text or "").strip()
     lines = ["🧴 بیوگرافیِ ربات (short description)", ""]
-    if admin_text:
-        lines.append(f"متنِ پلتفرم (اجباری): {admin_text}")
-        owner = (shop_bot.branding_owner_text or "").strip()
-        lines.append(f"متنِ خودت: {owner or '—'}")
-        lines.append(f"متنِ نهایی: {composed or '—'}")
+    lines.append(f"متنِ پلتفرم (اجباری): {admin_text}" if admin_text else "متنِ پلتفرم: ادمین هنوز برندِ سراسری ننوشته است.")
+    lines.append(f"متنِ خودت: {owner or '—'}")
+    lines.append(f"متنِ نهایی رویِ ربات: {composed or '—'}")
+    if composed:
         lines.append(f"جایِ باقی‌مانده از سقفِ {bot_branding_service.BIO_LIMIT}: {max(0, bot_branding_service.BIO_LIMIT - len(composed))} نویسه")
-        lines.append("")
+    lines.append("")
+    if composed:
         lines.append("اگر جا نشود، متنِ خودت کوتاه می‌شود — متنِ پلتفرم همیشه کامل می‌ماند.")
-        if shop_bot.branding_tamper_count:
-            lines.append(f"⚠️ {shop_bot.branding_tamper_count} بار بیوگرافی دستکاری شده و خودکار برگردانده شد.")
+        lines.append("این متن رویِ رباتِ تلگرام و رباتِ بله‌ات کنترل و در صورتِ نیاز بازگردانی می‌شود.")
     else:
         lines.append(BRANDING_NOT_CONFIGURED)
+    if shop_bot.branding_tamper_count:
+        lines.append(f"⚠️ {shop_bot.branding_tamper_count} بار بیوگرافی دستکاری/حذف شده و خودکار برگردانده شد.")
+    checked = shop_bot.branding_checked_at
+    lines.append(f"🕓 آخرینِ بازبینی: {format_jalali_datetime(checked) if checked else '— (هنوز بازبینی نشده)'}")
     return "\n".join(lines)
 OTP_RATE_LIMITED = "📮 برایِ این شماره اخیراً پیامکِ زیادی رفته. حدودِ یک ساعتِ دیگر دوباره شماره را بفرست."
 
@@ -1486,6 +1517,7 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
     "periodic_report_frequency_days": "shops",
     "nightly_report_hour_utc": "shops",
     "branding_text": "branding",
+    "branding_check_minutes": "branding",
 }
 
 ADMIN_SETTINGS_STALE_GROUP = "این دسته باز نیست. «🔑 تنظیمات کلیدها» را دوباره باز کن."
@@ -1517,6 +1549,7 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         ("platform_card_holder_name", f"👤 صاحب کارت: {admin_settings.platform_card_holder_name or 'تنظیم‌نشده'}"),
         # P18 · A2: متنِ اجباریِ بیویِ ربات‌هایِ فروشگاهی + دکمه‌یِ همگام‌سازیِ فوری.
         ("branding_text", f"🪪 بیوگرافیِ اجباریِ ربات‌ها: {admin_settings.branding_text or 'تنظیم‌نشده'}"),
+        ("branding_check_minutes", f"⏱ فاصلهِ بازرسیِ بیو: هر {admin_settings.branding_check_minutes} دقیقه"),
         ("referral_reward_value", f"🎁 پورسانتِ معرف: {admin_settings.referral_reward_value}٪ از اولین شارژ"),
         ("grace_period_hours", f"⏳ مهلت گریس‌پیریود: {admin_settings.grace_period_hours} ساعت"),
         (

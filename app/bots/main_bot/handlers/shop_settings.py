@@ -260,6 +260,42 @@ def _branding_save_message(outcome: str) -> str:
     return texts.BRANDING_OWNER_SAVED
 
 
+def _branding_check_message(outcome: str) -> str:
+    if outcome == bot_branding_service.UNCHANGED:
+        return texts.BRANDING_CHECK_HEALTHY
+    if outcome == bot_branding_service.TAMPERED:
+        return texts.BRANDING_CHECK_TAMPERED
+    if outcome == bot_branding_service.REMOVED:
+        return texts.BRANDING_CHECK_REMOVED
+    if outcome == bot_branding_service.APPLIED:
+        return texts.BRANDING_CHECK_RESTORED
+    if outcome == bot_branding_service.NO_TRANSPORT:
+        return texts.BRANDING_CHECK_NOT_CONNECTED
+    if outcome == bot_branding_service.SKIPPED:
+        return texts.BRANDING_CHECK_NO_TEXT
+    return texts.BRANDING_CHECK_ERROR
+
+
+@router.callback_query(F.data == "br_check")
+async def branding_check_now(callback: CallbackQuery, session: AsyncSession, bot_manager) -> None:
+    """P21-A: «همین الان چک کن» — بیو رویِ رباتِ تلگرام و بله‌یِ *همین* فروشگاه بازبینی می‌شود.
+
+    `_apply_to_bot` هیچ‌وقت رباتِ اصلی را نمی‌گیرد؛ این هندلر فقط shop_bot می‌دهد و خودِ سرویس
+    ترنسپورت را از منیجر می‌خواند.
+    """
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    outcome = await bot_branding_service.apply_for_shop_bot(bot_manager, session, shop_bot)
+    admin_settings = await get_admin_settings(session)
+    bot_branding_service.mark_checked(shop_bot, bot_branding_service.interval_of(admin_settings) * 60)
+    await session.flush()
+    text, keyboard = _branding_screen(shop_bot, admin_settings)
+    await callback.message.answer(_branding_check_message(outcome))
+    await callback.message.edit_text(text, reply_markup=keyboard)
+
+
 # ------------------------------------------------------------------ پشتیبانیِ مشتری‌ها (D1/D2): حالتِ direct؛ مشتری فقط همین شناسه رو می‌بینه
 def _support_screen(shop_bot):
     return texts.shop_support_text(shop_bot), keyboards.shop_support_keyboard(shop_bot)

@@ -356,6 +356,8 @@ class AdminSettings(Base):
     # P18 · A2: متنِ اجباریِ برندینگِ بیوگرافیِ ربات‌هایِ فروشگاهی (≤۶۰). خالی ⇒ هیچ کاری نمی‌شود.
     branding_text: Mapped[str | None] = mapped_column(String(60), nullable=True)
     branding_synced_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # P21-A: فاصلهِ بازرسیِ بیو حالا دادهٔ ادمین است نه ثابتِ کد (۵ تا ۱۴۴۰ دقیقه).
+    branding_check_minutes: Mapped[int] = mapped_column(Integer, default=60, server_default="60", nullable=False)
     wallet_cost_voice_transcription_toman: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     wallet_cost_order_detection_toman: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     wallet_low_balance_warning_toman: Mapped[int] = mapped_column(Integer, default=20_000, nullable=False)
@@ -607,6 +609,14 @@ class ShopBot(Base):
     branding_owner_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
     branding_tamper_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     branding_set_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # P21-A: زمان‌بندیِ بازرسی و اخطار «per-ربات» شد تا یکِ رباتِ خرابِ توکن‌باطل، همه را در هر
+    # لوپ دوباره درگیرِ API نکند، و تا اخطارِ ۲۴ساعته با ری‌استارتِ پروسه صفر نشود.
+    branding_checked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    branding_next_check_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    branding_last_alert_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # رشته‌ای که آخرین بار با موفقیت رویِ ربات نوشتیم؛ بدونِ آن «تغییرِ متنِ ادمین/فروشگاه‌دار»
+    # با «دستکاریِ بیو» یکی می‌شد و اخطارِ بی‌دلیل می‌رفت.
+    branding_applied_bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # رباتِ بله‌یِ *خودِ* فروشگاه: توکن (رمزنگاری‌شده، مثلِ توکنِ تلگرام چون کنترلِ کاملِ ربات را می‌دهد)،
     # شناسه‌یِ یکتا برایِ رسیدنِ آپدیت‌هایِ بله به همین فروشگاه، و نامِ کاربری برایِ نمایش/لینک.
     bale_encrypted_token: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)

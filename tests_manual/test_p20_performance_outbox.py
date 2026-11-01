@@ -63,6 +63,9 @@ class _SendBot:
     def __init__(self, *, fail_with: Exception | None = None) -> None:
         self.sent: list[tuple[int, str]] = []
         self.fail_with = fail_with
+        # هر aiogram.Bot توکن دارد و `_apply_to_bot` پیش از هر کاری آن را می‌بیند تا
+        # مبادا بیو رویِ رباتِ اصلی نوشته شود (قاعدهٔ محصولِ P21-A).
+        self.token = "111111:SHOP_BOT_FAKE_TOKEN"
 
     async def send_message(self, chat_id: int, text: str, **_kwargs):
         if self.fail_with is not None:
@@ -119,6 +122,14 @@ class _Manager:
 
     def customer_bot(self, shop_bot_id: int, platform: str | None) -> _SendBot | None:
         return self.bots.get(shop_bot_id)
+
+    # P21-A: پاسِ بیوگرافی هم در همان run_periodic_pass اجرا می‌شود و ترنسپورت‌ها را
+    # از این دو متد می‌خواند (جدا از customer_bot که برایِ ارسالِ پیام است).
+    def get_bot(self, shop_bot_id: int) -> _SendBot | None:
+        return self.bots.get(shop_bot_id)
+
+    def get_bale_bot(self, shop_bot_id: int) -> None:
+        return None
 
     def registered_shop_bot_ids(self) -> list[int]:
         return list(self.bots)
