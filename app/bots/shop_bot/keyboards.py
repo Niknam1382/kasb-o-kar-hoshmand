@@ -19,7 +19,7 @@ def customer_main_keyboard(tenant_mode=None, support_enabled: bool = False) -> R
 
     value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     if value == "consultation":
-        # P21-D (F5): پیگیریِ وضعیتِ درخواست‌ها برایِ مشاوره هم معنا دارد («مراجعه‌ام تایید شد؟»)
+        # P21-D (F6): پیگیریِ وضعیتِ درخواست‌ها برایِ مشاوره هم معنا دارد («مراجعه‌ام تایید شد؟»)
         rows = [[KeyboardButton(text=texts.BTN_SERVICES)], [KeyboardButton(text=texts.BTN_MY_ORDERS)]]
     else:
         rows = [[KeyboardButton(text=texts.BTN_PRODUCTS), KeyboardButton(text=texts.BTN_CART)], [KeyboardButton(text=texts.BTN_MY_ORDERS)]]
