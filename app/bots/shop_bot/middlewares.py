@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.shop_bot import texts
 from app.database.models import Customer, ShopBot
+from app.services import platform_service
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +49,16 @@ def notice_allowed(bot_telegram_id: int, customer_telegram_id: int, now: float |
     return True
 
 
-async def is_blocked(session: AsyncSession, bot_telegram_id: int, customer_telegram_id: int) -> bool:
+async def is_blocked(
+    session: AsyncSession, shop_bot_column, bot_id: int, customer_telegram_id: int, platform: str
+) -> bool:
     row = await session.execute(
         select(Customer.id)
         .join(ShopBot, ShopBot.id == Customer.shop_bot_id)
         .where(
-            ShopBot.bot_telegram_id == bot_telegram_id,
+            shop_bot_column == bot_id,
             Customer.telegram_id == customer_telegram_id,
+            Customer.platform == platform,
             Customer.is_blocked.is_(True),
         )
         .limit(1)
@@ -72,8 +76,12 @@ class BlockedCustomerMiddleware(BaseMiddleware):
         if user is None or bot is None or not isinstance(session, AsyncSession):
             return await handler(event, data)
 
+        # پلتفرم باید در هر دو طرفِ مقایسه باشد: هم ربات (تلگرام/بله) هم مشتری. وگرنه بلاکِ
+        # یک مشتریِ تلگرامی، آدمِ بی‌ربطِ بله‌ای را هم می‌خواباند (و برعکس).
+        platform = platform_service.platform_of(bot)
+        column = ShopBot.bale_bot_id if platform == platform_service.BALE else ShopBot.bot_telegram_id
         try:
-            blocked = await is_blocked(session, bot.id, user.id)
+            blocked = await is_blocked(session, column, bot.id, user.id, platform)
         except Exception:
             # شکستِ این چک هرگز نباید کلِ ربات را بیندازد؛ هندلرها نگهبان‌هایِ خودشان را دارند.
             logger.exception("بررسیِ وضعیتِ بلاکِ مشتری ناموفق بود؛ آپدیت به‌صورتِ عادی ادامه می‌یابد.")

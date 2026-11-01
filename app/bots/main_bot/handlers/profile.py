@@ -13,7 +13,7 @@ from app.bots.main_bot.handlers.owner_common import safe_edit
 from app.bots.main_bot.states import ProfileStates as PS
 from app.config import AuthMode, settings
 from app.database.models import AuditEventType, ShopOwner
-from app.services import audit_log_service, email_service, order_service, otp_service, shop_bot_service, shop_owner_service
+from app.services import audit_log_service, bale_bot_service, email_service, order_service, otp_service, shop_bot_service, shop_owner_service
 from app.services.admin_settings_service import get_admin_settings
 from app.utils.validators import is_valid_email, mask_phone, normalize_iran_phone, validate_person_name
 
@@ -269,5 +269,5 @@ async def cb_set_mode(callback: CallbackQuery, session: AsyncSession) -> None:
     await shop_owner_service.set_business_mode(session, owner, mode)
     await _audit(session, owner, callback.from_user.id, f"{old} → {mode}", AuditEventType.OWNER_BUSINESS_MODE_CHANGED)
     await safe_edit(callback, texts.tenant_mode_saved_confirmation(mode))
-    await callback.message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(mode))
+    await callback.message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(mode, bale_visible=await bale_bot_service.visible_for(session)))
 

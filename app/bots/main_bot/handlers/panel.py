@@ -17,6 +17,7 @@ from app.bots.shop_bot import texts as shop_texts
 from app.bots.main_bot.states import (
     AiInstructionsStates,
     BaleProviderTokenStates,
+    BaleShopBotStates,
     ChannelKnowledgeStates,
     CheckoutQuestionsStates,
     CustomerBroadcastStates,
@@ -31,6 +32,7 @@ from app.services import (
     ai_context,
     ai_pool_service,
     ai_service,
+    bale_bot_service,
     bale_credentials_service,
     bale_service,
     bot_branding_service,
@@ -92,7 +94,7 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession)
     if is_admin:
         keyboard = keyboards.admin_panel_keyboard(is_super_admin)
     else:
-        keyboard = keyboards.shop_owner_panel_keyboard(owner.business_mode if owner else None)
+        keyboard = keyboards.shop_owner_panel_keyboard(owner.business_mode if owner else None, bale_visible=await bale_bot_service.visible_for(session))
     await message.answer(texts.OPERATION_CANCELLED, reply_markup=keyboard)
 
 
@@ -142,6 +144,141 @@ async def save_shop_bot_token(message: Message, state: FSMContext, session: Asyn
 
 
 # =============================================================================
+# P19: رباتِ بله‌یِ خودِ فروشگاه (هوشمند روی بله، با همان کیف‌پول)
+# =============================================================================
+async def _own_shop_bot_cb(callback: CallbackQuery, session: AsyncSession):
+    """رباتِ فروشگاهِ *همین* کاربر؛ None ⇒ پیامِ مودبانه و پاسخِ بی‌صدایِ کال‌بک."""
+    owner = await _current_owner(callback, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await callback.answer(texts.SHOP_BOT_NOT_SET_UP, show_alert=True)
+        return None
+    return shop_bot
+
+
+async def _bale_screen(target, shop_bot) -> None:
+    text = texts.bale_shop_bot_status_text(shop_bot)
+    markup = keyboards.bale_shop_bot_keyboard(shop_bot)
+    if isinstance(target, CallbackQuery):
+        await target.message.edit_text(text, reply_markup=markup)
+    else:
+        await target.answer(text, reply_markup=markup)
+
+
+@router.message(F.text == texts.BALE_SHOP_BOT_BUTTON)
+async def open_bale_shop_bot(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    if not await bale_bot_service.visible_for(session):
+        await message.answer(texts.BALE_SHOP_BOT_UNAVAILABLE)
+        return
+    owner = await _current_owner(message, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await message.answer(texts.SHOP_BOT_NOT_SET_UP)
+        return
+    await state.clear()
+    await _bale_screen(message, shop_bot)
+
+
+@router.callback_query(F.data == "bale_edit")
+async def bale_edit_token(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await _own_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.clear()
+    await state.set_state(BaleShopBotStates.waiting_token)
+    await callback.answer()
+    await callback.message.answer(texts.ASK_BALE_SHOP_BOT_TOKEN)
+
+
+@router.callback_query(F.data == "bale_back")
+async def bale_back(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    await callback.answer()
+    owner = await _current_owner(callback, session)
+    await callback.message.answer(
+        texts.PANEL_WELCOME_BACK,
+        reply_markup=keyboards.shop_owner_panel_keyboard(
+            owner.business_mode if owner else None, bale_visible=await bale_bot_service.visible_for(session)
+        ),
+    )
+
+
+@router.callback_query(F.data == "bale_on")
+async def bale_turn_on(callback: CallbackQuery, session: AsyncSession, bot_manager) -> None:
+    shop_bot = await _own_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    shop_bot.bale_bot_enabled = True
+    await session.flush()
+    try:
+        await bot_manager.register_bale(shop_bot)
+    except Exception:
+        logger.exception("روشن‌کردنِ اتصالِ بله‌یِ فروشگاه %s ناموفق بود.", shop_bot.id)
+        await callback.answer(texts.BALE_SHOP_BOT_NO_TRANSPORT, show_alert=True)
+        return
+    await callback.answer(texts.BALE_SHOP_BOT_ENABLED_AGAIN)
+    await _bale_screen(callback.message, shop_bot)
+
+
+@router.callback_query(F.data == "bale_off")
+async def bale_turn_off(callback: CallbackQuery, session: AsyncSession, bot_manager) -> None:
+    shop_bot = await _own_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    shop_bot.bale_bot_enabled = False
+    await session.flush()
+    await bot_manager.unregister_bale(shop_bot.id)
+    await callback.answer(texts.BALE_SHOP_BOT_DISABLED_BY_OWNER)
+    await _bale_screen(callback.message, shop_bot)
+
+
+@router.callback_query(F.data == "bale_clear")
+async def bale_clear_token(callback: CallbackQuery, session: AsyncSession, bot_manager) -> None:
+    shop_bot = await _own_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await bale_bot_service.clear_token(session, shop_bot)
+    await bot_manager.unregister_bale(shop_bot.id)
+    await callback.answer(texts.BALE_SHOP_BOT_REMOVED)
+    await _bale_screen(callback.message, shop_bot)
+
+
+@router.message(BaleShopBotStates.waiting_token, F.text)
+async def save_bale_shop_bot_token(message: Message, state: FSMContext, session: AsyncSession, bot_manager) -> None:
+    owner = await _current_owner(message, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await state.clear()
+        await message.answer(texts.SHOP_BOT_NOT_SET_UP)
+        return
+
+    raw_token = message.text.strip()
+    if not bale_bot_service.valid_token_input(raw_token):
+        await message.answer(texts.BALE_SHOP_BOT_TOKEN_INVALID_FORMAT)  # state می‌ماند تا درستش را بفرستد
+        return
+    try:
+        identity = await bale_bot_service.fetch_identity(raw_token)
+    except Exception:  # noqa: BLE001 — جزئیاتِ پاسخِ بله فقط در لاگ؛ توکن هرگز چاپ نمی‌شود
+        logger.info("توکنِ بله‌یِ نامعتبر یا سرویسِ در دسترس نبود (owner=%s).", owner.id)
+        await message.answer(texts.INVALID_BALE_SHOP_BOT_TOKEN)
+        return
+
+    holder = await bale_bot_service.get_by_bale_bot_id(session, int(identity["id"]))
+    if holder is not None and holder.shop_owner_id != owner.id:
+        await message.answer(texts.BALE_SHOP_BOT_ALREADY_USED)
+        return
+
+    await bale_bot_service.apply_token(session, shop_bot, raw_token, identity)
+    await state.clear()
+    await message.answer(texts.BALE_SHOP_BOT_SAVED)
+    try:
+        await bot_manager.register_bale(shop_bot)
+    except Exception:
+        logger.exception("ثبتِ اتصالِ بله‌یِ فروشگاه %s در ShopBotManager ناموفق بود.", shop_bot.id)
+    await _bale_screen(message, shop_bot)
+
+
+# =============================================================================
 # دستور هوشمندسازی
 # =============================================================================
 @router.message(F.text == "🧠 دستور هوشمندسازی")
@@ -188,7 +325,7 @@ async def end_preview(message: Message, state: FSMContext, session: AsyncSession
     owner = await _current_owner(message, session)
     shop_bot = await shop_bot_service.get_by_owner(session, owner)
     tenant_mode = shop_bot.tenant_mode if shop_bot else None
-    await message.answer(texts.PREVIEW_END_TEXT, reply_markup=keyboards.shop_owner_panel_keyboard(tenant_mode))
+    await message.answer(texts.PREVIEW_END_TEXT, reply_markup=keyboards.shop_owner_panel_keyboard(tenant_mode, bale_visible=await bale_bot_service.visible_for(session)))
 
 
 @router.message(PreviewStates.active, F.text)
@@ -822,21 +959,28 @@ async def customer_broadcast_message_entered(message: Message, state: FSMContext
 
 
 async def _run_customer_broadcast(
-    shop_bot_instance: Bot, customer_telegram_ids: list[int], text: str, main_bot: Bot, owner_telegram_id: int
+    bot_manager, shop_bot_id: int, recipients: list[tuple[int, str]], text: str, main_bot: Bot, owner_telegram_id: int
 ) -> None:
     """تسکِ پس‌زمینه: پیام رو یکی‌یکی برایِ مشتری‌ها می‌فرسته (نه داخلِ خودِ
     هندلرِ کال‌بک، تا جلوگیریِ ارسالِ همزمانِ همه‌ی آپدیت‌هایِ دیگه‌ی همین ربات
     برایِ چند ثانیه/دقیقه گرفته نشه) و در پایان یه خلاصه به خودِ فروشگاه‌دار
-    (از طریقِ ربات اصلی) می‌فرسته."""
+    (از طریقِ ربات اصلی) می‌فرسته.
+
+    گیرنده (شناسه، پلتفرم) است: فرستادنِ شناسه‌یِ مشتریِ بله از رباتِ تلگرام
+    می‌تواند به آدمِ غریبه‌یِ دیگری برسد که همان عدد را دارد."""
     sent = 0
-    for telegram_id in customer_telegram_ids:
+    for telegram_id, platform in recipients:
+        bot = bot_manager.customer_bot(shop_bot_id, platform)
+        if bot is None:
+            logger.info("پیامِ همگانی به مشتری %s رها شد: اتصالِ %s فعال نیست.", telegram_id, platform)
+            continue
         try:
-            await shop_bot_instance.send_message(telegram_id, text)
+            await bot.send_message(telegram_id, text)
             sent += 1
         except TelegramRetryAfter as exc:
             await asyncio.sleep(exc.retry_after)
             try:
-                await shop_bot_instance.send_message(telegram_id, text)
+                await bot.send_message(telegram_id, text)
                 sent += 1
             except TelegramAPIError:
                 logger.info("ارسالِ پیام به مشتری %s (حتی بعدِ retry) ناموفق بود.", telegram_id)
@@ -845,7 +989,7 @@ async def _run_customer_broadcast(
         await asyncio.sleep(CUSTOMER_BROADCAST_PACE_SECONDS)
 
     try:
-        await main_bot.send_message(owner_telegram_id, texts.customer_broadcast_sent_confirmation(sent, len(customer_telegram_ids)))
+        await main_bot.send_message(owner_telegram_id, texts.customer_broadcast_sent_confirmation(sent, len(recipients)))
     except TelegramAPIError:
         logger.exception("اطلاع‌رسانیِ نتیجه‌ی پیامِ همگانی به فروشگاه‌دار %s ناموفق بود.", owner_telegram_id)
 
@@ -862,21 +1006,19 @@ async def customer_broadcast_confirmed(callback: CallbackQuery, state: FSMContex
         await callback.message.edit_text(texts.SHOP_BOT_NOT_SET_UP)
         return
 
-    shop_bot_instance = bot_manager.get_bot(shop_bot.id)
-    if shop_bot_instance is None:
+    if bot_manager.get_bot(shop_bot.id) is None and bot_manager.get_bale_bot(shop_bot.id) is None:
         await callback.message.edit_text(texts.CUSTOMER_BROADCAST_BOT_OFFLINE)
         return
 
     segment_ids = data.get("broadcast_customer_ids")
     if segment_ids is not None:
-        customer_ids = [int(telegram_id) for telegram_id in segment_ids]
+        recipients = await customer_service.recipients_by_ids(session, shop_bot.id, [int(pk) for pk in segment_ids])
     else:
-        customers = await customer_service.get_by_shop_bot(session, shop_bot.id)
-        customer_ids = [c.telegram_id for c in customers]
-    await callback.message.edit_text(texts.customer_broadcast_started(len(customer_ids)))
+        recipients = await customer_service.recipients_by_shop_bot(session, shop_bot.id)
+    await callback.message.edit_text(texts.customer_broadcast_started(len(recipients)))
 
     asyncio.create_task(
-        _run_customer_broadcast(shop_bot_instance, customer_ids, data["broadcast_text"], callback.bot, owner.telegram_id)
+        _run_customer_broadcast(bot_manager, shop_bot.id, recipients, data["broadcast_text"], callback.bot, owner.telegram_id)
     )
 
 
@@ -982,11 +1124,13 @@ async def _notify_manual_decision(session: AsyncSession, shop_bot, rows: list[Or
         if not has_physical:
             return
     customer = await session.get(Customer, rows[0].customer_id)
-    shop_telegram_bot = bot_manager.get_bot(shop_bot.id)
-    if customer is None or shop_telegram_bot is None:
+    if customer is None:
+        return
+    customer_bot = bot_manager.customer_bot(shop_bot.id, customer.platform)
+    if customer_bot is None:
         return
     try:
-        await shop_telegram_bot.send_message(customer.telegram_id, shop_texts.order_status_customer_message(to_status, rows))
+        await customer_bot.send_message(customer.telegram_id, shop_texts.order_status_customer_message(to_status, rows))
     except TelegramAPIError:
         logger.warning("اعلانِ تایید/ردِ دستیِ سفارش به مشتری نرسید (shop_bot=%s).", shop_bot.id)
 
@@ -1003,7 +1147,7 @@ async def _deliver_digital_after_confirm(session: AsyncSession, order: OrderCons
     customer = await session.get(Customer, order.customer_id)
     if customer is None:
         return None
-    shop_bot_instance = bot_manager.get_bot(shop_bot.id) if bot_manager is not None else None
+    shop_bot_instance = bot_manager.customer_bot(shop_bot.id, customer.platform) if bot_manager is not None else None
     return await digital_service.deliver_order(session, order, customer.telegram_id, shop_bot_instance, main_bot)
 
 

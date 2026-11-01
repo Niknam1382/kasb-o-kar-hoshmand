@@ -14,6 +14,7 @@ from app.bots.main_bot.states import RegistrationStates as RS
 from app.config import AuthMode, settings
 from app.database.models import ShopOwner, WalletTransactionReason
 from app.services import (
+    bale_bot_service,
     channel_service,
     email_service,
     otp_service,
@@ -115,7 +116,7 @@ async def _offer_trial_or_panel(message: Message, session: AsyncSession, owner: 
             reply_markup=keyboards.offer_trial_keyboard(),
         )
     else:
-        await message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(owner.business_mode))
+        await message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(owner.business_mode, bale_visible=await bale_bot_service.visible_for(session)))
 
 
 @router.message(CommandStart())
@@ -438,7 +439,7 @@ async def cb_activate_trial(callback: CallbackQuery, session: AsyncSession) -> N
     )
     await callback.answer()
     await callback.message.edit_text(texts.trial_activated(admin_settings.wallet_trial_credit_toman))
-    await callback.message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(owner.business_mode))
+    await callback.message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(owner.business_mode, bale_visible=await bale_bot_service.visible_for(session)))
 
 
 @router.message(Command("panel"))

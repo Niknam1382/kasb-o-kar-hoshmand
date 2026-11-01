@@ -48,7 +48,7 @@ async def notify_online_payment(main_bot: Bot, bot_manager, shop_bot_id: int, ro
             except TelegramAPIError:
                 logger.exception("اطلاعِ پرداختِ آنلاین به فروشگاه‌دار ناموفق بود.")
 
-        shop_bot_instance = bot_manager.get_bot(shop_bot_id) if bot_manager is not None else None
+        shop_bot_instance = bot_manager.customer_bot(shop_bot_id, customer.platform) if (bot_manager is not None and customer is not None) else None
         if shop_bot_instance is not None and customer_tid is not None:
             try:
                 await shop_bot_instance.send_message(customer_tid, shop_texts.payment_approved_message(code))

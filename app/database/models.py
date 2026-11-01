@@ -274,6 +274,9 @@ class AdminSettings(Base):
     # پیش‌فرض False (برخلافِ zarinpal_enabled) چون این مسیر تسته‌نشده‌ست؛ ادمین
     # باید بعدِ یه تراکنشِ آزمایشیِ موفق، دستی از پنل فعالش کنه.
     bale_pay_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # رونماییِ «رباتِ بله‌یِ خودِ فروشگاه»: تا False است نه دکمه‌یِ ثبتِ توکن در پنلِ فروشگاه‌دار
+    # نمایش داده می‌شود و نه هیچ اتصالِ بله‌ای شروع می‌شود (ویژگیِ آماده ولی پنهان).
+    bale_shop_bots_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     rate_limit_window_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     payment_reservation_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     # مدتِ رزروِ خودکارِ موجودی برای سفارش‌هایی که هوش مصنوعی تشخیص داده ولی
@@ -598,6 +601,13 @@ class ShopBot(Base):
     branding_owner_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
     branding_tamper_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     branding_set_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # رباتِ بله‌یِ *خودِ* فروشگاه: توکن (رمزنگاری‌شده، مثلِ توکنِ تلگرام چون کنترلِ کاملِ ربات را می‌دهد)،
+    # شناسه‌یِ یکتا برایِ رسیدنِ آپدیت‌هایِ بله به همین فروشگاه، و نامِ کاربری برایِ نمایش/لینک.
+    bale_encrypted_token: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
+    bale_bot_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    bale_bot_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # سوییچِ خودِ فروشگاه‌دار (خاموش ⇒ رباتِ بله‌اش پیامی جواب نمی‌دهد، بدونِ حذفِ توکن).
+    bale_bot_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
 
     products: Mapped[list["Product"]] = relationship(back_populates="shop_bot", lazy="selectin")
 
@@ -634,11 +644,14 @@ class ChannelKnowledge(Base):
 
 class Customer(Base):
     __tablename__ = "customers"
-    __table_args__ = (UniqueConstraint("shop_bot_id", "telegram_id"),)
+    # شناسه‌یِ عددیِ کاربر فقط داخلِ *یک* سرویسِ پیام‌رسان یکتاست؛ مشتریِ بله و مشتریِ تلگرام می‌تونن
+    # عددِ یکسان داشته باشن، پس پلتفرم بخشی از کلیدِ یکتاست (وگرنه دو آدمِ غریبه یک سبد/تاریخچه/shared می‌گیرن).
+    __table_args__ = (UniqueConstraint("shop_bot_id", "telegram_id", "platform", name="uq_customers_shop_bot_id_platform"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), index=True, nullable=False)
     telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    platform: Mapped[str] = mapped_column(String(16), default="telegram", server_default="telegram", nullable=False)
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # فازِ ۱ · P1-S1 (H2): هویتِ متنیِ مشتری — شماره به‌شکلِ نرمالِ +98…؛ phone_via_contact = از «اشتراکِ مخاطب»ِ خودش آمده

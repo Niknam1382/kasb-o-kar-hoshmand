@@ -27,6 +27,7 @@ from app.services import (
     admin_alert_service,
     bot_branding_service,
     ai_service,
+    bale_bot_service,
     bale_credentials_service,
     bale_service,
     customer_service,
@@ -80,8 +81,15 @@ def create_shop_dispatcher(main_bot: Bot) -> Dispatcher:
 async def _load_active_shop_bots(bot_manager: ShopBotManager, main_bot: Bot) -> None:
     async with session_scope() as session:
         shop_bots = await shop_bot_service.get_all_active(session)
-    await bot_manager.load_all(shop_bots)
-    logger.info("%d ربات فروشگاهی‌ِ فعال بارگذاری شد.", len(shop_bots))
+        # P19: اتصالِ بله فقط وقتی شروع می‌شود که ادمین ویژگی را رونمایی کرده باشد (پیش‌فرض پنهان).
+        bale_enabled = bale_bot_service.enabled(await get_admin_settings(session))
+    await bot_manager.load_all(shop_bots, bale_enabled=bale_enabled)
+    logger.info(
+        "%d ربات فروشگاهی‌ِ فعال بارگذاری شد (اتصالِ بله: %s، ربات‌هایِ بله‌دار: %d).",
+        len(shop_bots),
+        "روشن" if bale_enabled else "خاموش",
+        len(bot_manager.registered_bale_bot_ids()),
+    )
     # A2: بیوگرافی/برندینگِ اجباری موقعِ بالا آمدنِ هر ربات فروشگاهی اعمال می‌شود.
     try:
         async with session_scope() as session:
@@ -265,6 +273,8 @@ async def on_shutdown() -> None:
 
     for shop_bot_id in _state["bot_manager"].registered_shop_bot_ids():
         await _state["bot_manager"].unregister(shop_bot_id, disable_in_db=False)
+    for shop_bot_id in _state["bot_manager"].registered_bale_bot_ids():
+        await _state["bot_manager"].unregister_bale(shop_bot_id)
 
     # جلسه‌ی HTTP مشترکِ سرویسِ هوش مصنوعی رو هم می‌بندیم تا سوکت باز نمونه
     await ai_service.close_http_session()
@@ -652,13 +662,14 @@ async def _handle_bale_cartgroup_payment(invoice_payload: str, transaction_id: s
         shop_bot_id = shop_bot.id
         owner_telegram_id = owner.telegram_id
         customer_telegram_id = customer.telegram_id if customer is not None else None
+        customer_platform = customer.platform if customer is not None else None
 
     try:
         await _state["main_bot"].send_message(owner_telegram_id, main_texts.cart_paid_online_notification(order_count, total_toman))
     except TelegramAPIError:
         logger.exception("اطلاع‌رسانیِ پرداختِ آنلاینِ سبد به فروشگاه‌دار %s ناموفق بود.", owner_telegram_id)
 
-    shop_bot_instance = _state["bot_manager"].get_bot(shop_bot_id)
+    shop_bot_instance = _state["bot_manager"].customer_bot(shop_bot_id, customer_platform)
     if shop_bot_instance is not None and customer_telegram_id is not None:
         try:
             await shop_bot_instance.send_message(customer_telegram_id, shop_texts.ONLINE_PAYMENT_CONFIRMED)
@@ -706,13 +717,14 @@ async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str) 
         customer = await customer_service.get_by_id(session, order.customer_id)
         owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
         order_id, order_estimated_value = order.id, order.estimated_value_toman
+        customer_platform = customer.platform if customer is not None else None
 
     try:
         await _state["main_bot"].send_message(owner.telegram_id, main_texts.order_paid_online_notification(order))
     except TelegramAPIError:
         logger.exception("اطلاع‌رسانیِ پرداختِ آنلاینِ سفارشِ %s به فروشگاه‌دار %s ناموفق بود.", order_id, owner.telegram_id)
 
-    shop_bot_instance = _state["bot_manager"].get_bot(shop_bot.id)
+    shop_bot_instance = _state["bot_manager"].customer_bot(shop_bot.id, customer_platform)
     if shop_bot_instance is not None and customer is not None:
         try:
             await shop_bot_instance.send_message(customer.telegram_id, shop_texts.ONLINE_PAYMENT_CONFIRMED)

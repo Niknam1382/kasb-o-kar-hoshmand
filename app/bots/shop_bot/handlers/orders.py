@@ -23,6 +23,7 @@ from app.services import (
     order_service,
     order_state,
     order_transition_service,
+    platform_service,
     shop_bot_service,
     shop_owner_service,
 )
@@ -83,11 +84,13 @@ async def _products_for(session: AsyncSession, groups) -> dict[int, Product]:
     return products
 
 
-async def _resolve(session: AsyncSession, bot_id: int, telegram_id: int):
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, bot_id)
+async def _resolve(session: AsyncSession, bot, telegram_id: int):
+    shop_bot = await shop_bot_service.get_by_bot(session, bot)
     if shop_bot is None:
         return None, None
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, telegram_id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(
+        session, shop_bot.id, telegram_id, platform=platform_service.platform_of(bot)
+    )
     return shop_bot, customer
 
 
@@ -110,7 +113,7 @@ async def _render_list(session: AsyncSession, shop_bot, customer: Customer, page
 
 @router.message(F.text == texts.BTN_MY_ORDERS)
 async def my_orders_open(message: Message, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
     if shop_bot.tenant_mode == TenantMode.CONSULTATION:
@@ -125,6 +128,7 @@ async def my_orders_open(message: Message, session: AsyncSession) -> None:
         message.from_user.first_name,
         message.from_user.username,
         last_name=message.from_user.last_name,
+        platform=platform_service.of_event(message),
     )
     text, keyboard = await _render_list(session, shop_bot, customer, 0)
     await message.answer(text, reply_markup=keyboard)
@@ -133,7 +137,7 @@ async def my_orders_open(message: Message, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("myord_page:"))
 async def my_orders_page(callback: CallbackQuery, session: AsyncSession) -> None:
     raw = callback.data.split(":", 1)[1]
-    shop_bot, customer = await _resolve(session, callback.bot.id, callback.from_user.id)
+    shop_bot, customer = await _resolve(session, callback.bot, callback.from_user.id)
     if shop_bot is None or customer is None or not (raw.isascii() and raw.isdecimal()) or len(raw) > 4:
         await callback.answer(texts.MY_ORDER_STALE, show_alert=True)
         return
@@ -173,7 +177,7 @@ async def _render_card(session: AsyncSession, shop_bot, rows):
 @router.callback_query(F.data.startswith("myord_view:"))
 async def my_order_view(callback: CallbackQuery, session: AsyncSession) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, customer = await _resolve(session, callback.bot.id, callback.from_user.id)
+    shop_bot, customer = await _resolve(session, callback.bot, callback.from_user.id)
     rows = await _load_group(session, shop_bot, customer, key) if (shop_bot and customer) else []
     if not rows:
         await callback.answer(texts.MY_ORDER_STALE, show_alert=True)
@@ -211,7 +215,7 @@ async def send_invoice_to_customer(session: AsyncSession, shop_bot, rows, custom
 @router.callback_query(F.data.startswith("myord_inv:"))
 async def my_order_invoice(callback: CallbackQuery, session: AsyncSession) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, customer = await _resolve(session, callback.bot.id, callback.from_user.id)
+    shop_bot, customer = await _resolve(session, callback.bot, callback.from_user.id)
     rows = await _load_group(session, shop_bot, customer, key) if (shop_bot and customer) else []
     if not rows:
         await callback.answer(texts.MY_ORDER_STALE, show_alert=True)
@@ -226,7 +230,7 @@ async def my_order_invoice(callback: CallbackQuery, session: AsyncSession) -> No
 @router.callback_query(F.data.startswith("myord_cancel:"))
 async def my_order_cancel(callback: CallbackQuery, session: AsyncSession, main_bot: Bot) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, customer = await _resolve(session, callback.bot.id, callback.from_user.id)
+    shop_bot, customer = await _resolve(session, callback.bot, callback.from_user.id)
     rows = await _load_group(session, shop_bot, customer, key) if (shop_bot and customer) else []
     if not rows:
         await callback.answer(texts.MY_ORDER_STALE, show_alert=True)

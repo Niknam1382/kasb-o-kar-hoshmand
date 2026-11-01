@@ -356,12 +356,16 @@ async def deliver_order(
 async def deliver_pending_for_product(
     session: AsyncSession,
     product: Product,
-    shop_bot_instance: Bot | None,
+    bot_manager,
+    shop_bot_id: int,
     main_bot: Bot | None,
 ) -> tuple[int, int]:
     """بعد از افزودنِ کد: سفارش‌هایِ تاییدشده‌یِ منتظر (قدیمی‌ترین اول) تحویل داده می‌شن.
     برمی‌گردونه (تعدادِ تحویل‌شده/پردازش‌شده، تعدادِ هنوزمنتظر). با اولین «insufficient» متوقف
-    می‌شه (FIFO؛ سفارشِ بعدی جلو نمی‌افته)."""
+    می‌شه (FIFO؛ سفارشِ بعدی جلو نمی‌افته).
+
+    رباتِ هر تحویل از پلتفرمِ خودِ مشتری انتخاب می‌شود (بله/تلگرام) — فرستادنِ شناسه‌یِ مشتریِ
+    بله‌ای از رباتِ تلگرام می‌تواند به آدمِ دیگری برسد."""
     from app.database.models import Customer  # import محلی: دایره‌ایِ احتمالی با modelها نداریم ولی سبک می‌مونه
 
     orders = await undelivered_orders_for_product(session, product.id)
@@ -370,7 +374,11 @@ async def deliver_pending_for_product(
         customer = await session.get(Customer, order.customer_id)
         if customer is None:
             continue
-        status = await deliver_order(session, order, customer.telegram_id, shop_bot_instance, main_bot)
+        bot = bot_manager.customer_bot(shop_bot_id, customer.platform) if bot_manager is not None else None
+        if bot is None:
+            logger.info("تحویلِ سفارش %s رها شد: اتصالِ %s فعال نیست.", order.id, customer.platform)
+            continue
+        status = await deliver_order(session, order, customer.telegram_id, bot, main_bot)
         if status in ("delivered", "send_failed"):
             delivered += 1
         elif status == "insufficient":

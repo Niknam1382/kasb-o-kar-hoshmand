@@ -32,6 +32,7 @@ from app.services import (
     admin_settings_service,
     ai_pool_service,
     audit_log_service,
+    bale_bot_service,
     bale_credentials_service,
     bale_service,
     bot_branding_service,
@@ -483,6 +484,43 @@ async def cb_toggle_commission(callback: CallbackQuery, session: AsyncSession) -
         texts.COMMISSION_TOGGLED_ON.format(percent=admin_settings.commission_percent)
         if admin_settings.commission_enabled
         else texts.COMMISSION_TOGGLED_OFF
+    )
+    await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
+
+
+@super_router.callback_query(F.data == "admin_toggle_bale_bots")
+async def cb_toggle_bale_shop_bots(callback: CallbackQuery, session: AsyncSession, bot_manager) -> None:
+    """P19: رونمایی/پنهان‌کردنِ «رباتِ بله‌یِ خودِ فروشگاه».
+
+    پنهان ⇒ نه دکمه‌ای در پنلِ فروشگاه‌دار می‌ماند نه هیچ اتصالِ بله‌ای باز؛ وقتی روشن کردی،
+    فروشگاه‌هایی که توکن ثبت کرده‌اند بی‌درنگ وصل می‌شوند."""
+    admin_settings = await get_admin_settings(session)
+    admin_settings.bale_shop_bots_enabled = not admin_settings.bale_shop_bots_enabled
+    now_enabled = admin_settings.bale_shop_bots_enabled
+    await audit_log_service.log(
+        session,
+        AuditEventType.KILL_SWITCH_TOGGLED,
+        actor_telegram_id=callback.from_user.id,
+        details=f"bale_shop_bots_enabled -> {now_enabled}",
+    )
+    await session.flush()
+
+    connected = 0
+    if now_enabled:
+        for shop_bot in await shop_bot_service.get_all_active(session):
+            if not bale_bot_service.connectable(shop_bot):
+                continue
+            try:
+                await bot_manager.register_bale(shop_bot)
+                connected += 1
+            except Exception:
+                logger.exception("وصل‌کردنِ اتصالِ بله‌یِ فروشگاه %s ناموفق بود.", shop_bot.id)
+    else:
+        for shop_bot_id in bot_manager.registered_bale_bot_ids():
+            await bot_manager.unregister_bale(shop_bot_id)
+
+    await callback.answer(
+        texts.BALE_SHOP_BOTS_REVEALED.format(count=connected) if now_enabled else texts.BALE_SHOP_BOTS_HIDDEN
     )
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 

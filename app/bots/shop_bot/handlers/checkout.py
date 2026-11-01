@@ -42,6 +42,7 @@ from app.services import (
     order_state,
     order_transition_service,
     payment_settings_service,
+    platform_service,
     shipping_service,
     shop_bot_service,
     shop_owner_service,
@@ -119,10 +120,10 @@ async def _safe_edit(callback: CallbackQuery, text: str, reply_markup=None) -> N
 async def _load_ctx(event: Message | CallbackQuery, state: FSMContext, session: AsyncSession) -> _Ctx | None:
     """فروشگاه/مشتری/سبد رو می‌خونه. سبدِ خالی ⇒ state پاک + پیام ⇒ None."""
     message = event.message if isinstance(event, CallbackQuery) else event
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, event.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, event.bot)
     if shop_bot is None or message is None:
         return None
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, event.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, event.from_user.id, platform=platform_service.of_event(event))
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id) if customer else None
     items = await cart_service.get_items_with_products(session, cart.id) if cart else []
     if not items:
@@ -355,11 +356,11 @@ async def _prepare_checkout_preview(
 # =============================================================================
 @router.callback_query(F.data == "cart_checkout_start")
 async def cart_checkout_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer()
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id) if customer else None
     items = await cart_service.get_items_with_products(session, cart.id) if cart else []
     if not items:
@@ -849,11 +850,11 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
     # آپدیت رو با فیلترِ CheckoutStates.confirming رد می‌کنه و سفارشِ تکراری ساخته نمی‌شه.
     await state.clear()
 
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer()
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id) if customer else None
     items = await cart_service.get_items_with_products(session, cart.id) if cart else []
     if not items:

@@ -6,14 +6,21 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Customer
+from app.services import platform_service
 
 
 async def get_by_id(session: AsyncSession, customer_id: int) -> Customer | None:
     return await session.get(Customer, customer_id)
 
 
-async def get_by_shop_bot_and_telegram_id(session: AsyncSession, shop_bot_id: int, telegram_id: int) -> Customer | None:
-    result = await session.execute(select(Customer).where(Customer.shop_bot_id == shop_bot_id, Customer.telegram_id == telegram_id))
+async def get_by_shop_bot_and_telegram_id(
+    session: AsyncSession, shop_bot_id: int, telegram_id: int, *, platform: str = platform_service.TELEGRAM
+) -> Customer | None:
+    result = await session.execute(
+        select(Customer).where(
+            Customer.shop_bot_id == shop_bot_id, Customer.telegram_id == telegram_id, Customer.platform == platform
+        )
+    )
     return result.scalar_one_or_none()
 
 
@@ -23,6 +30,27 @@ async def get_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> list[Custo
     برمی‌گردونه چون شمارشِ preview هم از همین لیست محاسبه می‌شه."""
     result = await session.execute(select(Customer).where(Customer.shop_bot_id == shop_bot_id))
     return list(result.scalars().all())
+
+
+async def recipients_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> list[tuple[int, str]]:
+    """زوج‌های (شناسه‌یِ کاربر، پلتفرم) برایِ ارسالِ پیام. پلتفرم همیشه همراه است چون
+    عددِ یکسان در تلگرام و بله می‌تواند دو آدمِ کاملاً متفاوت باشد."""
+    result = await session.execute(
+        select(Customer.telegram_id, Customer.platform).where(Customer.shop_bot_id == shop_bot_id)
+    )
+    return [(int(chat_id), platform or platform_service.TELEGRAM) for chat_id, platform in result.all()]
+
+
+async def recipients_by_ids(session: AsyncSession, shop_bot_id: int, customer_ids: list[int]) -> list[tuple[int, str]]:
+    """همان لیست، فقط برایِ یه بخشِ انتخاب‌شده (CRM). شناسه‌یِ *ردیف* مشتری، نه شناسه‌یِ پیام‌رسان."""
+    if not customer_ids:
+        return []
+    result = await session.execute(
+        select(Customer.telegram_id, Customer.platform).where(
+            Customer.shop_bot_id == shop_bot_id, Customer.id.in_(list(customer_ids))
+        )
+    )
+    return [(int(chat_id), platform or platform_service.TELEGRAM) for chat_id, platform in result.all()]
 
 
 async def count_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> int:
@@ -55,17 +83,19 @@ async def list_recent_paged(
 
 async def get_or_create_customer(
     session: AsyncSession, shop_bot_id: int, telegram_id: int, first_name: str | None, username: str | None,
-    last_name: str | None = None,
+    last_name: str | None = None, *, platform: str = platform_service.TELEGRAM,
 ) -> Customer:
     result = await session.execute(
-        select(Customer).where(Customer.shop_bot_id == shop_bot_id, Customer.telegram_id == telegram_id)
+        select(Customer).where(
+            Customer.shop_bot_id == shop_bot_id, Customer.telegram_id == telegram_id, Customer.platform == platform
+        )
     )
     customer = result.scalar_one_or_none()
     now = datetime.datetime.now(datetime.timezone.utc)
     if customer is None:
         customer = Customer(
-            shop_bot_id=shop_bot_id, telegram_id=telegram_id, first_name=first_name, username=username,
-            last_name=last_name, last_message_at=now,
+            shop_bot_id=shop_bot_id, telegram_id=telegram_id, platform=platform, first_name=first_name,
+            username=username, last_name=last_name, last_message_at=now,
         )
         session.add(customer)
     else:

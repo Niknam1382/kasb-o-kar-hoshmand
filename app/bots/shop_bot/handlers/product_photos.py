@@ -9,7 +9,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Product, TenantMode
-from app.services import product_photo_service, product_service, shop_bot_service
+from app.services import product_photo_service, product_service, platform_service, shop_bot_service
 from app.utils.validators import format_toman
 
 router = Router(name="shop_product_photos")
@@ -55,7 +55,7 @@ async def _send_card(bot: Bot, main_bot: Bot, product: Product, chat_id: int) ->
 @router.callback_query(F.data.startswith("cart_photo:"))
 async def product_photo_button(callback: CallbackQuery, session: AsyncSession, main_bot: Bot) -> None:
     raw = (callback.data or "").split(":", 1)[1]
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     product = None
     if shop_bot is not None and raw.isascii() and raw.isdecimal():
         candidate = await product_service.get_by_id(session, int(raw))

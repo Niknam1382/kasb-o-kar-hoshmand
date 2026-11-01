@@ -582,8 +582,7 @@ async def _apply_codes_edit(message: Message, state: FSMContext, session: AsyncS
     added, duplicates = await digital_service.add_codes(session, product, codes)
     delivered = waiting = 0
     if added:
-        shop_bot_instance = bot_manager.get_bot(shop_bot.id) if bot_manager is not None else None
-        delivered, waiting = await digital_service.deliver_pending_for_product(session, product, shop_bot_instance, message.bot)
+        delivered, waiting = await digital_service.deliver_pending_for_product(session, product, bot_manager, shop_bot.id, message.bot)
     available = await digital_service.sync_pool_stock(session, product)
     await message.answer(texts.dg_codes_result(added, duplicates, ignored, available))
     note = texts.digital_pending_delivered_note(delivered, waiting)

@@ -345,7 +345,7 @@ async def crm_segment_broadcast(callback: CallbackQuery, session: AsyncSession, 
         return
     await state.clear()
     await state.set_state(CustomerBroadcastStates.waiting_message)
-    await state.update_data(broadcast_customer_ids=[stat.telegram_id for stat in members])
+    await state.update_data(broadcast_customer_ids=[stat.customer_id for stat in members])
     await callback.answer()
     await callback.message.answer(texts.crm_broadcast_ask(texts.CRM_SEGMENT_LABELS[segment_key], len(members)))
 

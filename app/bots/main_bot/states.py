@@ -33,6 +33,12 @@ class ShopBotTokenStates(StatesGroup):
     waiting_token = State()
 
 
+class BaleShopBotStates(StatesGroup):
+    """P19: توکنِ رباتِ بله‌یِ خودِ فروشگاه (کنارِ توکنِ تلگرام)."""
+
+    waiting_token = State()
+
+
 class ProductStates(StatesGroup):
     waiting_name = State()
     waiting_description = State()

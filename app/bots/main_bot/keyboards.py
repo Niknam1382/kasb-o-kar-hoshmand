@@ -107,12 +107,15 @@ def offer_trial_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 فعال‌سازی اعتبار آزمایشی", callback_data="activate_trial")]])
 
 
-def shop_owner_panel_keyboard(tenant_mode=None) -> ReplyKeyboardMarkup:
-    """منویِ فروشگاه‌دار (A4): مشاوره‌ای = بدونِ پرداختِ آنلاین/چک‌اوتِ سبد/کمپین (چیزهایِ مخصوصِ فروش)."""
+def shop_owner_panel_keyboard(tenant_mode=None, bale_visible: bool = False) -> ReplyKeyboardMarkup:
+    """منویِ فروشگاه‌دار (A4): مشاوره‌ای = بدونِ پرداختِ آنلاین/چک‌اوتِ سبد/کمپین (چیزهایِ مخصوصِ فروش).
+    P19: ردیفِ «🟢 توکن ربات بله» فقط وقتی ادمین ویژگی را رونمایی کرده باشد دیده می‌شود."""
     mode_value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     consultation = mode_value == "consultation"
     # C1: مودِ مشاوره‌ای کاتالوگِ محصول/خدمت ندارد (افزودنِ محصول در مشاوره معنا ندارد).
     rows = [["🔑 ثبت/ویرایش توکن ربات"]] if consultation else [["🔑 ثبت/ویرایش توکن ربات", "📦 محصولات"]]
+    if bale_visible:
+        rows.append([texts.BALE_SHOP_BOT_BUTTON])
     if not consultation:
         rows.append(["🧾 مدیریتِ سفارش‌ها (جاری)"])  # W5: سفارش‌هایِ باز یک‌جا (اعلان‌ها دیگه گم نمی‌شن)
     rows += [
@@ -491,6 +494,9 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
 
     zarinpal_label = "🙈 پنهان‌کردنِ زرین‌پال از فروشگاه‌دارها" if admin_settings.zarinpal_enabled else "👁 نمایشِ دوباره‌ی زرین‌پال"
     bale_pay_label = "🙈 پنهان‌کردنِ بله‌پی از فروشگاه‌دارها" if admin_settings.bale_pay_enabled else "👁 فعال‌کردنِ بله‌پی"
+    bale_bots_label = (
+        "🙈 پنهان‌کردنِ رباتِ بله‌یِ فروشگاه‌ها" if admin_settings.bale_shop_bots_enabled else "🟢 رونماییِ رباتِ بله‌یِ فروشگاه‌ها"
+    )
     sms_label = "📩 خاموش‌کردنِ پیامکِ احراز" if admin_settings.sms_enabled else "📩 روشن‌کردنِ پیامکِ احراز"
     branding_label = "🧴 همگام‌سازیِ بیوگرافیِ ربات‌ها"
     registrations_label = "⛔️ بستنِ ثبت‌نامِ کاربرانِ جدید" if admin_settings.allow_new_registrations else "✅ بازکردنِ ثبت‌نامِ کاربرانِ جدید"
@@ -505,6 +511,7 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=zarinpal_label, callback_data="admin_toggle_zarinpal")],
         [InlineKeyboardButton(text=bale_pay_label, callback_data="admin_toggle_bale_pay")],
+        [InlineKeyboardButton(text=bale_bots_label, callback_data="admin_toggle_bale_bots")],
         [InlineKeyboardButton(text=sms_label, callback_data="admin_toggle_sms")],
         [InlineKeyboardButton(text=branding_label, callback_data="admin_branding_sync")],
         [InlineKeyboardButton(text="🧮 محاسبه‌ی خودکارِ هزینه از فرمول", callback_data="admin_recalc_wallet_cost")],
@@ -1075,6 +1082,21 @@ def shop_branding_keyboard(shop_bot) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="✏️ متنِ خودت", callback_data="br_edit")],
         [InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="br_back")],
     ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def bale_shop_bot_keyboard(shop_bot) -> InlineKeyboardMarkup:
+    """P19: صفحه‌یِ مدیریتِ اتصالِ بله‌یِ همین فروشگاه (روشن/خاموش، توکن، حذف)."""
+    has_token = bool(shop_bot.bale_encrypted_token)
+    rows = []
+    if has_token:
+        toggle = "⏸ خاموش‌کردنِ اتصالِ بله" if shop_bot.bale_bot_enabled else "✅ روشن‌کردنِ اتصالِ بله"
+        toggle_data = "bale_off" if shop_bot.bale_bot_enabled else "bale_on"
+        rows.append([InlineKeyboardButton(text=toggle, callback_data=toggle_data)])
+    rows.append([InlineKeyboardButton(text="🔑 توکنِ تازه" if has_token else "🔑 ثبتِ توکن ربات بله", callback_data="bale_edit")])
+    if has_token:
+        rows.append([InlineKeyboardButton(text="🗑 حذفِ اتصالِ بله", callback_data="bale_clear")])
+    rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="bale_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

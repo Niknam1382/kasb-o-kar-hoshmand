@@ -20,6 +20,7 @@ from app.bots.main_bot.states import AssistantStates
 from app.database.models import WalletTransactionReason
 from app.services import (
     ai_billing,
+    bale_bot_service,
     ai_pool_service,
     ai_service,
     owner_assistant_service,
@@ -51,7 +52,7 @@ async def end_assistant(message: Message, session: AsyncSession, state: FSMConte
     await state.clear()
     shop_bot = await require_shop_bot(message, session)
     tenant_mode = shop_bot.tenant_mode if shop_bot else None
-    await message.answer(texts.ASSISTANT_END_TEXT, reply_markup=keyboards.shop_owner_panel_keyboard(tenant_mode))
+    await message.answer(texts.ASSISTANT_END_TEXT, reply_markup=keyboards.shop_owner_panel_keyboard(tenant_mode, bale_visible=await bale_bot_service.visible_for(session)))
 
 
 @router.message(AssistantStates.active, F.text)

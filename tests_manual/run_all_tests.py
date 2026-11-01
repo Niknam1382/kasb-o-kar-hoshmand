@@ -102,6 +102,7 @@ TEST_FILES = [
     "test_p5_min_recharge.py",
     "test_p5_ledger_integrity.py",
     "test_p5_commission.py",
+    "test_p19_bale_shop_bot.py",
 ]
 
 

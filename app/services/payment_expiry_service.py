@@ -38,7 +38,7 @@ async def _send_review_warnings(main_bot: Bot) -> None:
 
 
 async def process_payment_expiry(main_bot: Bot, bot_manager) -> int:
-    notices: list[tuple[int, int | None, int | None, str]] = []
+    notices: list[tuple[int, int | None, int | None, str, str]] = []
     async with session_scope() as session:
         groups = await order_payment_service.expire_stale_payment_groups(session)
         for rows in groups:
@@ -52,12 +52,13 @@ async def process_payment_expiry(main_bot: Bot, bot_manager) -> int:
                     owner.telegram_id if owner is not None else None,
                     customer.telegram_id if customer is not None else None,
                     shop_texts.order_code(rows),
+                    customer.platform if customer is not None else "telegram",
                 )
             )
     await _send_review_warnings(main_bot)
-    for shop_bot_id, owner_tid, customer_tid, code in notices:
+    for shop_bot_id, owner_tid, customer_tid, code, platform in notices:
         text = shop_texts.payment_expired_message(code)
-        shop_bot_instance = bot_manager.get_bot(shop_bot_id) if bot_manager is not None else None
+        shop_bot_instance = bot_manager.customer_bot(shop_bot_id, platform) if bot_manager is not None else None
         if shop_bot_instance is not None and customer_tid is not None:
             try:
                 await shop_bot_instance.send_message(customer_tid, text)

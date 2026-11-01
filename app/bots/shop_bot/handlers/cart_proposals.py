@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.shop_bot import cart_proposal_ui as ui
 from app.bots.shop_bot import keyboards, texts
-from app.services import cart_edit_service, cart_proposal_service, cart_service, customer_service, product_service, shop_bot_service
+from app.services import cart_edit_service, cart_proposal_service, cart_service, customer_service, product_service, platform_service, shop_bot_service
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,11 @@ def _parse_id(data: str) -> int | None:
 @router.callback_query(F.data.startswith("cart_ai_apply:"))
 async def cart_ai_apply(callback: CallbackQuery, session: AsyncSession) -> None:
     proposal_id = _parse_id(callback.data)
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None or proposal_id is None:
         await callback.answer(ui.PROPOSAL_GONE, show_alert=True)
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_cart(session, shop_bot.id, customer.id) if customer else None
     if cart is None:
         await callback.answer(ui.PROPOSAL_GONE, show_alert=True)
@@ -81,11 +81,11 @@ async def cart_ai_apply(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("cart_ai_reject:"))
 async def cart_ai_reject(callback: CallbackQuery, session: AsyncSession) -> None:
     proposal_id = _parse_id(callback.data)
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None or proposal_id is None:
         await callback.answer(ui.PROPOSAL_GONE, show_alert=True)
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_cart(session, shop_bot.id, customer.id) if customer else None
     if cart is None:
         await callback.answer(ui.PROPOSAL_GONE, show_alert=True)

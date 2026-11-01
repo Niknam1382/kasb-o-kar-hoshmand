@@ -56,15 +56,13 @@ async def _load_rows(session: AsyncSession, shop_bot, key: str):
     return []
 
 
-async def _customer_bot(shop_bot, bot_manager):
-    return bot_manager.get_bot(shop_bot.id) if bot_manager is not None else None
-
-
 async def notify_customer(session: AsyncSession, shop_bot, rows, text: str, bot_manager) -> bool:
     """پیامِ رباتِ فروشگاه به مشتری؛ `TelegramForbiddenError`/ربات‌نبودن ⇒ False (فقط لاگ)."""
     customer = await session.get(Customer, rows[0].customer_id)
-    bot = await _customer_bot(shop_bot, bot_manager)
-    if customer is None or bot is None:
+    if customer is None or bot_manager is None:
+        return False
+    bot = bot_manager.customer_bot(shop_bot.id, customer.platform)
+    if bot is None:
         return False
     try:
         await bot.send_message(customer.telegram_id, text)

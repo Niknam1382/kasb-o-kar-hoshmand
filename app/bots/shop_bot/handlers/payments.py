@@ -76,8 +76,8 @@ def _awaiting(rows) -> bool:
     return bool(rows) and all(order_state.value_of(r.status) == order_state.AWAITING_PAYMENT for r in rows)
 
 
-async def _ctx(session: AsyncSession, bot_id: int, tg_id: int, key: str):
-    shop_bot, customer = await _resolve(session, bot_id, tg_id)
+async def _ctx(session: AsyncSession, bot, tg_id: int, key: str):
+    shop_bot, customer = await _resolve(session, bot, tg_id)
     rows = await _load_group(session, shop_bot, customer, key) if (shop_bot and customer) else []
     if rows and await order_payment_service.expire_if_overdue(session, rows):
         await session.commit()  # expire-on-read: مهلت گذشته ⇒ همین‌جا منقضی (و رزرو آزاد)
@@ -94,7 +94,7 @@ async def _edit(callback: CallbackQuery, text: str, markup=None) -> None:
 @router.callback_query(F.data.startswith("pm_menu:"))
 async def pm_menu(callback: CallbackQuery, session: AsyncSession) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, _customer, rows = await _ctx(session, callback.bot.id, callback.from_user.id, key)
+    shop_bot, _customer, rows = await _ctx(session, callback.bot, callback.from_user.id, key)
     if not _awaiting(rows):
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
@@ -110,7 +110,7 @@ async def pm_menu(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("pm_manual:"))
 async def pm_manual(callback: CallbackQuery, session: AsyncSession, main_bot: Bot) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, customer, rows = await _ctx(session, callback.bot.id, callback.from_user.id, key)
+    shop_bot, customer, rows = await _ctx(session, callback.bot, callback.from_user.id, key)
     if not rows:
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
@@ -157,7 +157,7 @@ async def pm_manual(callback: CallbackQuery, session: AsyncSession, main_bot: Bo
 @router.callback_query(F.data.startswith("pm_card:"))
 async def pm_card(callback: CallbackQuery, session: AsyncSession) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, _customer, rows = await _ctx(session, callback.bot.id, callback.from_user.id, key)
+    shop_bot, _customer, rows = await _ctx(session, callback.bot, callback.from_user.id, key)
     if not _awaiting(rows):
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
@@ -182,7 +182,7 @@ async def pm_card(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("pm_bale:"))
 async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, _customer, rows = await _ctx(session, callback.bot.id, callback.from_user.id, key)
+    shop_bot, _customer, rows = await _ctx(session, callback.bot, callback.from_user.id, key)
     if not _awaiting(rows):
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
@@ -219,7 +219,7 @@ async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot)
 @router.callback_query(F.data.startswith("pm_zarinpal:"))
 async def pm_zarinpal(callback: CallbackQuery, session: AsyncSession) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, _customer, rows = await _ctx(session, callback.bot.id, callback.from_user.id, key)
+    shop_bot, _customer, rows = await _ctx(session, callback.bot, callback.from_user.id, key)
     if not _awaiting(rows):
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
@@ -248,7 +248,7 @@ async def pm_zarinpal(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("pay_receipt:"))
 async def pay_receipt_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     key = callback.data.split(":", 1)[1]
-    shop_bot, _customer, rows = await _ctx(session, callback.bot.id, callback.from_user.id, key)
+    shop_bot, _customer, rows = await _ctx(session, callback.bot, callback.from_user.id, key)
     if not _awaiting(rows):
         await callback.answer(texts.PAY_STALE, show_alert=True)
         return
@@ -305,7 +305,7 @@ async def _finish_receipt(
     fsm = await state.get_data()
     key = fsm.get("pay_key") or ""
     await state.clear()  # دابل‌ارسال: اول state پاک می‌شه
-    shop_bot, customer, rows = await _ctx(session, message.bot.id, message.from_user.id, key)
+    shop_bot, customer, rows = await _ctx(session, message.bot, message.from_user.id, key)
     if not _awaiting(rows):
         await message.answer(texts.PAY_STALE)
         return

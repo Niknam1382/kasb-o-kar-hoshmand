@@ -40,6 +40,7 @@ from app.services import (
     prompt_defaults,
     order_detection_service,
     order_service,
+    platform_service,
     product_service,
     payment_settings_service,
     shop_bot_service,
@@ -63,18 +64,21 @@ ORDER_DEDUP_WINDOW_MINUTES = 10
 DEBOUNCE_SECONDS = float(shop_bot_service.DEFAULT_MESSAGE_BATCH_SECONDS)
 MAX_BUFFER_WAIT_SECONDS = 10.0
 
-_pending_buffers: dict[tuple[int, int], list[str]] = {}
-_pending_tasks: dict[tuple[int, int], asyncio.Task] = {}
-_pending_started_at: dict[tuple[int, int], float] = {}
+# کلید سه‌تایی است چون شناسه‌یِ عددیِ مشتری فقط داخلِ یک سرویسِ پیام‌رسان یکتاست: اگر پلتفرم نبود،
+# یک مشتریِ تلگرامی و یک مشتریِ بله‌ای با عددِ یکسان در یک فروشگاه، بافرِ تجمیع و قفلِ مشترک می‌گرفتند
+# و جوابِ هم را می‌خواندند.
+_pending_buffers: dict[tuple[int, int, str], list[str]] = {}
+_pending_tasks: dict[tuple[int, int, str], asyncio.Task] = {}
+_pending_started_at: dict[tuple[int, int, str], float] = {}
 
-# فازِ ۶-الف: برایِ هر (فروشگاه، مشتری) *فقط یه پردازش* هم‌زمان اجرا می‌شه. بدونِ این قفل، پیامی که وسطِ پردازشِ
+# فازِ ۶-الف: برایِ هر (فروشگاه، مشتری، پلتفرم) *فقط یه پردازش* هم‌زمان اجرا می‌شه. بدونِ این قفل، پیامی که وسطِ پردازشِ
 # دسته‌یِ قبلی (فراخوانیِ AI چند ثانیه‌ای) می‌رسید یه چرخه‌یِ debounceِ جدا شروع می‌کرد و هم‌زمان با اولی
 # جواب می‌داد («چند پیامِ پشتِ‌هم = چند جواب»). حالا پیام‌هایِ این فاصله جمع می‌شن و بعدِ اتمامِ پردازشِ قبلی
 # با هم و با یه جواب پردازش می‌شن. (مثلِ _cart_edit_locks: WeakValueDictionary تا قفلِ بی‌استفاده پاک بشه.)
-_customer_locks: "weakref.WeakValueDictionary[tuple[int, int], asyncio.Lock]" = weakref.WeakValueDictionary()
+_customer_locks: "weakref.WeakValueDictionary[tuple[int, int, str], asyncio.Lock]" = weakref.WeakValueDictionary()
 
 
-def _get_customer_lock(key: tuple[int, int]) -> asyncio.Lock:
+def _get_customer_lock(key: tuple[int, int, str]) -> asyncio.Lock:
     lock = _customer_locks.get(key)
     if lock is None:
         lock = asyncio.Lock()
@@ -115,11 +119,12 @@ async def _stale_button_reply(message: Message, shop_bot) -> None:
 @router.message(CommandStart())
 async def customer_start(message: Message, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()  # اگه وسطِ چک‌اوتِ سبد بود، رها می‌شه (سبد دست‌نخورده می‌مونه)
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is not None:
         await customer_service.get_or_create_customer(
             session, shop_bot.id, message.from_user.id, message.from_user.first_name, message.from_user.username,
             last_name=message.from_user.last_name,
+            platform=platform_service.of_event(message),
         )
     welcome = texts.SHOP_WELCOME_CONSULTATION if _is_consultation(shop_bot) else texts.SHOP_WELCOME
     await message.answer(welcome, reply_markup=_menu_keyboard(shop_bot))
@@ -128,7 +133,7 @@ async def customer_start(message: Message, session: AsyncSession, state: FSMCont
 @router.message(Command("menu"))
 async def customer_menu(message: Message, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     await message.answer(texts.MENU_REPLY, reply_markup=_menu_keyboard(shop_bot))
 
 
@@ -231,7 +236,7 @@ async def _render_cart(session: AsyncSession, shop_bot_id: int, customer_id: int
 # =============================================================================
 @router.message(F.text == texts.BTN_PRODUCTS)
 async def cart_open_products(message: Message, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
     if _is_consultation(shop_bot):
@@ -251,7 +256,7 @@ async def cart_open_products(message: Message, session: AsyncSession) -> None:
 
 @router.message(F.text == texts.BTN_CART)
 async def cart_open_view(message: Message, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
     if _is_consultation(shop_bot):
@@ -260,6 +265,7 @@ async def cart_open_view(message: Message, session: AsyncSession) -> None:
     customer = await customer_service.get_or_create_customer(
         session, shop_bot.id, message.from_user.id, message.from_user.first_name, message.from_user.username,
         last_name=message.from_user.last_name,
+        platform=platform_service.of_event(message),
     )
     _cart, items, text, keyboard = await _render_cart(session, shop_bot.id, customer.id)
     if items:
@@ -270,7 +276,7 @@ async def cart_open_view(message: Message, session: AsyncSession) -> None:
 @router.message(F.text == texts.BTN_SERVICES)
 async def open_services(message: Message, session: AsyncSession) -> None:
     """مشاوره‌ای: فهرستِ فقط‌خواندنیِ خدمات/بسته‌ها (بدونِ سبد/خرید)."""
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
     if not _is_consultation(shop_bot):
@@ -283,7 +289,7 @@ async def open_services(message: Message, session: AsyncSession) -> None:
 @router.message(F.text == texts.BTN_SUPPORT)
 async def open_support(message: Message, session: AsyncSession) -> None:
     """D1 (direct): تماسِ فروشگاه + دکمه‌یِ لینکِ t.me. فقط وقتی فروشگاه‌دار فعالش کرده (وگرنه پیامِ مودبانه)."""
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
     if not shop_bot.support_enabled:
@@ -299,7 +305,7 @@ async def cart_noop(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("cart_browse:"))
 async def cart_browse_page(callback: CallbackQuery, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     await callback.answer()
     if shop_bot is None:
         return
@@ -313,7 +319,7 @@ async def cart_browse_page(callback: CallbackQuery, session: AsyncSession) -> No
 
 @router.callback_query(F.data.startswith("cart_add:"))
 async def cart_add_product(callback: CallbackQuery, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer()
         return
@@ -326,6 +332,7 @@ async def cart_add_product(callback: CallbackQuery, session: AsyncSession) -> No
     customer = await customer_service.get_or_create_customer(
         session, shop_bot.id, callback.from_user.id, callback.from_user.first_name, callback.from_user.username,
         last_name=callback.from_user.last_name,
+        platform=platform_service.of_event(callback),
     )
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id)
     item, added = await cart_service.add_item(session, cart, product, quantity=1)
@@ -341,13 +348,14 @@ async def cart_add_product(callback: CallbackQuery, session: AsyncSession) -> No
 
 @router.callback_query(F.data == "cart_view")
 async def cart_view_callback(callback: CallbackQuery, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     await callback.answer()
     if shop_bot is None:
         return
     customer = await customer_service.get_or_create_customer(
         session, shop_bot.id, callback.from_user.id, callback.from_user.first_name, callback.from_user.username,
         last_name=callback.from_user.last_name,
+        platform=platform_service.of_event(callback),
     )
     _cart, _items, text, keyboard = await _render_cart(session, shop_bot.id, customer.id)
     await _safe_edit(callback, text, keyboard)
@@ -360,11 +368,11 @@ async def _refresh_cart_message(callback: CallbackQuery, session: AsyncSession, 
 
 @router.callback_query(F.data.startswith("cart_inc:"))
 async def cart_increment(callback: CallbackQuery, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer()
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id) if customer else None
     item_id = int(callback.data.split(":")[1])
     cart_item = await cart_service.get_cart_item_owned(session, item_id, cart.id) if cart else None
@@ -385,11 +393,11 @@ async def cart_increment(callback: CallbackQuery, session: AsyncSession) -> None
 
 @router.callback_query(F.data.startswith("cart_dec:"))
 async def cart_decrement(callback: CallbackQuery, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer()
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id) if customer else None
     item_id = int(callback.data.split(":")[1])
     cart_item = await cart_service.get_cart_item_owned(session, item_id, cart.id) if cart else None
@@ -404,11 +412,11 @@ async def cart_decrement(callback: CallbackQuery, session: AsyncSession) -> None
 
 @router.callback_query(F.data.startswith("cart_remove:"))
 async def cart_remove(callback: CallbackQuery, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer()
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id) if customer else None
     item_id = int(callback.data.split(":")[1])
     cart_item = await cart_service.get_cart_item_owned(session, item_id, cart.id) if cart else None
@@ -423,11 +431,11 @@ async def cart_remove(callback: CallbackQuery, session: AsyncSession) -> None:
 
 @router.callback_query(F.data.startswith("cart_ai_clear:"))
 async def cart_ai_clear_confirm(callback: CallbackQuery, session: AsyncSession) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer()
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_cart(session, shop_bot.id, customer.id) if customer else None
     items = await cart_service.get_items_with_products(session, cart.id) if cart else []
     if not items:
@@ -456,7 +464,7 @@ async def cart_ai_keep(callback: CallbackQuery) -> None:
 
 @router.message(F.text)
 async def customer_message(message: Message, session: AsyncSession, main_bot: Bot) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
     if not await _check_access(message, session, shop_bot, main_bot):
@@ -465,6 +473,7 @@ async def customer_message(message: Message, session: AsyncSession, main_bot: Bo
     customer = await customer_service.get_or_create_customer(
         session, shop_bot.id, message.from_user.id, message.from_user.first_name, message.from_user.username,
         last_name=message.from_user.last_name,
+        platform=platform_service.of_event(message),
     )
     if await product_photo_handlers.maybe_handle_photo_request(message, session, shop_bot, main_bot):  # W5: «عکسِ X رو بفرست»
         return
@@ -479,7 +488,7 @@ async def customer_message(message: Message, session: AsyncSession, main_bot: Bo
 def _schedule_debounced_processing(
     shop_bot_id: int, customer_tg_id: int, text: str, shop_bot_instance: Bot, main_bot: Bot, window: float | None = None
 ) -> None:
-    key = (shop_bot_id, customer_tg_id)
+    key = (shop_bot_id, customer_tg_id, platform_service.platform_of(shop_bot_instance))
     window = DEBOUNCE_SECONDS if window is None else window
     _pending_buffers.setdefault(key, []).append(text)
 
@@ -518,9 +527,9 @@ async def _sleep_with_typing(bot: Bot, chat_id: int, delay: float) -> None:
         await asyncio.sleep(min(4.0, remaining))
 
 
-async def _wait_then_process(key: tuple[int, int], delay: float, shop_bot_instance: Bot, main_bot: Bot) -> None:
+async def _wait_then_process(key: tuple[int, int, str], delay: float, shop_bot_instance: Bot, main_bot: Bot) -> None:
     try:
-        await _sleep_with_typing(shop_bot_instance, key[1], delay)  # key = (shop_bot_id, customer_tg_id)
+        await _sleep_with_typing(shop_bot_instance, key[1], delay)  # key = (فروشگاه، مشتری، پلتفرم)
         # اگه پردازشِ قبلیِ همین مشتری هنوز در جریانه، اینجا منتظر می‌مونیم. اگه وسطِ انتظار پیامِ تازه برسه، این تسک
         # لغو می‌شه و تسکِ جدید (با پنجره‌یِ از اول) مسئولیت رو می‌گیره؛ پس همه‌یِ پیام‌هایِ این فاصله یه‌جا جمع می‌شن.
         async with _get_customer_lock(key):
@@ -532,7 +541,7 @@ async def _wait_then_process(key: tuple[int, int], delay: float, shop_bot_instan
                 return
 
             combined_text = "\n".join(messages)
-            shop_bot_id, customer_tg_id = key
+            shop_bot_id, customer_tg_id, _ = key  # پلتفرم از خودِ shop_bot_instance خوانده می‌شود
             try:
                 async with session_scope() as session:
                     await _generate_and_send_reply(session, shop_bot_id, customer_tg_id, combined_text, shop_bot_instance, main_bot)
@@ -581,7 +590,14 @@ async def _generate_and_send_reply(
             details=f"الگو: {matched_rule.pattern} | اکشن: warn | دسته: {matched_rule.category or '-'}",
         )
 
-    customer = await customer_service.get_or_create_customer(session, shop_bot_id, customer_tg_id, None, None)
+    customer = await customer_service.get_or_create_customer(
+        session,
+        shop_bot_id,
+        customer_tg_id,
+        None,
+        None,
+        platform=platform_service.platform_of(shop_bot_instance),
+    )
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
 
     if owner is None or owner.wallet_balance_toman <= 0:
@@ -761,7 +777,7 @@ async def _maybe_handle_cart_edit(
 
 @router.message(F.photo)
 async def customer_photo(message: Message, session: AsyncSession, main_bot: Bot) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
     if not await _check_access(message, session, shop_bot, main_bot):
@@ -770,6 +786,7 @@ async def customer_photo(message: Message, session: AsyncSession, main_bot: Bot)
     await customer_service.get_or_create_customer(
         session, shop_bot.id, message.from_user.id, message.from_user.first_name, message.from_user.username,
         last_name=message.from_user.last_name,
+        platform=platform_service.of_event(message),
     )
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
 
@@ -810,7 +827,7 @@ async def customer_photo(message: Message, session: AsyncSession, main_bot: Bot)
 
 @router.message(F.voice)
 async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot) -> None:
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, message.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
     if not await _check_access(message, session, shop_bot, main_bot):
@@ -819,6 +836,7 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
     await customer_service.get_or_create_customer(
         session, shop_bot.id, message.from_user.id, message.from_user.first_name, message.from_user.username,
         last_name=message.from_user.last_name,
+        platform=platform_service.of_event(message),
     )
 
     admin_settings = await get_admin_settings(session)
@@ -967,12 +985,12 @@ async def _resolve_awaiting_order_for_callback(callback: CallbackQuery, session:
     از روی callback.bot.id/callback.from_user.id/callback.data پیدا می‌کنه، و
     مالکیت رو چک می‌کنه. اگه هرجا namatch بود، None برمی‌گردونه (و خودش پیامِ
     «دیگه معتبر نیست» رو جواب می‌ده) — فراخوان فقط کافیه چک کنه None هست یا نه."""
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer(texts.ORDER_CONFIRMATION_NO_LONGER_VALID, show_alert=True)
         return None
 
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     if customer is None:
         await callback.answer(texts.ORDER_CONFIRMATION_NO_LONGER_VALID, show_alert=True)
         return None
@@ -991,11 +1009,11 @@ async def _resolve_awaiting_order_for_callback(callback: CallbackQuery, session:
 @router.callback_query(F.data.startswith("dl_again:"))
 async def cb_digital_download_again(callback: CallbackQuery, session: AsyncSession, main_bot: Bot) -> None:
     """«📥 دریافتِ دوباره»ِ محصولِ دیجیتال: فقط سفارشِ خودِ مشتری، بعد از تحویلِ اول، تا سقفِ digital_max_downloads."""
-    shop_bot = await shop_bot_service.get_by_bot_telegram_id(session, callback.bot.id)
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
     if shop_bot is None:
         await callback.answer()
         return
-    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id)
+    customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     try:
         order_id = int(callback.data.split(":", 1)[1])
     except ValueError:

@@ -41,7 +41,7 @@ def _parse_id(raw: str) -> int | None:
 
 async def _to_customer(session: AsyncSession, shop_bot, rows, text: str, bot_manager, markup=None) -> bool:
     customer = await session.get(Customer, rows[0].customer_id)
-    bot = bot_manager.get_bot(shop_bot.id) if bot_manager is not None else None
+    bot = bot_manager.customer_bot(shop_bot.id, customer.platform) if (bot_manager is not None and customer is not None) else None
     if customer is None or bot is None:
         return False
     try:
@@ -74,7 +74,7 @@ async def rcpt_ok(callback: CallbackQuery, session: AsyncSession, bot_manager=No
     if result.changed:
         notified = await _to_customer(session, shop_bot, rows, shop_texts.payment_approved_message(shop_texts.order_code(rows)), bot_manager)
         customer = await session.get(Customer, rows[0].customer_id)
-        bot = bot_manager.get_bot(shop_bot.id) if bot_manager is not None else None
+        bot = bot_manager.customer_bot(shop_bot.id, customer.platform) if (bot_manager is not None and customer is not None) else None
         if customer is not None and bot is not None:
             await send_invoice_to_customer(session, shop_bot, rows, customer, bot, customer.telegram_id)
         from app.bots.main_bot.handlers import panel  # تحویلِ دیجیتال بعد از «پرداخت‌شده»

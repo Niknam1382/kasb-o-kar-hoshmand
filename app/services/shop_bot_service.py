@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ShopBot, ShopOwner, TenantMode
+from app.services import platform_service
 from app.utils.encryption import encrypt_token
 
 
@@ -23,6 +24,22 @@ async def get_by_id(session: AsyncSession, shop_bot_id: int) -> ShopBot | None:
 async def get_by_bot_telegram_id(session: AsyncSession, bot_telegram_id: int) -> ShopBot | None:
     result = await session.execute(select(ShopBot).where(ShopBot.bot_telegram_id == bot_telegram_id))
     return result.scalar_one_or_none()
+
+
+async def get_by_platform_bot_id(session: AsyncSession, bot_id: int, *, bale: bool) -> ShopBot | None:
+    column = ShopBot.bale_bot_id if bale else ShopBot.bot_telegram_id
+    result = await session.execute(select(ShopBot).where(column == bot_id))
+    return result.scalar_one_or_none()
+
+
+async def get_by_bot(session: AsyncSession, bot) -> ShopBot | None:
+    """فروشگاهِ مالکِ این ربات — فرقی نمی‌کند آپدیت از تلگرام آمده یا از بله.
+
+    هر دو سرویسِ پیام‌رسان شناسه‌یِ عددیِ خودشان را دارند، پس نگاشتِ «شناسه‌یِ ربات → فروشگاه»
+    باید بداند از کدام سرویس می‌آید؛ باگِ این‌طور می‌شود که رباتِ بله‌یِ فروشگاهِ الف به
+    فروشگاهِ ب وصل می‌شود (یا هیچ‌کدام) اگر فقط یک ستون نگاه کنیم.
+    """
+    return await get_by_platform_bot_id(session, bot.id, bale=platform_service.is_bale(bot))
 
 
 async def get_all_active(session: AsyncSession) -> list[ShopBot]:
