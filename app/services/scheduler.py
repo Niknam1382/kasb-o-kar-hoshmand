@@ -18,7 +18,9 @@ from app.services import (
     bot_branding_service,
     notification_service,
     report_service,
+    scheduled_broadcast_service,
     shop_prefs_service,
+    stock_alert_service,
     time_freeze_service,
     wallet_expiry_service,
     wallet_service,
@@ -54,6 +56,9 @@ async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
             await report_service.send_due_reports(session, main_bot)
         async with session_scope() as session:
             await report_service.send_due_nightly_reports(session, main_bot)
+        # P21-D (F7): اخطارِ کمبودِ موجودی — فقط برایِ فروشگاه‌هایی که آستانه تعیین کرده‌اند
+        async with session_scope() as session:
+            await stock_alert_service.run(session, main_bot)
     if not job_gate_service.is_paused(admin_settings, "wallet"):
         async with session_scope() as session:
             await wallet_expiry_service.process_wallet_expiry_and_reminders(session, main_bot)
@@ -74,6 +79,11 @@ async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
             await bot_branding_service.sync_all(session, bot_manager, main_bot)
     # P20 · صندوقِ اعلان‌ها: خبری که تلگرام/بله نپذیرفت، تا ۶ بار با backoff دوباره تلاش می‌شود.
     if bot_manager is not None and not job_gate_service.is_paused(admin_settings, "notifications"):
+        async with session_scope() as session:
+            # P21-D (F2): اول ارسال‌هایِ زمان‌بندی‌شده به صف می‌روند، بعد صف تخلیه می‌شود
+            queued_broadcast = await scheduled_broadcast_service.queue_due(session)
+        if queued_broadcast["scheduled"]:
+            logger.info("پخشِ زمان‌بندی‌شده: %s ارسال در صفِ اعلان نشست (%s گیرنده).", queued_broadcast["scheduled"], queued_broadcast["queued"])
         async with session_scope() as session:
             queued = await notification_service.send_due(session, bot_manager, main_bot)
         if queued["sent"] or queued["failed"]:

@@ -314,6 +314,9 @@ _CUSTOMER_STATUS_LABELS = {
 
 MY_ORDERS_EMPTY = "هنوز سفارشی ثبت نکردی. از «🛍 محصولات» شروع کن 🙂"
 MY_ORDERS_TITLE = "📦 سفارش‌هایِ من (تازه‌ترین اول):"
+# P21-D (F5): پیگیریِ درخواست در مودِ مشاوره‌ای
+MY_ORDERS_CONSULT_TITLE = "🗂 درخواست‌هایِ مشاوره‌یِ تو (تازه‌ترین اول):"
+MY_ORDERS_CONSULT_EMPTY = "هنوز درخواستِ مشاوره‌ای ثبت نکردی. سؤالت را همین‌جا بنویس 🙂"
 MY_ORDER_STALE = "این سفارش پیدا نشد یا دیگه در دسترس نیست. دوباره از «📦 سفارش‌هایِ من» وارد شو."
 MY_ORDER_CANNOT_CANCEL = "این سفارش دیگه قابلِ لغو نیست (فقط قبل از پرداخت می‌شه لغو کرد)."
 MY_ORDER_CANCELLED = "🚫 سفارش لغو شد و رزروِ کالا آزاد شد."
@@ -340,12 +343,14 @@ def _group_names(rows, products: dict) -> str:
     return "، ".join(names)
 
 
-def my_orders_list_text(groups, products: dict, totals: list[int], page: int, total_groups: int) -> str:
+def my_orders_list_text(groups, products: dict, totals: list[int], page: int, total_groups: int, consultation: bool = False) -> str:
     from app.utils.validators import format_toman
 
-    lines = [MY_ORDERS_TITLE, ""]
+    # P21-D (F5): در مودِ مشاوره «سفارش» معنا ندارد؛ همان ردیف‌ها «درخواستِ مشاوره»اند
+    lines = [MY_ORDERS_CONSULT_TITLE if consultation else MY_ORDERS_TITLE, ""]
     for index, (rows, total) in enumerate(zip(groups, totals), start=page * 5 + 1):
-        lines.append(f"{index}. {customer_status_label(rows[0].status)} — {_group_names(rows, products)} — {format_toman(total)}")
+        label = _group_names(rows, products) if not consultation else (rows[0].summary or "—")
+        lines.append(f"{index}. {customer_status_label(rows[0].status)} — {label} — {format_toman(total)}")
     if total_groups > len(groups):
         lines.append(f"\n(صفحه‌یِ {page + 1} از {(total_groups + 4) // 5})")
     return "\n".join(lines)

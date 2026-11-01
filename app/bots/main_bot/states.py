@@ -107,6 +107,8 @@ class CustomerBroadcastStates(StatesGroup):
 
     waiting_message = State()
     waiting_confirmation = State()
+    # P21-D (F2): «برایِ بعد از» ⇒ بعد از تاییدِ متن، زمانِ ارسال پرسیده می‌شود
+    waiting_when = State()
 
 
 class BaleProviderTokenStates(StatesGroup):
@@ -221,6 +223,7 @@ class ShopSettingsStates(StatesGroup):
     waiting_pref_value = State()
     waiting_checkout_step_question = State()
     waiting_branding_text = State()
+    waiting_stock_threshold = State()  # P21-D (F7)
 
 
 class OrderOpsStates(StatesGroup):

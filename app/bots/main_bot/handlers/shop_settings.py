@@ -250,6 +250,41 @@ async def branding_text_received(message: Message, session: AsyncSession, state:
     await message.answer(text, reply_markup=keyboard)
 
 
+@router.callback_query(F.data == "bs_stock")
+async def stock_threshold_open(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    """P21-D (F7): خودِ فروشگاه‌دار تعیین می‌کند کِی از اتمامِ موجودی باخبر شود (NULL ⇒ خاموش)."""
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.clear()
+    await state.set_state(ShopSettingsStates.waiting_stock_threshold)
+    await callback.answer()
+    await callback.message.answer(texts.ASK_STOCK_THRESHOLD)
+
+
+@router.message(ShopSettingsStates.waiting_stock_threshold, F.text)
+async def stock_threshold_entered(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await require_shop_bot(message, session)
+    if shop_bot is None:
+        await state.clear()
+        return
+    raw = message.text.strip()
+    if raw in {"خالی", "پاک کن", "-"}:
+        shop_bot.low_stock_alert_threshold = None
+        saved = texts.STOCK_THRESHOLD_OFF
+    elif raw.isdecimal() and 1 <= int(raw) <= 1000:
+        shop_bot.low_stock_alert_threshold = int(raw)
+        saved = texts.STOCK_THRESHOLD_SAVED.format(value=int(raw))
+    else:
+        await message.answer(texts.STOCK_THRESHOLD_INVALID)
+        return
+    await session.flush()
+    await state.clear()
+    await message.answer(saved)
+    text, keyboard = _screen(shop_bot)
+    await message.answer(text, reply_markup=keyboard)
+
+
 def _branding_save_message(outcome: str) -> str:
     if outcome == bot_branding_service.SKIPPED:
         return texts.BRANDING_NOT_CONFIGURED

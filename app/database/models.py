@@ -591,6 +591,9 @@ class ShopBot(Base):
     # آخرین تاریخی (نه datetime — فقط روز) که گزارشِ شبانه براش فرستاده شده؛
     # برای جلوگیری از دوبار-فرستادن توی یه روز (چک هر ۳۰ دقیقه اجرا می‌شه).
     last_nightly_report_date: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+    # P21-D (F7): اخطارِ کمبودِ موجودی. NULL ⇒ خاموش (رفتارِ امروز؛ هیچ پیامِ تازه‌ای نمی‌رود).
+    low_stock_alert_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    low_stock_notified_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # فازِ ۱ · W2 (C2): مسیرِ قدیمیِ «AI از چت سفارش می‌سازه». پیش‌فرض خاموش؛ تا False است
     # `_detect_and_notify_order` اجرا نمی‌شه (هزینه‌یِ ORDER_DETECTION هم صفره).
     legacy_ai_order_detection: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
@@ -1264,6 +1267,30 @@ class AdminCreditBatchItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     batch_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
+
+class ScheduledBroadcast(Base):
+    """P21-D (F2): پیامِ مشتری‌ها با زمانِ تعیین‌شده توسطِ فروشگاه‌دار.
+
+    جابِ دوره‌ای وقتی به `scheduled_at` رسید، برایِ هر گیرنده یک ردیفِ `notifications`
+    می‌سازد (با `dedupe_key` ⇒ اجراهایِ دوباره پیامِ تکراری نمی‌فرستند) و خودِ ردیف
+    `queued` می‌شود؛ ارسالِ واقعی و تلاشِ دوباره با backoff کارِ همان صندوقِ اعلان‌هاست.
+    """
+
+    __tablename__ = "scheduled_broadcasts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), index=True, nullable=False)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=False, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    # NULL ⇒ همه‌یِ مشتری‌هایِ فروشگاه؛ وگرنه شناسه‌هایِ ردیفِ مشتری یک بخشِ CRM (کاما-جدا)
+    recipient_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    scheduled_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), default="pending", server_default="pending", nullable=False, index=True)
+    queued_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    note: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class CommissionReceivable(Base):
     """P21-C (F4): «پلتفرم از این فروشگاه چقدر طلبِ کمیسیون دارد».

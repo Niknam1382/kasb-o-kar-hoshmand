@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts
-from app.database.models import ShopBot, ShopOwner
-from app.services import stats_service, time_freeze_service
+from app.database.models import ShopBot, ShopOwner, TenantMode
+from app.services import commission_receivable_service, stats_service, time_freeze_service, wallet_service
 from app.services.admin_settings_service import get_admin_settings
 from app.utils.jalali import to_tehran
 
@@ -111,8 +111,18 @@ async def send_due_nightly_reports(session: AsyncSession, main_bot: Bot, now: da
         day_start = datetime.datetime.combine(today, datetime.time.min, tzinfo=datetime.timezone.utc)
         stats = await stats_service.get_shop_daily_stats(session, shop_bot.id, day_start, now)
         owner = await session.get(ShopOwner, shop_bot.shop_owner_id)
+        if owner is None:
+            continue
+        # P21-D (F1): «چند سفارش آمد» بدونِ «پولِ من چه شد» نصفِ گزارش است. موجودی، قابل‌صرف،
+        # اعتبارِ در آستانهٔ انقضا و طلبِ کمیسیونِ وصول‌نشده به همان پیام اضافه می‌شوند.
+        usable, expiring, expiring_days = await wallet_service.credit_summary(session, owner)
+        debt = await commission_receivable_service.summary(session)
+        message = texts.nightly_report_text(stats, consultation=shop_bot.tenant_mode == TenantMode.CONSULTATION)
+        message += "\n" + texts.digest_wallet_line(
+            int(owner.wallet_balance_toman or 0), usable, expiring if expiring_days is not None else 0, expiring_days, debt["open_toman"]
+        )
         try:
-            await main_bot.send_message(owner.telegram_id, texts.nightly_report_text(stats))
+            await main_bot.send_message(owner.telegram_id, message)
             shop_bot.last_nightly_report_date = today
             await session.flush()
         except TelegramAPIError:

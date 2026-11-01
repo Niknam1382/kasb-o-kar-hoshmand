@@ -2967,6 +2967,88 @@ def receipt_review_warning(code: str, hours_left: float) -> str:
     )
 
 
+# =============================================================================
+# P21-D — خلاصهٔ روزانهٔ پولی، پخشِ زمان‌بندی‌شده، اخطارِ موجودی
+# =============================================================================
+def digest_wallet_line(balance_toman: int, usable_toman: int, expiring_toman: int, expiring_days: int | None, debt_toman: int) -> str:
+    """چند خطِ پولی به انتهایِ گزارشِ شبانه (پیش‌تر فقط تعدادِ سفارش/مشتری داشت)."""
+    lines = ["", "💼 کیف‌پول:"]
+    lines.append(f"• موجودی: {format_toman(balance_toman)} تومان")
+    if usable_toman != balance_toman:
+        lines.append(f"• قابل‌استفاده الان: {format_toman(usable_toman)} تومان (بقیه رزروِ کمیسیونِ سفارش‌هایِ درجریان است)")
+    if expiring_toman > 0 and expiring_days is not None:
+        lines.append(f"• تا {expiring_days} روزِ دیگر منقضی می‌شود: {format_toman(expiring_toman)} تومان")
+    if debt_toman > 0:
+        lines.append(f"• طلبِ کمیسیونِ وصول‌نشده: {format_toman(debt_toman)} تومان (با شارژِ بعدی خودکار کسر می‌شود)")
+    return "\n".join(lines)
+
+
+SCHEDULE_BROADCAST_BUTTON = "⏰ برایِ بعد از"
+SCHEDULED_LIST_BUTTON = "⏰ ارسال‌هایِ زمان‌بندی‌شده"
+ASK_SCHEDULE_WHEN = (
+    "کی ارسال شود؟\n\n"
+    "• ساعت: ۲۱:۳۰\n"
+    "• فردا ۹:۳۰\n"
+    "• +۲h (دو ساعتِ دیگر) یا +۴۵m یا +۳d\n\n"
+    "ساعت‌ها به وقتِ تهران است. برایِ لغو «خالی» بنویس."
+)
+SCHEDULE_INVALID_WHEN = "این را نفهمیدم. نمونه‌ها: ۲۱:۳۰ · فردا ۹:۳۰ · +۲h"
+SCHEDULE_TOO_SOON = f"حداقلِ {5} دقیقه وقت لازم است — برایِ «همین الان» همون دکمهٔ «بله، بفرست» را بزن."
+SCHEDULE_TOO_FAR = "حداکثر ۶۰ روز جلوتر می‌شود زمان‌بندی کرد."
+SCHEDULE_CANCELLED = "⏱ زمان‌بندی لغو شد؛ پیامی ارسال نمی‌شود."
+SCHEDULE_MAX_REACHED = "همزمان فقط ۵ ارسالِ زمان‌بندی‌نشده می‌توانی داشته باشی؛ اول یکی را لغو کن."
+SCHEDULE_EMPTY = "⏰ هیچ ارسالِ زمان‌بندی‌شده‌ای در انتظار نیست."
+SCHEDULE_STALE = "⚠️ این ارسال دیگر در فهرست نیست (فرستاده شده یا لغو شده)."
+SCHEDULE_CANCEL_BUTTON = "🗑 لغوِ این ارسال"
+
+
+def schedule_saved_text(when_label: str, recipients: int) -> str:
+    return (
+        f"✅ ثبت شد: این پیام {when_label} برایِ {recipients} مشتری در صفِ ارسال می‌نشیند.\n"
+        "اگر تلگرام لحظه‌ای پاسخ ندهد، خودش دوباره تلاش می‌کند و گم نمی‌شود.\n"
+        "برایِ دیدن یا لغو: «⏰ ارسال‌هایِ زمان‌بندی‌شده»"
+    )
+
+
+def scheduled_list_text(rows) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    lines = ["⏰ ارسال‌هایِ زمان‌بندی‌شده", ""]
+    for row in rows:
+        preview = (row.text or "").replace("\n", " ")[:60]
+        lines.append(f"• {format_jalali_datetime(row.scheduled_at)} — «{preview}»")
+    lines.append("")
+    lines.append("برایِ لغو، رویِ عددِ مورد بزن.")
+    return "\n".join(lines)
+
+
+def stock_alert_button_label(shop_bot) -> str:
+    value = getattr(shop_bot, "low_stock_alert_threshold", None)
+    return "📦 اخطارِ موجودی: خاموش" if not value else f"📦 اخطارِ موجودی: زیرِ {value} عدد"
+
+
+ASK_STOCK_THRESHOLD = (
+    "چند عدد؟ هر کالایی که موجودیِ واقعی‌اش (کمِ رزروِ سفارش‌هایِ باز) به این عدد یا کمتر برسد، "
+    "در اولین پاسِ بعدی به تو خبر داده می‌شود (حداکثر یک خبر در شبانه‌روز).\n"
+    "برایِ خاموش‌کردن «خالی» بنویس."
+)
+STOCK_THRESHOLD_SAVED = "✅ ذخیره شد: از این به بعد کالاهایِ زیرِ {value} عدد بهت خبر می‌دهد."
+STOCK_THRESHOLD_OFF = "🔕 اخطارِ موجودی خاموش شد."
+STOCK_THRESHOLD_INVALID = "یک عددِ صحيح بينِ ۱ و ۱۰۰۰ بفرست (یا «خالی» برایِ خاموش‌کردن)."
+
+
+def stock_alert_text(rows, threshold: int, limit: int) -> str:
+    lines = [f"📦 موجودیِ چند کالا به {threshold} رسیده یا کمتر است:", ""]
+    for product in rows[:limit]:
+        remaining = (product.stock_quantity or 0) - (product.reserved_quantity or 0)
+        lines.append(f"• {product.name}: {remaining} عدد")
+    if len(rows) > limit:
+        lines.append(f"… و {len(rows) - limit} کالایِ دیگر")
+    lines.append("")
+    lines.append("برایِ توقفِ این اخطار، آستانه را در «⚙️ تنظیماتِ ربات فروشگاه» خالی کن.")
+    return "\n".join(lines)
+
+
 ORDER_RESTOCK_BUTTON = "📦 برگردانِ موجودی به انبار"
 ORDER_RESTOCKED = "📦 موجودیِ اقلامِ این سفارش به انبار برگشت."
 ORDER_RESTOCK_NOTHING = "چیزی برایِ برگشت به انبار نبود (محصولِ بدونِ موجودی یا قبلاً برگشته)."

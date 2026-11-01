@@ -26,6 +26,7 @@ from app.bots.main_bot.states import (
     ShopBotTokenStates,
 )
 from app.config import settings
+from app.utils.jalali import format_jalali_datetime
 from app.database.models import Customer, DiscountCode, OrderConsultation, PaymentPurpose, PaymentStatus, TenantMode
 from app.services import (
     admin_role_service,
@@ -49,6 +50,7 @@ from app.services import (
     payment_settings_service,
     prompt_defaults,
     product_service,
+    scheduled_broadcast_service,
     referral_service,
     shop_bot_service,
     shop_owner_service,
@@ -1035,6 +1037,89 @@ async def customer_broadcast_cancelled(callback: CallbackQuery, state: FSMContex
     await state.clear()
     await callback.answer()
     await callback.message.edit_text(texts.CUSTOMER_BROADCAST_CANCELLED)
+
+
+# =============================================================================
+# P21-D (F2): پیامِ مشتری‌ها با زمانِ تعیین‌شده (سوار بر صندوقِ اعلان‌ها)
+# =============================================================================
+@router.callback_query(CustomerBroadcastStates.waiting_confirmation, F.data == "customer_broadcast_schedule")
+async def customer_broadcast_schedule_ask_when(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(CustomerBroadcastStates.waiting_when)
+    await callback.answer()
+    await callback.message.answer(texts.ASK_SCHEDULE_WHEN)
+
+
+@router.message(CustomerBroadcastStates.waiting_when, F.text)
+async def customer_broadcast_schedule_time_entered(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    owner = await _current_owner(message, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    data = await state.get_data()
+    raw = message.text.strip()
+    if raw in {"خالی", "لغو", "-"}:
+        await state.clear()
+        await message.answer(texts.SCHEDULE_CANCELLED)
+        return
+
+    scheduled_at = scheduled_broadcast_service.parse_when(raw)
+    allowed, why = scheduled_broadcast_service.validate_when(scheduled_at)
+    if not allowed:
+        await message.answer(texts.SCHEDULE_TOO_SOON if why == "too_soon" else texts.SCHEDULE_TOO_FAR if why == "too_far" else texts.SCHEDULE_INVALID_WHEN)
+        return  # state می‌ماند تا فروشگاه‌دار وقتِ دیگری بنویسد
+    if shop_bot is None:
+        await state.clear()
+        await message.answer(texts.SHOP_BOT_NOT_SET_UP)
+        return
+
+    segment_ids = data.get("broadcast_customer_ids")
+    recipients = (
+        await customer_service.recipients_by_ids(session, shop_bot.id, [int(pk) for pk in segment_ids])
+        if segment_ids is not None
+        else await customer_service.recipients_by_shop_bot(session, shop_bot.id)
+    )
+    result = await scheduled_broadcast_service.schedule(
+        session,
+        shop_bot=shop_bot,
+        owner_id=owner.id,
+        text=data["broadcast_text"],
+        scheduled_at=scheduled_at,
+        recipient_ids=[int(pk) for pk in segment_ids] if segment_ids is not None else None,
+    )
+    await state.clear()
+    if isinstance(result, str):
+        await message.answer(texts.SCHEDULE_MAX_REACHED if result == scheduled_broadcast_service.MAX_ACTIVE_REACHED else texts.SCHEDULE_INVALID_WHEN)
+        return
+    await message.answer(texts.schedule_saved_text(format_jalali_datetime(result.scheduled_at), len(recipients)))
+
+
+@router.message(F.text == texts.SCHEDULED_LIST_BUTTON)
+async def open_scheduled_broadcasts(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    owner = await _current_owner(message, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await message.answer(texts.SHOP_BOT_NOT_SET_UP)
+        return
+    rows = await scheduled_broadcast_service.upcoming(session, shop_bot.id)
+    if not rows:
+        await message.answer(texts.SCHEDULE_EMPTY)
+        return
+    await message.answer(texts.scheduled_list_text(rows), reply_markup=keyboards.scheduled_cancel_keyboard(rows))
+
+
+@router.callback_query(F.data.startswith("sched_cancel:"))
+async def cb_cancel_scheduled_broadcast(callback: CallbackQuery, session: AsyncSession) -> None:
+    raw = callback.data.split(":", 1)[1]
+    if not (raw.isascii() and raw.isdecimal()):
+        await callback.answer(texts.SCHEDULE_STALE, show_alert=True)
+        return
+    owner = await _current_owner(callback, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await callback.answer(texts.SHOP_BOT_NOT_SET_UP, show_alert=True)
+        return
+    # لغو فقط داخلِ ردیف‌هایِ *همین* فروشگاه جست‌وجو می‌شود ⇒ شمارهٔ ردیفِ دیگری کاریکرنی‌پذیر نیست
+    cancelled = await scheduled_broadcast_service.cancel(session, shop_bot_id=shop_bot.id, broadcast_id=int(raw))
+    await callback.answer(texts.SCHEDULE_CANCELLED if cancelled else texts.SCHEDULE_STALE, show_alert=not cancelled)
 
 
 # =============================================================================

@@ -125,7 +125,7 @@ def shop_owner_panel_keyboard(tenant_mode=None, bale_visible: bool = False) -> R
         ["💰 کیف‌پول", "🎁 کد معرف"],
         ["🧾 تاریخچه‌ی پرداخت", "📤 خروجی اکسل"],
         ["👤 پروفایل من", "📞 پشتیبانی"],
-        ["📣 پیام به مشتری‌ها"] + ([] if consultation else ["💳 پرداختِ آنلاینِ سفارش‌ها"]),
+        ["📣 پیام به مشتری‌ها", texts.SCHEDULED_LIST_BUTTON] + ([] if consultation else ["💳 پرداختِ آنلاینِ سفارش‌ها"]),
     ]
     if consultation:
         # C2: CRMِ فروشگاهی جای خود را به «💬 گفتگوها و کاربران» می‌دهد؛ C3: حسابداری هم نیست.
@@ -410,10 +410,18 @@ def confirm_customer_broadcast_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ بله، بفرست", callback_data="customer_broadcast_confirm"),
-                InlineKeyboardButton(text="❌ لغو", callback_data="customer_broadcast_cancel"),
+                InlineKeyboardButton(text=texts.SCHEDULE_BROADCAST_BUTTON, callback_data="customer_broadcast_schedule"),
             ],
+            [InlineKeyboardButton(text="❌ لغو", callback_data="customer_broadcast_cancel")],
         ]
     )
+
+
+def scheduled_cancel_keyboard(rows) -> InlineKeyboardMarkup:
+    """لغوِ هر ارسالِ زمان‌بندی‌شده با عددِ خودش (بدونِ فاش‌کردنِ شناسهٔ داخلی در متن)."""
+    buttons = [[InlineKeyboardButton(text=f"🗑 لغوِ ارسالِ شمارهٔ {row.id}", callback_data=f"sched_cancel:{row.id}")] for row in rows]
+    buttons.append([InlineKeyboardButton(text="🔙 بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
@@ -1023,6 +1031,7 @@ def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📈 گزارشِ دوره‌ای", callback_data="rp_open")],
             [InlineKeyboardButton(text="✏️ بیوگرافیِ ربات", callback_data="br_open")],
             [InlineKeyboardButton(text="⏱ مهلت‌ها و حافظه", callback_data="sp_prefs_open")],
+            [InlineKeyboardButton(text=texts.stock_alert_button_label(shop_bot), callback_data="bs_stock")],
             [InlineKeyboardButton(text="📞 پشتیبانیِ مشتری‌ها", callback_data="sp_open")],
         ]
     )

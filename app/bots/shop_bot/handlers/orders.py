@@ -96,16 +96,17 @@ async def _resolve(session: AsyncSession, bot, telegram_id: int):
 
 async def _render_list(session: AsyncSession, shop_bot, customer: Customer, page: int):
     page = max(0, page)
+    consultation = shop_bot.tenant_mode == TenantMode.CONSULTATION
     groups, total_groups = await order_transition_service.list_groups_for_customer(
         session, shop_bot.id, customer.id, limit=PAGE_SIZE, offset=page * PAGE_SIZE
     )
     if not groups and page > 0:
         return await _render_list(session, shop_bot, customer, 0)
     if not groups:
-        return texts.MY_ORDERS_EMPTY, None
+        return (texts.MY_ORDERS_CONSULT_EMPTY if consultation else texts.MY_ORDERS_EMPTY), None
     products = await _products_for(session, groups)
     totals = [order_transition_service.group_total_toman(rows) for rows in groups]
-    text = texts.my_orders_list_text(groups, products, totals, page, total_groups)
+    text = texts.my_orders_list_text(groups, products, totals, page, total_groups, consultation=consultation)
     keys = [order_transition_service.group_key(rows[0]) for rows in groups]
     keyboard = keyboards.my_orders_list_keyboard(keys, page, total_groups, PAGE_SIZE, first_index=page * PAGE_SIZE + 1)
     return text, keyboard
@@ -115,11 +116,6 @@ async def _render_list(session: AsyncSession, shop_bot, customer: Customer, page
 async def my_orders_open(message: Message, session: AsyncSession) -> None:
     shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
-        return
-    if shop_bot.tenant_mode == TenantMode.CONSULTATION:
-        from app.bots.shop_bot.handlers import customer as customer_handlers
-
-        await customer_handlers._stale_button_reply(message, shop_bot)
         return
     customer = await customer_service.get_or_create_customer(
         session,

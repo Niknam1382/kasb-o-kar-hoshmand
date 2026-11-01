@@ -108,6 +108,7 @@ TEST_FILES = [
     "test_p20_performance_outbox.py",
     "test_p21_ops.py",
     "test_p21_money.py",
+    "test_p21_growth.py",
 ]
 
 
