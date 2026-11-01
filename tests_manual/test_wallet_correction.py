@@ -191,6 +191,8 @@ async def test_admin_gift_now_logs_audit_entry(main_dp) -> None:
 
     await main_dp.feed_update(admin_bot, make_callback_update(1, data=f"admin_owner_gift:{owner_id}", user_id=ADMIN_TG_ID))
     await main_dp.feed_update(admin_bot, make_message_update(2, text="100000", user_id=ADMIN_TG_ID))
+    # P20: گامِ تاییدِ پیش‌نمایش (بدونِ آن هیچ ممیزی/اعتباری ساخته نمی‌شود — خودِ همین تستِ «تایید» را می‌پوشاند)
+    await main_dp.feed_update(admin_bot, make_callback_update(3, data="admin_gift_confirm", user_id=ADMIN_TG_ID))
 
     async with session_scope() as session:
         result = await session.execute(select(AuditLogEntry).where(AuditLogEntry.event_type == AuditEventType.OWNER_GIFT_GRANTED))

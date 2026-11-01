@@ -46,6 +46,18 @@ class Settings(BaseSettings):
 
     # W5: سطحِ لاگِ برنامه (DEBUG/INFO/WARNING/ERROR). لاگِ «Update handled»ِ aiogram همیشه WARNING است تا لاگ‌ها شلوغ نشن.
     log_level: str = "INFO"
+    # P20 · PHASE 20: «true» ⇒ لاگ‌ها JSONِ ساختاریافته (برایِ Collector/Loki/CloudWatch) با
+    # correlation-id؛ «false» ⇒ همان متنِ خوانایِ فعلی. در هر دو حالتِ scrubber رد می‌شود.
+    json_logs: bool = False
+    # P20 · B3: سقفِ درخواستِ HTTP به‌ازایِ (IP, مسیر) در هر دقیقه رویِ endpointهایِ عمومی.
+    # تلگرام/بله در اوجِ ترافیکِ یکِ رباتِ بزرگ می‌توانند چند ده آپدیت در ثانیه بفرستند، پس
+    # پیش‌فرض محافظه‌کارانه ولی نه تنگ است. ۰ ⇒ محدودسازی خاموش (فقط برایِ تست).
+    webhook_rate_limit_per_minute: int = 600
+    # P20 · B3: اگر پشتِ یکِ reverse-proxyِ مطمئن (nginx/Caddy) هستی، X-Forwarded-For را باور کن
+    # وگرنه IP هر درخواست «خودِ پراکسی» است و سقفِ مشترک همه را با هم می‌بندد.
+    trust_proxy_headers: bool = False
+    # P20: رازِ خواندنِ /metrics. خالی ⇒ endpoint اصلاً وجود ندارد (۴۰۴).
+    metrics_token: str = ""
 
     auth_mode: AuthMode = AuthMode.TEST
 

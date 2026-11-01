@@ -23,6 +23,7 @@ from sqlalchemy.event import listens_for
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ShopOwner, WalletCharge, WalletTransaction, WalletTransactionReason
+from app import observability
 from app.services import time_freeze_service
 from app.services.admin_settings_service import get_admin_settings
 
@@ -178,6 +179,7 @@ async def deduct(
     # نمی‌شه»). چون .with_for_update() از همین اول قفل گرفته، هیچ تراکنشِ
     # هم‌زمانِ دیگه‌ای نمی‌تونه بینِ این چک و حلقه‌ی پایین چیزی رو عوض کنه.
     if sum(charge.remaining_toman for charge in charges) < amount_toman:
+        observability.count("wallet.deduct_denied")
         logger.warning("کسرِ %s تومنی برای shop_owner_id=%s رد شد — موجودی کافی نیست.", amount_toman, owner.id)
         return False
 
@@ -215,6 +217,7 @@ async def deduct(
         return False
 
     await _apply_balance_delta(session, owner, -amount_toman)
+    observability.count("wallet.deduct", amount_toman)
     await session.flush()
     return True
 

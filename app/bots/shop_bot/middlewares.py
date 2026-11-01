@@ -20,6 +20,7 @@ from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import observability
 from app.bots.shop_bot import texts
 from app.database.models import Customer, ShopBot
 from app.services import platform_service
@@ -88,6 +89,7 @@ class BlockedCustomerMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         if not blocked:
+            observability.count("shop.update")
             return await handler(event, data)
 
         if isinstance(event, CallbackQuery):

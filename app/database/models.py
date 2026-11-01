@@ -546,7 +546,10 @@ class ShopBot(Base):
     encrypted_token: Mapped[str] = mapped_column(Text, nullable=False)
     bot_telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     bot_username: Mapped[str] = mapped_column(String(255), nullable=False)
-    webhook_secret_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    # P20 · د: رازِ وب‌هوک هرگز به‌صورتِ خام در دیتابیس نمی‌ماند. با `EncryptedToken` خواندن/نوشتن
+    # شفاف است (مقادیرِ قدیمیِ رمزنشده هم پذیرفته می‌شوند) و یک پاسِ بازنویسی در بوت‌آپ همه را
+    # رمز می‌کند. هیچ‌جا این ستون با `WHERE = مقدار` مقایسه نمی‌شود، پس رمزنگاریِ آن مسیر را نمی‌شکند.
+    webhook_secret_token: Mapped[str] = mapped_column(EncryptedToken(512), nullable=False)
     ai_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     zarinpal_merchant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # کدِ درگاهِ بله‌پیِ خودِ همین فروشگاه (نه پلتفرم) — برایِ اینکه مشتری‌ها
@@ -980,6 +983,12 @@ class AuditLogEntry(Base, CreatedAtMixin):
     shop_bot_id: Mapped[int | None] = mapped_column(ForeignKey("shop_bots.id"), nullable=True, index=True)
     actor_telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # P20 · زنجیرهٔ هش: هر ردیف، هشِ ردیفِ قبلی و هشِ خود را نگه می‌دارد ⇒ حذف/تغییرِ
+    # یک رویدادِ قدیمیِ ممیزی بدونِ شکستنِ زنجیره ممکن نیست (پاک‌کردنِ ردیفِ میانی،
+    # prev_hashِ ردیفِ بعد را بی‌اعتبار می‌کند). ردیف‌هایِ پیش ازِ P20 NULL می‌مانند و
+    # بازبینیِ زنجیره از اولین ردیفِ هش‌دار شروع می‌شود.
+    prev_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    row_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
 
 class AdminRole(Base, CreatedAtMixin):

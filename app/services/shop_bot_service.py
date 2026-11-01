@@ -42,6 +42,34 @@ async def get_by_bot(session: AsyncSession, bot) -> ShopBot | None:
     return await get_by_platform_bot_id(session, bot.id, bale=platform_service.is_bale(bot))
 
 
+async def reencrypt_secrets(session: AsyncSession) -> int:
+    """یک‌بار در بوت‌آپ: هر رباتِ فروشگاهی که رازِ وب‌هوکش هنوز *خام* در دیتابیس است، دوباره
+    نوشته می‌شود تا با `EncryptedToken` رمزنگاری شود (بلاکرِ امنیتیِ B2).
+
+    چرا در بوت‌آپ و نه در مایگریشن: مایگریشن نباید به `ENCRYPTION_KEY` وابسته باشد؛ این‌جا کلید
+    در دسترس است و فقط ردیف‌هایِ خام لمس می‌شوند ⇒ اجرایِ دوباره بی‌اثر است.
+
+    چرا با SQLِ خام: ستون `EncryptedToken` است، پس `shop_bot.webhook_secret_token` همیشه
+    *رمزگشایی‌شده* برمی‌گردد و از رویش نمی‌توان فهمید چه چیزی در دیتابیس خوابیده. باید خودِ
+    ستون را خواند. """
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.orm import attributes
+
+    from app.utils.encryption import looks_encrypted
+
+    raw_rows = (await session.execute(sql_text("SELECT id, webhook_secret_token FROM shop_bots"))).all()
+    pending = [row_id for row_id, raw in raw_rows if raw and not looks_encrypted(str(raw))]
+    if not pending:
+        return 0
+    shop_bots = list((await session.execute(select(ShopBot).where(ShopBot.id.in_(pending)))).scalars().all())
+    for shop_bot in shop_bots:
+        shop_bot.webhook_secret_token = shop_bot.webhook_secret_token  # نوشتنِ همان متنِ plaintext ⇒ رمز در DB
+        # بدونِ علامتِ «تغییرکرده»، SQLAlchemy مقدارِ یکسان را UPDATE نمی‌کند و رمز نوشته نمی‌شود
+        attributes.flag_modified(shop_bot, "webhook_secret_token")
+    await session.flush()
+    return len(shop_bots)
+
+
 async def get_all_active(session: AsyncSession) -> list[ShopBot]:
     result = await session.execute(select(ShopBot).where(ShopBot.is_active.is_(True)))
     return list(result.scalars().all())

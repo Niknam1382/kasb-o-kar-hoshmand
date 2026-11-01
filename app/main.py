@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from sqlalchemy import select
 
 from app.bots.common.channel_knowledge import create_channel_knowledge_router
@@ -21,6 +21,8 @@ from app.bots.main_bot.router import build_main_router
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.shop_bot.router import build_shop_router
 from app.config import RunMode, settings
+from app import observability
+from app.services import http_guard
 from app.database.models import OrderPayment, PaymentPurpose, PaymentStatus
 from app.database.session import session_scope
 from app.services import (
@@ -48,10 +50,8 @@ from app.services import (
 from app.services.admin_settings_service import get_admin_settings
 from app.services.bot_manager import ShopBotManager
 
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-)
+# P20 · PHASE 20: لاگ با scrubberِ رازها و correlation-id (JSON اختیاری با JSON_LOGS=true).
+observability.install(level=settings.log_level, as_json=settings.json_logs)
 logging.getLogger("aiogram.event").setLevel(logging.WARNING)  # هر آپدیت یک خطِ INFO می‌ساخت؛ لاگِ اصلی را می‌پوشاند
 # B6: fpdf2 هنگامِ امبدکردنِ فونت، ده‌ها خطِ INFO از fontTools.subset می‌سازد (هر فاکتور).
 # این لاگ‌ها هیچ اطلاعاتِ عملیاتی ندارند و حجمِ لاگِ Docker را بالا می‌برند ⇒ فقط هشدارها.
@@ -83,6 +83,15 @@ async def _load_active_shop_bots(bot_manager: ShopBotManager, main_bot: Bot) -> 
         shop_bots = await shop_bot_service.get_all_active(session)
         # P19: اتصالِ بله فقط وقتی شروع می‌شود که ادمین ویژگی را رونمایی کرده باشد (پیش‌فرض پنهان).
         bale_enabled = bale_bot_service.enabled(await get_admin_settings(session))
+    # P20 · B2: رازِ وب‌هوکِ هر رباتِ فروشگاهی باید رمزنگاری‌شده در دیتابیس بماند؛ ردیف‌هایِ
+    # قدیمیِ خام یک‌بار در بوت‌آپ بازنویسی می‌شوند (کلیدِ رمزنگاری فقط این‌جا در دسترس است، نه در مایگریشن).
+    try:
+        async with session_scope() as session:
+            reencrypted = await shop_bot_service.reencrypt_secrets(session)
+        if reencrypted:
+            logger.info("%d رازِ وب‌هوکِ خام در دیتابیس رمزنگاری شد.", reencrypted)
+    except Exception:
+        logger.exception("بازنویسیِ رمزنگاری‌شدهٔ رازهایِ وب‌هوک ناموفق بود (ربات‌ها کار می‌کنند).")
     await bot_manager.load_all(shop_bots, bale_enabled=bale_enabled)
     logger.info(
         "%d ربات فروشگاهی‌ِ فعال بارگذاری شد (اتصالِ بله: %s، ربات‌هایِ بله‌دار: %d).",
@@ -204,6 +213,7 @@ def _is_duplicate_update(bot_id: int, update_id: int) -> bool:
 def _forbidden(reason: str) -> Response:
     """د(و): ۴۰۳ مکررِ وب‌هوک نشانه‌یِ تلاش برایِ تزریقِ آپدیتِ جعلی است ⇒ هشدارِ نرخ‌محدود به ادمین."""
     admin_alert_service.record_event(admin_alert_service.KIND_FORBIDDEN, reason)
+    observability.count("webhook.rejected")
     return Response(status_code=403)
 
 
@@ -304,12 +314,18 @@ def _is_valid_webhook_secret(provided_secret: str | None) -> bool:
 
 @app.post("/webhook/main")
 async def webhook_main(request: Request) -> Response:
+    limited = _too_many_requests(request, "main")
+    if limited is not None:
+        return limited
     if not _is_valid_webhook_secret(request.headers.get("X-Telegram-Bot-Api-Secret-Token")):
         return _forbidden("webhook/main: رازِ وب‌هوکِ نامعتبر")
 
     data = await request.json()
     update = Update.model_validate(data)
+    observability.bind_correlation(observability.correlate("wh", "main", update.update_id))
+    observability.count("webhook.main")
     if _is_duplicate_update(_state["main_bot"].id, update.update_id):
+        observability.count("webhook.duplicate")
         return Response(status_code=200)
     await _state["main_dispatcher"].feed_update(_state["main_bot"], update)
     return Response(status_code=200)
@@ -337,6 +353,9 @@ async def health_check() -> JSONResponse:
 
 @app.post("/webhook/shop/{shop_bot_id}")
 async def webhook_shop(shop_bot_id: int, request: Request) -> Response:
+    limited = _too_many_requests(request, f"shop:{shop_bot_id}")
+    if limited is not None:
+        return limited
     bot_manager: ShopBotManager = _state["bot_manager"]
     bot = bot_manager.get_bot(shop_bot_id)
     if bot is None:
@@ -348,10 +367,50 @@ async def webhook_shop(shop_bot_id: int, request: Request) -> Response:
 
     data = await request.json()
     update = Update.model_validate(data)
+    observability.bind_correlation(observability.correlate("wh", "shop", shop_bot_id, update.update_id))
+    observability.count("webhook.shop")
     if _is_duplicate_update(bot.id, update.update_id):
         return Response(status_code=200)
     await _state["shop_dispatcher"].feed_update(bot, update)
     return Response(status_code=200)
+
+
+
+def _client_ip(request: Request) -> str:
+    """IPِ واقعیِ فرستنده. پشتِ reverse-proxy باید TRUST_PROXY_HEADERS=true شود، وگرنه
+    IPِ هر درخواست همانِ پراکسی است و سقفِ مشترک همه را با هم رد می‌کند."""
+    if settings.trust_proxy_headers:
+        forwarded = request.headers.get("x-forwarded-for") or ""
+        first = forwarded.split(",")[0].strip()
+        if first:
+            return first[:64]
+    return ((request.client.host if request.client else "unknown"))[:64]
+
+
+def _too_many_requests(request: Request, path: str) -> Response | None:
+    """۴۲۹ وقتی یک IP از سقفِ دقیقه‌ایِ همان endpoint رد شود (بلاکرِ امنیتیِ B3)."""
+    if http_guard.allow((_client_ip(request), path), settings.webhook_rate_limit_per_minute):
+        return None
+    observability.count("webhook.rate_limited")
+    logger.warning("سقفِ نرخِ endpoint=%s از IP=%s رد شد.", path, _client_ip(request))
+    return Response(status_code=429, headers={"Retry-After": "60"})
+
+
+def _denied() -> Response:
+    """۴۰۳ بی‌صدایِ رازِ نامعتبر برایِ endpointهایِ نظارتی (بدونِ هشدارِ مکرر به ادمین)."""
+    observability.count("metrics.denied")
+    return Response(status_code=403)
+
+
+@app.get("/metrics")
+async def metrics_endpoint(request: Request) -> Response:
+    """شمارنده‌هایِ in-process به شکلِ متنِ Prometheus. با METRICS_TOKEN="" اصلاً وجود ندارد."""
+    if not settings.metrics_token:
+        return Response(status_code=404)
+    provided = request.headers.get("x-metrics-token") or ""
+    if not _secrets_equal(provided, settings.metrics_token):
+        return _denied()
+    return PlainTextResponse(observability.render_prometheus(), media_type="text/plain; version=0.0.4")
 
 
 async def _bale_outcome_ok(
@@ -375,6 +434,9 @@ async def _bale_outcome_ok(
 
 @app.post("/webhook/bale/{path_secret}")
 async def webhook_bale_with_secret(path_secret: str, request: Request) -> Response:
+    limited = _too_many_requests(request, "bale")
+    if limited is not None:
+        return limited
     """B5: رازِ وب‌هوک توی مسیره (بله هدرِ secret نمی‌فرسته)."""
     if not bale_credentials_service.bot_token():
         return Response(status_code=404)
@@ -385,6 +447,9 @@ async def webhook_bale_with_secret(path_secret: str, request: Request) -> Respon
 
 @app.post("/webhook/bale")
 async def webhook_bale(request: Request) -> Response:
+    limited = _too_many_requests(request, "bale")
+    if limited is not None:
+        return limited
     if not bale_credentials_service.bot_token():
         return Response(status_code=404)
     if bale_credentials_service.webhook_secret():
@@ -779,7 +844,10 @@ async def _zarinpal_shop_callback(Authority: str, Status: str) -> HTMLResponse |
 
 
 @app.get("/payment/zarinpal/callback")
-async def zarinpal_callback(Authority: str, Status: str) -> HTMLResponse:
+async def zarinpal_callback(Authority: str, Status: str, request: Request) -> HTMLResponse:
+    limited = _too_many_requests(request, "zarinpal-callback")
+    if limited is not None:
+        return HTMLResponse("درخواست‌ها بیش از حد معمول شده. لطفاً یک دقیقه دیگر دوباره امتحان کن.")
     shop_page = await _zarinpal_shop_callback(Authority, Status)
     if shop_page is not None:
         return shop_page

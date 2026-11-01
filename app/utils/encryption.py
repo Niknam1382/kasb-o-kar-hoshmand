@@ -13,3 +13,13 @@ def encrypt_token(raw_token: str) -> str:
 
 def decrypt_token(encrypted_token: str) -> str:
     return _fernet.decrypt(encrypted_token.encode()).decode()
+
+
+def looks_encrypted(value: str | None) -> bool:
+    """True اگر مقدارِ ذخیره‌شده رمزِ Fernet باشد (پیشوندِ نسخه‌یِ Fernet `gAAAAA` است).
+
+    برایِ مسیرهایِ «بازنویسیِ یک‌باره» لازم است: ستون‌هایی که به `EncryptedToken` منتقل شده‌اند
+    داده‌هایِ قدیمیِ *رمزنشده* را هم می‌پذیرند، پس باید بتوان تشخیص داد کدام ردیف هنوز
+    خام است و باید دوباره نوشته شود.
+    """
+    return bool(value) and value.startswith("gAAAAA")

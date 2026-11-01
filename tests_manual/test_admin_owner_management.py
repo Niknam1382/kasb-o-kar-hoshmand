@@ -95,6 +95,8 @@ async def test_admin_gift_wallet_credit(main_dp) -> None:
 
     await main_dp.feed_update(admin_bot, make_callback_update(1, data=f"admin_owner_gift:{owner_id}", user_id=ADMIN_TG_ID))
     await main_dp.feed_update(admin_bot, make_message_update(2, text="150000", user_id=ADMIN_TG_ID))
+    # P20: اعطای هدیه یک گامِ تایید دارد (پیش‌نمایش ← بله/نه)؛ قبلاً با یک عدد، اعتبار ساخته می‌شد.
+    await main_dp.feed_update(admin_bot, make_callback_update(3, data="admin_gift_confirm", user_id=ADMIN_TG_ID))
 
     async with session_scope() as session:
         owner = await session.get(ShopOwner, owner_id)
