@@ -8,6 +8,7 @@ from aiogram.client.session.base import BaseSession
 from aiogram.methods import TelegramMethod
 from aiogram.methods.base import TelegramType
 from aiogram.types import (
+    BotShortDescription,
     CallbackQuery,
     Chat,
     ChatInviteLink,
@@ -64,6 +65,9 @@ class FakeSession(BaseSession):
         self.chat_info: dict[str, Chat] = {}
         self.bot_identities: dict[str, User] = {}
         self.downloaded_files: dict[str, bytes] = {}
+        # بیویِ ربات (GetMyShortDescription / SetMyShortDescription) — هر Bot جلسه‌یِ خودش را دارد
+        self.short_description: str = ""
+        self.bio_updates: list[str] = []
         self._next_message_id = 10_000
 
     # --- پیکربندیِ رفتار جعلی از داخل تست ---
@@ -185,6 +189,14 @@ class FakeSession(BaseSession):
 
         if name == "GetUpdates":
             return []
+
+        if name == "GetMyShortDescription":
+            return BotShortDescription(short_description=self.short_description)
+
+        if name == "SetMyShortDescription":
+            self.short_description = method.short_description or ""
+            self.bio_updates.append(self.short_description)
+            return BotShortDescription(short_description=self.short_description)
 
         raise NotImplementedError(f"FakeSession: متد «{name}» هنوز توی هارنسِ تست پشتیبانی نمی‌شه.")
 

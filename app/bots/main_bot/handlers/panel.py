@@ -135,9 +135,7 @@ async def save_shop_bot_token(message: Message, state: FSMContext, session: Asyn
 
     # A2: به‌محضِ وصل شدنِ یک رباتِ فروشگاهی، بیوگرافیِ اجباری رویِ خودش اعمال می‌شود.
     try:
-        new_bot = bot_manager.get_bot(shop_bot.id)
-        if new_bot is not None:
-            await bot_branding_service.apply_for_bot(new_bot, session, shop_bot)
+        await bot_branding_service.apply_for_shop_bot(bot_manager, session, shop_bot)
     except Exception:
         logger.warning("اعمالِ بیوگرافی رویِ رباتِ تازه ثبت‌شده ناموفق بود.", exc_info=True)
 

@@ -112,10 +112,14 @@ async def reconcile_wallet_ledgers() -> int:
     return len(gaps)
 
 
-async def run_periodic_tasks(main_bot: Bot, stop_event: asyncio.Event, interval_seconds: int = CHECK_INTERVAL_SECONDS) -> None:
+async def run_periodic_tasks(
+    main_bot: Bot, stop_event: asyncio.Event, bot_manager=None, interval_seconds: int = CHECK_INTERVAL_SECONDS
+) -> None:
     while not stop_event.is_set():
         try:
-            await run_periodic_pass(main_bot)
+            # bot_manager باید پاس شود: بدونِ آن پاسِ بازرسیِ بیوگرافی عملاً هرگز اجرا نمی‌شود
+            # (دست‌کاریِ بیو فقط در همان پاس برگردانده و به فروشگاه‌دار خبر داده می‌شود).
+            await run_periodic_pass(main_bot, bot_manager)
         except Exception:
             logger.exception("اجرای تسک‌های دوره‌ای با خطا مواجه شد.")
 

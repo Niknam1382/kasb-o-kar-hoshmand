@@ -147,7 +147,7 @@ async def run_polling() -> None:
     await _load_active_shop_bots(bot_manager, main_bot)
 
     stop_event = asyncio.Event()
-    scheduler_task = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, stop_event))
+    scheduler_task = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, stop_event, bot_manager))
     payment_expiry_task = asyncio.create_task(scheduler.run_payment_expiry_loop(main_bot, bot_manager, stop_event))
     bale_updates_task = await _start_bale_updates_polling(stop_event)  # B6: بدونِ سرورِ HTTP هم پرداختِ بله‌پی دریافت می‌شه
 
@@ -244,7 +244,7 @@ async def on_startup() -> None:
                 "تنظیمِ وب‌هوکِ بله‌پی ناموفق بود — Bale Pay غیرفعال می‌مونه تا این مشکل برطرف بشه."
             )
 
-    _state["scheduler_task"] = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, _state["stop_event"]))
+    _state["scheduler_task"] = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, _state["stop_event"], bot_manager))
     _state["payment_expiry_task"] = asyncio.create_task(
         scheduler.run_payment_expiry_loop(main_bot, bot_manager, _state["stop_event"])
     )

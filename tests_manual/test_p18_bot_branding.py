@@ -4,11 +4,14 @@
 پوشش:
 ۱. خالص: ترکیبِ «متنِ فروشگاه‌دار — متنِ ادمین» با سقفِ ۱۲۰؛ اگر جا نشد متنِ فروشگاه‌دار کوتاه
    می‌شود و متنِ ادمین هرگز. بدونِ متنِ ادمین هیچ نوشتنی انجام نمی‌شود.
-۲. `apply_to_bot`: unchanged/applied/tampered/skipped/error — و خطایِ شبکه هرگز کرش نمی‌کند.
+۲. `apply_to_bot`: unchanged/applied/tampered/skipped/error — و خطایِ شبکه هرگز کرش نمی‌کند؛
+   متنِ جاگذاریِ تلگرام («A default short description…») بیویِ تنظیم‌نشده حساب می‌شود نه دست‌کاری.
 ۳. `sync_all`: شمارش‌ها، اعلانِ نرخ‌محدود به فروشگاه‌دار (یک‌بار در ۲۴ ساعت)، ثبتِ ممیزی و شمارنده‌یِ تخلف.
 ۴. پنلِ ادمین: اعتبارسنجیِ ۶۰ نویسه، ذخیره، ممیزی، «ذخیره شد» بدونِ رباتِ وصل‌شده.
 ۵. پنلِ فروشگاه‌دار: «🧴 بیوگرافیِ ربات» → متنِ خودت، ردِّ بلند، «خالی» برایِ پاک کردن، برگشت.
-۶. جابِ ۶ ساعته: `is_due`.
+۶. جابِ دوره‌ای: `is_due` (ساعتی) و `run_periodic_pass` که بیویِ دستکاری‌شده را برمی‌گرداند.
+۷. باگِ گزارش‌شده: ذخیره‌یِ بیو از پنلِ فروشگاه‌دار باید بیویِ رباتِ *خودِ فروشگاه* را عوض کند و
+   هرگز بیویِ رباتِ اصلی را (regression روی `apply_for_shop_bot`).
 
 اجرا: python3 tests_manual/test_p18_bot_branding.py
 """
@@ -24,7 +27,7 @@ sys.path.insert(0, "tests_manual")
 
 from sqlalchemy import select  # noqa: E402
 
-from harness import build_test_dispatchers, reset_database  # noqa: E402
+from harness import build_test_dispatchers, make_shop_bot, register_fake_shop_bot, reset_database  # noqa: E402
 from phase4_helpers import Chat  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
 
@@ -32,6 +35,7 @@ from app.bots.main_bot import texts as main_texts  # noqa: E402
 from app.database.models import AuditEventType, AuditLogEntry, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import bot_branding_service as branding  # noqa: E402
+from app.services import scheduler  # noqa: E402
 from app.services.admin_settings_service import get_admin_settings  # noqa: E402
 
 ADMIN_TG_ID = 12345
@@ -101,6 +105,12 @@ async def _set_owner_text(shop_bot_id: int, text: str | None) -> None:
         row.branding_owner_text = text
 
 
+async def _set_synced(value: datetime.datetime | None) -> None:
+    async with session_scope() as session:
+        admin = await get_admin_settings(session)
+        admin.branding_synced_at = value
+
+
 # ============================================================================= ۱ — ترکیب
 def test_compose_rules() -> None:
     assert branding.compose("فروشگاهِ علی", "") == ""
@@ -145,6 +155,11 @@ async def test_apply_to_bot_outcomes() -> None:
     bot = _BioBot(initial="بیویِ دستکاری‌شده")
     outcome, previous = await branding.apply_to_bot(bot, shop_bot, ADMIN_TEXT)
     assert (outcome, previous) == ("tampered", "بیویِ دستکاری‌شده") and bot.bio == expected
+
+    # متنِ جاگذاریِ خودِ تلگرام یعنی «بیو تنظیم نشده» ⇒ اعمال، نه دست‌کاریِ جعلی
+    bot = _BioBot(initial="A default short description made by @BotFather")
+    outcome, previous = await branding.apply_to_bot(bot, shop_bot, ADMIN_TEXT)
+    assert (outcome, previous) == ("applied", ""), "پیش‌فرضِ تلگرام نباید اخطارِ دست‌کاری بسازد"
 
     bot = _BioBot(initial="هرچی")
     assert await branding.apply_to_bot(bot, shop_bot, None) == ("skipped", "")
@@ -294,21 +309,75 @@ async def test_owner_branding_screen(main_dp) -> None:
 def test_branding_job_interval() -> None:
     now = datetime.datetime(2026, 11, 1, 12, 0, tzinfo=datetime.timezone.utc)
     assert branding.is_due(None, now) is True
-    assert branding.is_due(now - datetime.timedelta(hours=5, minutes=59), now) is False
-    assert branding.is_due(now - datetime.timedelta(hours=6), now) is True
+    assert branding.is_due(now - datetime.timedelta(minutes=59), now) is False
+    assert branding.is_due(now - datetime.timedelta(hours=1), now) is True
     assert branding.is_due(now - datetime.timedelta(hours=30), now) is True
     assert branding.is_due((now - datetime.timedelta(hours=7)).replace(tzinfo=None), now) is True, "naive ⇒ UTC فرض می‌شود"
     print("✅ test_branding_job_interval PASSED")
 
 
+# ============ ۷ — باگِ گزارش‌شده: بیو باید رویِ رباتِ خودِ فروشگاه نوشته شود
+async def test_owner_save_targets_own_bot_not_main(main_dp, bot_manager) -> None:
+    await reset_database()
+    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    await _set_branding(ADMIN_TEXT)
+    shop = make_shop_bot()
+    register_fake_shop_bot(bot_manager, shop_bot_id, shop)
+    owner = Chat(main_dp, OWNER_TG_ID)
+
+    await owner.say("⚙️ تنظیماتِ ربات فروشگاه")
+    await owner.tap("br_open")
+    await owner.tap("br_edit")
+    await owner.say("گالریِ گلِ مریم")
+
+    assert shop.session.short_description == f"گالریِ گلِ مریم — {ADMIN_TEXT}", shop.session.short_description
+    assert owner.session.bio_updates == [], "رباتِ اصلی هرگز نباید از این مسیر بیو بگیرد"
+    assert main_texts.BRANDING_OWNER_SAVED in [m["text"] for m in owner.sent], owner.sent[-2:]
+
+    # رباتِ اتصال‌نکرده ⇒ متن ذخیره می‌شود و پیامِ «در اولین اتصال» می‌رود؛ رباتِ اصلی باز هم دست‌نخورده
+    await bot_manager.unregister(shop_bot_id, disable_in_db=False)
+    await owner.tap("br_edit")
+    await owner.say("گالریِ نقره")
+    assert (await _shop_bot(shop_bot_id)).branding_owner_text == "گالریِ نقره"
+    assert main_texts.BRANDING_OWNER_SAVED_NOT_CONNECTED in [m["text"] for m in owner.sent], owner.sent[-2:]
+    assert owner.session.bio_updates == []
+    print("✅ test_owner_save_targets_own_bot_not_main PASSED")
+
+
+# ============ ۸ — پاسِ دوره‌ای دست‌کاری را برمی‌گرداند و به فروشگاه‌دار خبر می‌دهد
+async def test_periodic_pass_restores_tampered_bio(bot_manager, main_bot) -> None:
+    await reset_database()
+    branding.reset_alert_cache()
+    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    await _set_branding(ADMIN_TEXT)
+    await _set_synced(None)
+    shop = make_shop_bot()
+    shop.session.short_description = "بیویِ دستکاری‌شده"
+    register_fake_shop_bot(bot_manager, shop_bot_id, shop)
+
+    await scheduler.run_periodic_pass(main_bot, bot_manager)
+
+    assert shop.session.short_description == ADMIN_TEXT, shop.session.short_description
+    alerts = [m for m in main_bot.session.sent_messages if m["text"] == main_texts.BOT_BIO_TAMPERED_ALERT]
+    assert len(alerts) == 1 and alerts[0]["chat_id"] == OWNER_TG_ID, alerts
+    async with session_scope() as session:
+        row = await session.get(ShopBot, shop_bot_id)
+        assert row.branding_tamper_count == 1 and row.branding_set_at is not None
+        admin = await get_admin_settings(session)
+        assert admin.branding_synced_at is not None
+    print("✅ test_periodic_pass_restores_tampered_bio PASSED")
+
+
 async def main() -> None:
-    main_dp, _shop_dp, _bot_manager, _main_bot = build_test_dispatchers()
+    main_dp, _shop_dp, bot_manager, main_bot = build_test_dispatchers()
     test_compose_rules()
     test_branding_job_interval()
     await test_apply_to_bot_outcomes()
     await test_sync_all_counts_alerts_and_audit()
     await test_admin_branding_settings(main_dp)
     await test_owner_branding_screen(main_dp)
+    await test_owner_save_targets_own_bot_not_main(main_dp, bot_manager)
+    await test_periodic_pass_restores_tampered_bio(bot_manager, main_bot)
 
 
 if __name__ == "__main__":

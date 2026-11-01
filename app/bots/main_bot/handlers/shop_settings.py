@@ -227,7 +227,7 @@ async def branding_edit(callback: CallbackQuery, session: AsyncSession, state: F
 
 
 @router.message(ShopSettingsStates.waiting_branding_text, F.text)
-async def branding_text_received(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def branding_text_received(message: Message, session: AsyncSession, state: FSMContext, bot_manager) -> None:
     shop_bot = await require_shop_bot(message, session)
     if shop_bot is None:
         await state.clear()
@@ -243,10 +243,21 @@ async def branding_text_received(message: Message, session: AsyncSession, state:
     await session.flush()
     await state.clear()
     admin_settings = await get_admin_settings(session)
-    applied = await bot_branding_service.apply_for_bot(message.bot, session, shop_bot)
-    await message.answer(texts.BRANDING_OWNER_SAVED if applied else texts.BRANDING_NOT_CONFIGURED)
+    # بیو باید رویِ رباتِ *خودِ فروشگاه* نوشته شود؛ message.bot در این پنل رباتِ اصلی است.
+    outcome = await bot_branding_service.apply_for_shop_bot(bot_manager, session, shop_bot)
+    await message.answer(_branding_save_message(outcome))
     text, keyboard = _branding_screen(shop_bot, admin_settings)
     await message.answer(text, reply_markup=keyboard)
+
+
+def _branding_save_message(outcome: str) -> str:
+    if outcome == bot_branding_service.SKIPPED:
+        return texts.BRANDING_NOT_CONFIGURED
+    if outcome == bot_branding_service.NO_TRANSPORT:
+        return texts.BRANDING_OWNER_SAVED_NOT_CONNECTED
+    if outcome == bot_branding_service.ERROR:
+        return texts.BRANDING_OWNER_SAVE_RETRY
+    return texts.BRANDING_OWNER_SAVED
 
 
 # ------------------------------------------------------------------ پشتیبانیِ مشتری‌ها (D1/D2): حالتِ direct؛ مشتری فقط همین شناسه رو می‌بینه
