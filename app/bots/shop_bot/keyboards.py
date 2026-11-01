@@ -5,6 +5,32 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 _PAGE_SIZE = 8
 
 
+def _chunks(items: list, size: int = 2, max_label: int = 0) -> list[list]:
+    """چینشِ دونادونه (P22): همان ترتیب، دو دکمه در هر ردیف، باقی‌مانده تنها.
+
+    چرا ردیف‌هایِ تک‌دکمه‌ای بد است: در تلگرام هر ردیفِ تمام‌عرض یکِ خطِ کامل می‌گیرد و منو
+    بلند و بی‌نظم می‌شود؛ دو دکمه در هر خط کوتاه‌تر و قابل‌پیداکردن‌تر است.
+    `max_label` ⇒ برچسبِ بلندتر از آن تنها می‌ماند، چون تلگرام دکمهٔ تنگ را با «…» می‌بُرد
+    (مثلاً «🤝 پرداختِ دستی/هماهنگی با فروشگاه»).
+    """
+    rows: list[list] = []
+    pending: list = []
+    for item in items:
+        if len(pending) == size:
+            rows.append(pending)
+            pending = []
+        if max_label and len(getattr(item, "text", "") or "") > max_label:
+            if pending:
+                rows.append(pending)
+                pending = []
+            rows.append([item])
+        else:
+            pending.append(item)
+    if pending:
+        rows.append(pending)
+    return rows
+
+
 def _paginate(items: list, page: int) -> tuple[list, int, int]:
     total_pages = max(1, (len(items) + _PAGE_SIZE - 1) // _PAGE_SIZE)
     page = max(0, min(page, total_pages - 1))
@@ -20,12 +46,16 @@ def customer_main_keyboard(tenant_mode=None, support_enabled: bool = False) -> R
     value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     if value == "consultation":
         # P21-D (F6): پیگیریِ وضعیتِ درخواست‌ها برایِ مشاوره هم معنا دارد («مراجعه‌ام تایید شد؟»)
-        rows = [[KeyboardButton(text=texts.BTN_SERVICES)], [KeyboardButton(text=texts.BTN_MY_ORDERS)]]
+        buttons = [KeyboardButton(text=texts.BTN_SERVICES), KeyboardButton(text=texts.BTN_MY_ORDERS)]
     else:
-        rows = [[KeyboardButton(text=texts.BTN_PRODUCTS), KeyboardButton(text=texts.BTN_CART)], [KeyboardButton(text=texts.BTN_MY_ORDERS)]]
+        buttons = [
+            KeyboardButton(text=texts.BTN_PRODUCTS),
+            KeyboardButton(text=texts.BTN_CART),
+            KeyboardButton(text=texts.BTN_MY_ORDERS),
+        ]
     if support_enabled:
-        rows.append([KeyboardButton(text=texts.BTN_SUPPORT)])
-    return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
+        buttons.append(KeyboardButton(text=texts.BTN_SUPPORT))
+    return ReplyKeyboardMarkup(keyboard=_chunks(buttons), resize_keyboard=True)
 
 
 def support_link_keyboard(username: str | None) -> InlineKeyboardMarkup | None:
@@ -43,8 +73,10 @@ def order_customer_confirmation_keyboard(order_id: int) -> InlineKeyboardMarkup:
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✅ بله، درسته", callback_data=f"cust_confirm_order:{order_id}")],
-            [InlineKeyboardButton(text="❌ نه، اشتباهه", callback_data=f"cust_cancel_order:{order_id}")],
+            [
+                InlineKeyboardButton(text="✅ بله، درسته", callback_data=f"cust_confirm_order:{order_id}"),
+                InlineKeyboardButton(text="❌ نه، اشتباهه", callback_data=f"cust_cancel_order:{order_id}"),
+            ]
         ]
     )
 
@@ -103,13 +135,17 @@ def cart_view_keyboard(items_with_products) -> InlineKeyboardMarkup:
 
 def checkout_confirm_keyboard(show_code_button: bool = False, code_applied: bool = False) -> InlineKeyboardMarkup:
     """بدونِ آرگومان دقیقاً مثلِ قبله. show_code_button: فروشگاه یه کمپینِ کددارِ فعال
-    داره؛ code_applied: مشتری قبلاً یه کدِ معتبر زده (دکمه می‌شه «تغییر/حذف»)."""
-    rows = [[InlineKeyboardButton(text="✅ ثبتِ نهایی", callback_data="cart_checkout_confirm")]]
+    داره؛ code_applied: مشتری قبلاً یه کدِ معتبر زده (دکمه می‌شه «تغییر/حذف»).
+    «❌ انصراف» تنها می‌ماند تا کنارِ «ثبتِ نهایی» جا نباشد."""
+    rows = [
+        InlineKeyboardButton(text="✅ ثبتِ نهایی", callback_data="cart_checkout_confirm"),
+    ]
     if show_code_button or code_applied:
         label = "🎟 تغییر/حذفِ کدِ تخفیف" if code_applied else "🎟 کد تخفیف دارم"
-        rows.append([InlineKeyboardButton(text=label, callback_data="cart_discount_code")])
-    rows.append([InlineKeyboardButton(text="❌ انصراف", callback_data="cart_checkout_cancel")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+        rows.append(InlineKeyboardButton(text=label, callback_data="cart_discount_code"))
+    markup_rows = _chunks(rows)
+    markup_rows.append([InlineKeyboardButton(text="❌ انصراف", callback_data="cart_checkout_cancel")])
+    return InlineKeyboardMarkup(inline_keyboard=markup_rows)
 
 
 def cart_ai_clear_confirm_keyboard(cart_fingerprint: str) -> InlineKeyboardMarkup:
@@ -130,7 +166,7 @@ def cart_ai_clear_confirm_keyboard(cart_fingerprint: str) -> InlineKeyboardMarku
 # «📦 سفارش‌هایِ من» (W2 · C4)
 # =============================================================================
 def my_orders_list_keyboard(keys: list[str], page: int, total_groups: int, page_size: int = 5, first_index: int = 1) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text=f"🔎 سفارشِ {first_index + i}", callback_data=f"myord_view:{key}")] for i, key in enumerate(keys)]
+    rows = _chunks([InlineKeyboardButton(text=f"🔎 سفارشِ {first_index + i}", callback_data=f"myord_view:{key}") for i, key in enumerate(keys)])
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="⬅️ قبلی", callback_data=f"myord_page:{page - 1}"))
@@ -142,16 +178,24 @@ def my_orders_list_keyboard(keys: list[str], page: int, total_groups: int, page_
 
 
 def my_order_card_keyboard(key: str, *, can_invoice: bool, can_cancel: bool, digital_order_ids: list[int], page: int = 0, can_pay: bool = False) -> InlineKeyboardMarkup:
+    """دکمه‌هایِ کارتِ سفارش. لغو عمداً آخر و تنهاست: همین‌جا تاییدیهٔ دوم ندارد و یکِ کلیکِ
+    اشتباه در ردیفِ دونفره یعنی سفارشی که مشتری منظورش را نداشت، می‌رود."""
     rows = []
+    actions = []
     if can_pay:
-        rows.append([InlineKeyboardButton(text="💳 پرداخت", callback_data=f"pm_menu:{key}")])
+        actions.append(InlineKeyboardButton(text="💳 پرداخت", callback_data=f"pm_menu:{key}"))
     if can_invoice:
-        rows.append([InlineKeyboardButton(text="📄 فاکتور", callback_data=f"myord_inv:{key}")])
-    for order_id in digital_order_ids[:5]:
-        rows.append([InlineKeyboardButton(text="📥 دریافتِ دوباره", callback_data=f"dl_again:{order_id}")])
+        actions.append(InlineKeyboardButton(text="📄 فاکتور", callback_data=f"myord_inv:{key}"))
+    rows.extend(_chunks(actions))
+    rows.extend(
+        _chunks([
+            InlineKeyboardButton(text="📥 دریافتِ دوباره", callback_data=f"dl_again:{order_id}")
+            for order_id in digital_order_ids[:5]
+        ])
+    )
+    rows.append([InlineKeyboardButton(text="⬅️ برگشت به فهرست", callback_data=f"myord_page:{page}")])
     if can_cancel:
         rows.append([InlineKeyboardButton(text="❌ لغوِ سفارش", callback_data=f"myord_cancel:{key}")])
-    rows.append([InlineKeyboardButton(text="⬅️ برگشت به فهرست", callback_data=f"myord_page:{page}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -174,7 +218,10 @@ def cart_suggest_keyboard(products: list, show_cart_row: bool = False) -> Inline
 def payment_methods_keyboard(key: str, methods: list[str]) -> InlineKeyboardMarkup:
     from app.bots.shop_bot.texts import PAY_METHOD_LABELS
 
-    rows = [[InlineKeyboardButton(text=PAY_METHOD_LABELS[m], callback_data=f"pm_{m}:{key}")] for m in methods if m in PAY_METHOD_LABELS]
+    rows = _chunks(
+        [InlineKeyboardButton(text=PAY_METHOD_LABELS[m], callback_data=f"pm_{m}:{key}") for m in methods if m in PAY_METHOD_LABELS],
+        max_label=26,
+    )
     rows.append([InlineKeyboardButton(text="❌ لغوِ سفارش", callback_data=f"myord_cancel:{key}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -182,8 +229,10 @@ def payment_methods_keyboard(key: str, methods: list[str]) -> InlineKeyboardMark
 def receipt_keyboard(key: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📎 ارسالِ رسید", callback_data=f"pay_receipt:{key}")],
-            [InlineKeyboardButton(text="⬅️ روشِ دیگه", callback_data=f"pm_menu:{key}")],
+            [
+                InlineKeyboardButton(text="📎 ارسالِ رسید", callback_data=f"pay_receipt:{key}"),
+                InlineKeyboardButton(text="⬅️ روشِ دیگه", callback_data=f"pm_menu:{key}"),
+            ],
             [InlineKeyboardButton(text="❌ لغوِ سفارش", callback_data=f"myord_cancel:{key}")],
         ]
     )

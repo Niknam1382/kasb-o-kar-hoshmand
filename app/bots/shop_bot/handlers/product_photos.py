@@ -30,17 +30,17 @@ def card_caption(product: Product) -> str:
 
 
 def card_keyboard(product: Product) -> InlineKeyboardMarkup:
-    rows = []
+    buttons = []
     if product.is_active:
-        rows.append([InlineKeyboardButton(text="➕ افزودن به سبد", callback_data=f"cart_add:{product.id}")])
-    rows.append([InlineKeyboardButton(text="🛒 دیدنِ سبدِ خرید", callback_data="cart_view")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+        buttons.append(InlineKeyboardButton(text="➕ افزودن به سبد", callback_data=f"cart_add:{product.id}"))
+    buttons.append(InlineKeyboardButton(text="🛒 دیدنِ سبدِ خرید", callback_data="cart_view"))
+    return InlineKeyboardMarkup(inline_keyboard=[buttons])  # P22: دونادونه، نه دو ردیفِ بلند
 
 
 def which_keyboard(products: list[Product]) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=f"🖼 {p.name}"[:60], callback_data=f"cart_photo:{p.id}")] for p in products[:8]]
-    )
+    buttons = [InlineKeyboardButton(text=f"🖼 {p.name}"[:60], callback_data=f"cart_photo:{p.id}") for p in products[:8]]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]  # P22: نگارستان دونادونه
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _send_card(bot: Bot, main_bot: Bot, product: Product, chat_id: int) -> bool:

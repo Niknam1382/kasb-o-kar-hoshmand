@@ -111,6 +111,7 @@ TEST_FILES = [
     "test_p21_growth.py",
     "test_p21_access.py",
     "test_p21_security.py",
+    "test_customer_keyboard_layout.py",
 ]
 
 
