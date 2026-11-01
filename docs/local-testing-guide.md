@@ -44,7 +44,7 @@ python3 tests_manual/run_all_tests.py     # کلِ مجموعه‌ی تست رو
 هر فایلِ تست رو هم می‌شه تکی اجرا کرد:
 
 ```bash
-python3 tests_manual/test_message_debounce.py
+python3 tests_manual/run_one.py test_message_debounce.py
 ```
 
 ## چرا هر فایل یه ساب‌پروسسِ جداست

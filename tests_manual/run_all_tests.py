@@ -9,11 +9,12 @@
 """
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+import db_env  # هم‌کناریِ همین فایل در tests_manual/
 
 TEST_DIR = Path(__file__).parent
 
@@ -118,6 +119,10 @@ TEST_FILES = [
 def main() -> int:
     results: list[tuple[str, bool, float, str]] = []
 
+    # P22: دیتابیسِ جدا (kasbokar_test) + مایگریشنِ یک‌بار، تا اجرایِ سوئیت دادهٔ پنل را نابود نکند.
+    db_env.prepare()
+    print(f"دیتابیسِ تست: {db_env.TEST_DB_NAME} (رشتهٔ اتصال چاپ نمی‌شود)")
+
     for filename in TEST_FILES:
         path = TEST_DIR / filename
         print(f"\n{'=' * 70}\n▶ {filename}\n{'=' * 70}")
@@ -127,7 +132,9 @@ def main() -> int:
                 [sys.executable, str(path)],
                 cwd=str(TEST_DIR.parent),
                 # تست‌هایِ ادمین آیدیِ ۱۲۳۴۵ را فرض می‌کنن؛ متغیرِ محیطی بر `.env` (مثلاً .envِ واقعیِ شما با آیدیِ ادمینِ خودتان) غالب است.
-                env={**os.environ, "ADMIN_TELEGRAM_IDS": "12345"},
+                # P22: DATABASE_URL هم به `kasbokar_test` تبدیل می‌شود — هر فایلِ تست TRUNCATE
+                # می‌زند و رویِ دیتابیسِ توسعه، تنظیماتی که ادمین در پنل نوشته پاک می‌شد.
+                env=db_env.child_env(),
                 capture_output=True,
                 text=True,
                 timeout=60,

@@ -19,7 +19,11 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
 - `docker compose build` **حتماً** بعد از هر تعویضِ فایل‌ها (کد موقعِ build توی ایمیج کپی می‌شه؛ بدونش تست‌هایِ قدیمی اجرا می‌شن).
 - خروجیِ سالم: آخرِ خروجی «✅ همه‌ی فایل‌هایِ تست با موفقیت پاس شدن» و یه جمع‌بندی از تعدادِ فایل/تست.
 - **آخرین عددِ تاییدشده: ۵۲ فایل / ۳۰۴ تست** (Docker، ۲۰۲۶-۱۰-۰۷). **عددِ انتظارِ فعلی (W1 + W2 + W3 + W4): ۵۹ فایل / ۳۷۰ تست** (و `alembic upgrade head` باید به `d4a9c6e2b8f1` برسه؛ آخرین Docker-تاییدشده: ۵۶/۳۳۱). اگه عددِ قبلی رو دیدی یعنی zipِ جدید جایگزین نشده یا build نشده.
-- یه فایلِ تکی: `docker compose run --rm bot python3 tests_manual/test_crm.py`
+- یه فایلِ تکی: `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py`
+  (P22: هر دو دستور رویِ دیتابیسِ جدا `kasbokar_test` اجرا می‌شوند؛ اجرایِ مستقیمِ فایلِ تست رویِ
+  `kasbokar` با پیامِ فارسی متوقف می‌شود، چون `reset_database()` همه‌یِ جدول‌ها را خالی می‌کند
+  و تنظیماتِ پنلِ ادمین را از بین می‌برد. اگر جایی عمداً خواستی رویِ دیتابیسِ دیگر اجرا کنی:
+  `RESET_DB_CONFIRM=1`.)
 - مایگریشن‌هایِ سالم: بعد از `alembic upgrade head` آخرین خط باید به `d4a9c6e2b8f1` برسه (`docker compose run --rm bot alembic heads` فقط یه head نشون می‌ده).
 
 ### اگه چیزی fail شد
@@ -123,4 +127,4 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
 تغییرِ عمدیِ تست‌هایِ قدیمی: جریانِ چک‌اوت، ویرایشِ سبد با AI (حالا پیشنهاد + «✅ اعمال»)، اعلانِ خودکارِ تاییدِ دستیِ سفارشِ فیزیکی، و دکمه‌یِ تازه‌یِ پنلِ ادمین.
 
 ## اجرایِ تست‌ها با `.env`ِ واقعی
-تست‌هایِ ادمین آیدیِ `12345` را فرض می‌کنن. `run_all_tests.py` خودش `ADMIN_TELEGRAM_IDS=12345` را به هر تست می‌دهد (متغیرِ محیطی بر `.env` غالب است)، پس می‌تونی `.env`ِ واقعی‌ات (با توکن‌ها و آیدیِ ادمینِ خودت) را نگه داری. اگه تکی اجرا می‌کنی: `docker compose run --rm -e ADMIN_TELEGRAM_IDS=12345 bot python tests_manual/test_xxx.py`.
+تست‌هایِ ادمین آیدیِ `12345` را فرض می‌کنن. `run_all_tests.py` خودش `ADMIN_TELEGRAM_IDS=12345` را به هر تست می‌دهد (متغیرِ محیطی بر `.env` غالب است)، پس می‌تونی `.env`ِ واقعی‌ات (با توکن‌ها و آیدیِ ادمینِ خودت) را نگه داری. اگه تکی اجرا می‌کنی: `docker compose run --rm bot python tests_manual/run_one.py test_xxx.py` (همان دو متغیرِ محیطی را خودش می‌دهد).

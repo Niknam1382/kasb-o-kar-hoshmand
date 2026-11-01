@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 from typing import Any
 
 from aiogram import Bot, Dispatcher
@@ -303,7 +304,20 @@ async def reset_database() -> None:
     """
     from sqlalchemy import text
 
+    from app.config import settings
     from app.database.session import session_scope
+    from db_env import is_test_database
+
+    # P22: TRUNCATE فقط رویِ دیتابیسِ تست. تا پیشِ این، اجرایِ سوئیت رویِ `kasbokar`
+    # هر چیزی را که ادمین در پنل نوشته بود (برند، قیمت‌ها، کلیدها، فروشگاه‌ها) پاک می‌کرد.
+    if not is_test_database() and os.environ.get("RESET_DB_CONFIRM") != "1":
+        dbname = (settings.database_url or "").rsplit("/", 1)[-1].split("?")[0]
+        raise SystemExit(
+            f"❌ اجرایِ تست رویِ دیتابیس «{dbname}» متوقف شد: این دیتابیسِ توسعه/کاری است و "
+            "reset_database() همه‌یِ جدول‌هایش را خالی می‌کند. "
+            "با «python3 tests_manual/run_all_tests.py» اجرا کن (خودکار به kasbokar_test می‌رود) "
+            "یا اگر عمداً می‌دانی چه می‌کنی RESET_DB_CONFIRM=1 بده."
+        )
 
     async with session_scope() as session:
         result = await session.execute(

@@ -74,7 +74,8 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
 مجموعاً **۵۹ فایلِ تست و ۳۷۰ تستِ جداگانه** (آخرین اجرایِ Docker-تاییدشده: ۵۲ فایل/۳۰۴ تست، ۲۰۲۶-۱۰-۰۷؛ فازِ ۱ تا P1-S5a Docker-تاییدشده (۵۶/۳۳۱)؛ موج‌هایِ W1 [P1-S3]، W2 [P1-S4: وضعیتِ سفارش/«سفارش‌هایِ من»/فاکتور]، W3 [کارت‌به‌کارت با رسید] و W4 [بله‌پی/زرین‌پالِ هر فروشگاه] منتظرِ اجرایِ Docker؛ بعد از هر تغییر `docker compose build` رو یادت نره). برایِ سنجشِ ظرفیت: `tests_manual/load_simulation.py`. فقط یه فایل:
-`docker compose run --rm bot python3 tests_manual/test_crm.py`. جزئیات و چک‌لیستِ تستِ دستیِ تلگرام: `docs/testing-guide.md`.
+`docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
+`kasbokar_test` اجرا می‌شود تا تنظیماتِ پنلِ تو پاک نشود). جزئیات و چک‌لیستِ تستِ دستیِ تلگرام: `docs/testing-guide.md`.
 
 بررسیِ استاتیکِ سریع (بدونِ Docker): `python3 scripts/check_refs.py` و `python3 scripts/check_attrs.py`.
 
