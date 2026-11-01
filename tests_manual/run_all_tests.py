@@ -116,6 +116,7 @@ TEST_FILES = [
     "test_p22_wallet_months_and_wording.py",
     "test_p22_bale_token_in_panel.py",
     "test_p22_shipping_coordination.py",
+    "test_p22_seed_cleanup_safety.py",
 ]
 
 
