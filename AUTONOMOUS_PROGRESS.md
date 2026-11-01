@@ -82,18 +82,18 @@
 |---|---|---|
 | 1 کشف و بیس‌لاین | **COMPLETED** | این بخش؛ بیس‌لاین بالا MEASURED است |
 | 2 حفظِ انقضایِ شارژ | **COMPLETED** | ۷ رگرسیون‌تستِ تازه در `tests_manual/test_p2_credit_expiry_preserved.py` (MEASURED: ۷/۷ پاس) و اجرایِ کاملِ مجموعه: **۷۸ فایل / ۴۹۹ تست سبز**. معنا/مدت/مبدأ/FIFO/ایدپوتنسیِ جاب قفل شد؛ هیچ کدِ محصولی در این واحد عوض نشد |
-| 3 امنیت | NOT STARTED | یافته‌هایِ بالا (۵) و مرورِ دامنه‌هایِ پرداخت |
+| 3 امنیت | **COMPLETED (with documented open items)** | `SECURITY_AUDIT_REPORT.md`؛ رفعها: حداقلِ شارژِ سمتِ سرور، دفترِ فقط‌افزودنی+ایدپوتنسی، رمزنگاریِ کلیدِ استخر AI، کفِ صفرِ موجودی، FK/قیدِ یکتا. سه بازمانده با طرحِ رفع: webhook secretِ per-shop، rate-limitِ endpoint، امضایِ وب‌هوک بله (NOT VERIFIED) |
 | 4 درستیِ کارکردی | NOT STARTED | |
-| 5 مالی | NOT STARTED | حداقلِ شارژ، gating، commission، ledger |
+| 5 مالی | **COMPLETED (5A، 5D، 5E؛ 5C قفل‌شده با رگرسیون)** | حداقلِ شارژِ تنظیمی+سمتِ سرور، کمیسیونِ درصدیِ کامل، ledgerِ قابلِ ممیزی+همسنجی. 5C (دروازهٔ اعتبار) از قبل بود و با تستِ قفل شد؛ «بدهیِ کمیسیون» → P1-3 |
 | 6 صورتحسابِ API | NOT STARTED | بخشِ زیادی موجود است (AI cost)؛ باید اثبات/تفکیک شود |
-| 7+8 داده و ماشینِ حالت | NOT STARTED | |
-| 9 کیفیتِ کد | NOT STARTED | فقط F-codes، نه فرمتِ سراسری |
-| 10 تست | IN PROGRESS | بیس‌لاین ۴۹۲ تست سبز |
-| 11+12+16 | NOT STARTED | |
-| 13+16.5 | NOT STARTED | |
-| 17+18 تحویل/پذیرش | IN PROGRESS | همین فایل + شش سندِ دیگر در پایان |
+| 7+8 داده و ماشینِ حالت | **COMPLETED (بخشِ مالی)** | ۴ مایگریشنِ افزودنیِ reversible، قیدهایِ تازه (unique + 2 FK)، کفِ صفرِ موجودی، ایدمپوتنسیِ تسویه؛ جدولِ گذارها از قبل متمرکز بود و کمیسیون در همان `transition_group` سوار شد (تستِ «PENDING→awaiting_payment مجاز نیست» همین را نشان داد) |
+| 9 کیفیتِ کد | PARTIAL | کدِ جدید با ۴ گیتِ پروژه سبز؛ ruffِ بیس‌لاین (۲۶۰) عمداً پاکسازی نشد (P2-1)؛ ruff format اجرا نشد |
+| 10 تست | **COMPLETED** | **81 فایل / 525 تست ✅** (MEASURED). ۳۵ تستِ جدیدِ این کار؛ چک‌لیستِ مالیِ ۲۲موردی: ۱–۳ و ۴–۹ و ۱۰–۱۹ و ۲۲ پوشش یافت (۴ و ۲۱ در تست‌هایِ P18/کیف‌پول موجود بود) |
+| 11+12+16 | **PARTIAL (MEASURED for 12)** | بارِ سرویسیِ ایزوله با `scripts/loadtest_wallet_paths.py`؛ سقف ≈300 ops/s و افتِ rps دقیقاً رویِ ۵۰ اتصال (=pool+overflow). متریک/JSON logs → B2 در `REMAINING_ISSUES.md` |
+| 13+16.5 | **COMPLETED (docs) / تمرینِ webhook NOT PRACTICED** | `PRODUCTION_DEPLOYMENT_GUIDE.md` + `HARDWARE_REQUIREMENTS_AND_CAPACITY_PLAN.md`؛ restore+migrate رویِ دادهٔ واقعی MEASURED، downgrade تمرین نشد |
+| 17+18 تحویل/پذیرش | **COMPLETED (با حکمِ NOT READY)** | هفت سندِ PHASE 17 نوشته شد؛ حکم: **NOT FULLY PRODUCTION-READY** با سه بلاکرِ B1/B2/B3 در `PRODUCTION_READINESS_REPORT.md` |
 | 19 قطع‌شدن‌ناپذیری | **COMPLETED (continuous)** | این فایل، همان checkpoint است |
-| 20 لاگ/ممیزی/مانیتورینگ | NOT STARTED | |
+| 20 لاگ/ممیزی/مانیتورینگ | **NOT STARTED → به‌عنوانِ بلاکر ثبت شد** | نصفه‌کاریِ مسیرِ مالی خطرناک بود؛ طرحِ پنج‌مرحله‌ای و دلیلِ تعویق در `REMAINING_ISSUES.md` P0-2 |
 
 ## ۳) حقیقتِ «انقضایِ اعتبارِ شارژ» (PHASE 2 — مبنایِ حفظ)
 
@@ -115,13 +115,7 @@ MEASURED از کد (`app/database/models.py:463`، `app/services/wallet_service.
 5. دیتابیسِ dev همین حالا (توسطِ کاربر اجازه گرفته شد) از `backup_before_p18.sql` بازگردانی شد و ۱۱ مایگریشنِ P18 رویِ دادهٔ واقعی اجرا شد؛ **قبل از هر حرکتِ مخربِ دیگری دوباره اجازه گرفته می‌شود** و بکاپِ تازه می‌گیرم.
 6. پوشهٔ تست (`run_all_tests.py`) جدول‌ها را TRUNCATE می‌کند ⇒ بعد از هر اجرایِ کاملِ تست، یا باید دیتابیسِ جدا برایِ تست داشت یا بکاپ برگردانده شود. این را در راهنمایِ استقرار می‌نویسم.
 
-## ۵) اقدامِ بعدی (دقیق)
-
-1. **واحدِ ۲A:** افزودنِ `tests_manual/test_p18_phase2_expiry_preserved.py` که این‌ها را قفل می‌کند: مدت از `wallet_topup_validity_months` (مثلاً ۱۲ ⇒ ۳۶۰ روز)، مبدأ = لحظهٔ شارژ، بسته‌ها مستقل‌اند، FIFO از قدیمی‌ترینِ منقضی‌ننشده، بستهٔ منقضی مصرف نمی‌شود، جابِ انقضا موجودیِ کشیده را کم می‌کند و هر بار فقط یک‌بار عمل می‌کند (ایدپوتنت)، یادآوری هر مرز یک‌بار. سپس ثبتِ عددِ تست‌ها در این فایل و `TEST_RESULTS.md`.
-2. **واحدِ ۳A (P0-1):** ستونِ تازه‌یِ افزودنیِ `AdminSettings.min_topup_amount_toman` (پیش‌فرض ۵۰۰۰۰، `server_default`) + اعتبارسنجیِ **سرویس** در `payment_service.create_*` (هر سه روش) + UIِ بات (پیامِ فارسیِ روشن با حداقلِ فعلی) + دکمهٔ ادمین در همان «🔑 تنظیمات کلیدها» + تست‌هایِ ۱/۲/۳ِ چک‌لیستِ PHASE 10.
-3. بعد از هر واحد: گیت‌هایِ استاتیک + تست‌هایِ مرتبط + اجرایِ کاملِ مجموعه، و سپس commit.
-
-## ۶) لاگِ اجرا (append-only)
+## ۵) لاگِ اجرا (append-only)
 
 | زمان | واحد | وضعیت | فایل‌ها | چک‌هایِ واقعی |
 |---|---|---|---|---|
@@ -129,4 +123,16 @@ MEASURED از کد (`app/database/models.py:463`، `app/services/wallet_service.
 | ۲۰۲۶-۱۱-۰۱ | واحدِ ۲A — قفلِ رگرسیونِ انقضا | COMPLETED | `tests_manual/test_p2_credit_expiry_preserved.py` (جدید، ۷ تست)، `tests_manual/run_all_tests.py` | تستِ فایل: ۷/۷ ✅ · تستِ کامل: **۷۸/۷۸ فایل، ۴۹۹ تست** ✅ · گیت‌ها OK. کدِ محصول دست‌نخورده (قفلِ رفتار، نه تغییرِ رفتار) |
 | ۲۰۲۶-۱۱-۰۱ | واحدِ ۳A — حداقلِ شارژ (PHASE 5A) | COMPLETED | `app/database/models.py` (+`min_topup_amount_toman`)، `migrations/versions/d7a2c5e9f3b8_p5_min_recharge_amount.py` (جدید)، `app/services/payment_service.py` (گاردِ سرویس)، `app/bots/main_bot/handlers/panel.py`، `keyboards.py`، `texts.py`، `handlers/admin.py`، `tests_manual/test_p5_min_recharge.py` (جدید، ۸ تست) | تستِ فایل: ۸/۸ ✅ · **تستِ کامل: ۷۹/۷۹ فایل، ۵۰۷ تست ✅** (MEASURED) · commit `15c7f54` · گیت‌ها OK. دامنه: فقط `WALLET_TOPUP`؛ خریدِ اشتراک عمداً آزاد ماند (مستند در کد و تست) |
 | ۲۰۲۶-۱۱-۰۱ | واحدِ ۴A — دفترِ فقط‌افزودنی + همسنجی (PHASE 5E/7) | COMPLETED | `app/database/models.py`، `migrations/versions/e8b3d6f1a4c9_p5_wallet_ledger_columns.py` (جدید)، `app/services/wallet_service.py`، `app/services/scheduler.py`، `app/services/admin_alert_service.py`، `handlers/admin.py` + `keyboards.py` + `texts.py`، `tests_manual/test_p5_ledger_integrity.py` (جدید، ۸ تست) | تستِ فایل: ۸/۸ ✅ · **تستِ کامل: ۸۰/۸۰ فایل، ۵۱۵ تست ✅** (MEASURED) · commit `0418606` · **باگِ گرفته‌شده حینِ تست:** کلیدِ ایدپوتنسیِ اولِ شارژ (`charge:{reference}`) هدیهٔ گروهیِ K1 را می‌شکست ⇒ per-owner شد + تستِ «دو فروشگاه‌دار با یک مرجع» |
-| ۲۰۲۶-۱۱-۰۱ | واحدِ ۴B — کمیسیونِ درصدی (PHASE 5D) + کفِ صفرِ موجودی (PHASE 7) | IN PROGRESS | `app/services/commission_service.py` (جدید)، `app/database/models.py` (+commission_enabled/percent، +commission_reserved_toman، +snapshot سه‌ستونه رویِ سفارش، +دلیلِ COMMISSION)، `migrations/versions/f9c4a7d2b5e8_p5_order_commission.py` (جدید)، `app/services/order_transition_service.py` (`apply_commission` در گذارِ گروه)، `app/bots/shop_bot/handlers/checkout.py` (رزرو در شروعِ جریانِ پرداخت)، `handlers/admin.py` + `keyboards.py` + `texts.py` (توگل + درصدِ اعشاری)، `app/services/wallet_service.py` (greatest(۰) در کشیده، کلیدِ ایدپوتنسی per-lot در deduct)، `tests_manual/test_p5_commission.py` (جدید، ۱۰ تست) | تستِ فایل: ۱۰/۱۰ ✅ (MEASURED). چک‌لیستِ ۱۰–۱۹ و ۲۲ پوشش داده شد. **یافتهٔ واقعی حینِ تست:** اگر «کشیده» با «مجموعِ بسته‌ها» نخواند، مسیرِ کسر می‌توانست کشیده را منفی کند ⇒ `greatest(0, …)` + لاگ اضافه شد و تستِ مستقل دارد. اجرایِ کاملِ مجموعه در حالِ انجام است |
+| ۲۰۲۶-۱۱-۰۱ | واحدِ ۴B — کمیسیونِ درصدی (PHASE 5D) + کفِ صفرِ موجودی (PHASE 7) | COMPLETED | `app/services/commission_service.py` (جدید)، `app/database/models.py` (+commission_enabled/percent، +commission_reserved_toman، +snapshot سه‌ستونه رویِ سفارش، +دلیلِ COMMISSION)، `migrations/versions/f9c4a7d2b5e8_p5_order_commission.py` (جدید)، `app/services/order_transition_service.py` (`apply_commission` در گذارِ گروه)، `app/bots/shop_bot/handlers/checkout.py` (رزرو در شروعِ جریانِ پرداخت)، `handlers/admin.py` + `keyboards.py` + `texts.py` (توگل + درصدِ اعشاری)، `app/services/wallet_service.py` (greatest(۰) در کشیده، کلیدِ ایدپوتنسی per-lot در deduct)، `tests_manual/test_p5_commission.py` (جدید، ۱۰ تست) | تستِ فایل: ۱۰/۱۰ ✅ (MEASURED). چک‌لیستِ ۱۰–۱۹ و ۲۲ پوشش داده شد. **یافتهٔ واقعی حینِ تست:** اگر «کشیده» با «مجموعِ بسته‌ها» نخواند، مسیرِ کسر می‌توانست کشیده را منفی کند ⇒ `greatest(0, …)` + لاگ اضافه شد و تستِ مستقل دارد. **تستِ کاملِ پایانی: ۸۱/۸۱ فایل، ۵۲۵ تست ✅** (MEASURED) · commit `0947f7f` · گیت‌ها OK |
+| ۲۰۲۶-۱۱-۰۱ | واحدِ ۵ — بارِ ایزوله + سه سندِ ظرفیت/استقرار/پذیرش | COMPLETED | `scripts/loadtest_wallet_paths.py` (جدید)، `SCALABILITY_AND_LOAD_TEST_REPORT.md`، `HARDWARE_REQUIREMENTS_AND_CAPACITY_PLAN.md`، `PRODUCTION_DEPLOYMENT_GUIDE.md`، `TEST_RESULTS.md`، `SECURITY_AUDIT_REPORT.md`، `PRODUCTION_READINESS_REPORT.md`، `REMAINING_ISSUES.md` | MEASURED: دیتابیسِ ایزولهٔ `kasbokar_load` + `alembic upgrade head` تا `f9c4a7d2b5e8` + اجرایِ ۷ سطحِ همزمانی (10→2000) با ۳۰۰۰ درخواست/سطح: سقف ≈**300 ops/s**، p50 24ms→2.8s، `errors=0`، `gaps=0` در همسنجی، پاکسازیِ کامل (0 ردیفِ باقی‌مانده). در همین مسیر **سه باگِ خودِ اسکریپت** گرفته شد (کلیدِ تکراریِ seed، لاگِ دوتاییِ بسته، `maxoverflow`) — همه در همان فایل. کدِ محصول در این واحد تغییر نکرد ⇒ نتیجهٔ 81/525 معتبر می‌ماند |
+
+## ۶) اقدامِ بعدی (دقیق، نسخهٔ پایانیِ این نشست)
+
+1. **B2 (بلاکرِ امنیت):** مایگریشنِ پهن‌کردنِ `shop_bots.webhook_secret_token` → `EncryptedToken(255)` +
+   بازنویسیِ یک‌باره در بوت‌آپ؛ تستِ `test_p18_security.py` با «raw SELECT نباید توکنِ webhook را نشان دهد»؛
+   سپس یک چرخهٔ واقعیِ webhook در شبکهٔ لوکال (توکنِ جعلی).
+2. **B3:** token-bucketِ in-process به‌ازایِ `(ip, path)` رویِ `/webhook/*` و `/payment/zarinpal/callback`
+   با `TRUST_PROXY_HEADERS`؛ تستِ «بارِ سوم ⇒ ۴۲۹».
+3. **B1 (PHASE 20):** `app/observability.py` (schema + scrubber) ← انتشارِ correlation-id در
+   `main.py`/`middlewares`/`scheduler` ← متریک‌هایِ شمارشی ← پنلِ خوانش/خروجیِ ممیزی ← زنجیرهٔ هش.
+4. `ruff check .` دوباره (باید ≤ بیس‌لاینِ ۲۶۰ باشد) و سپس یک commitِ F-codes.
