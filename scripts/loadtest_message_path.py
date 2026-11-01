@@ -51,6 +51,7 @@ from app.database.session import engine, session_scope  # noqa: E402
 from app.services import (  # noqa: E402
     conversation_service,
     customer_service,
+    platform_service,
     shop_bot_service,
     wallet_service,
 )
@@ -136,23 +137,23 @@ async def _cleanup() -> int:
     return left
 
 
-async def _one_message(bot_telegram_id: int, customer_id: int, customer_tid: int, text: str) -> tuple[bool, float]:
+async def _one_message(bot_telegram_id: int, customer_tid: int, text: str) -> tuple[bool, float]:
     """همان ترتیبِ کارِ یکِ آپدیتِ ورودی، بدونِ AI و بدونِ تلگرام."""
     started = time.perf_counter()
     async with session_scope() as session:
         shop_bot = await shop_bot_service.get_by_platform_bot_id(session, bot_telegram_id, bale=False)
         if shop_bot is None:
             return False, (time.perf_counter() - started) * 1000.0
-        await shop_middlewares.is_blocked(session, ShopBot.bot_telegram_id, bot_telegram_id, customer_tid, "telegram")
+        await shop_middlewares.is_blocked(session, ShopBot.bot_telegram_id, bot_telegram_id, customer_tid, platform_service.TELEGRAM)
         owner = await session.get(ShopOwner, shop_bot.shop_owner_id)
-        await customer_service.get_or_create_customer(session, shop_bot.id, customer_id, None, None)
-        await conversation_service.get_recent_history(session, customer_id, limit=20)
-        await conversation_service.save_turn(session, customer_id, text, "پاسخِ کوتاهِ آزمایشی")
+        customer = await customer_service.get_or_create_customer(session, shop_bot.id, customer_tid, None, None)
+        await conversation_service.get_recent_history(session, customer.id, limit=20)
+        await conversation_service.save_turn(session, customer.id, text, "پاسخِ کوتاهِ آزمایشی")
         await wallet_service.deduct(session, owner, DEDUCT_TOMAN, WalletTransactionReason.CHAT_MESSAGE)
     return True, (time.perf_counter() - started) * 1000.0
 
 
-async def _wave(concurrency: int, shops: list[tuple[int, int, list[int]]], requests: int, single_owner: bool) -> dict:
+async def _wave(concurrency: int, shops: list[tuple[int, int, list[tuple[int, int]]]], requests: int, single_owner: bool) -> dict:
     latencies: list[float] = []
     failures = 0
     started = time.perf_counter()
@@ -162,8 +163,9 @@ async def _wave(concurrency: int, shops: list[tuple[int, int, list[int]]], reque
             index = offset + i
             shop = shops[0] if single_owner else shops[index % len(shops)]
             _shop_bot_id, bot_telegram_id, customers = shop
-            customer_id, customer_tid = customers[index % len(customers)]
-            batch.append(_one_message(bot_telegram_id, customer_id, customer_tid, f"msg-{index}"))
+            # customer_idِ جدول لازم نیست: مسیرِ واقعی هم فقط telegram_id را از تلگرام می‌گیرد
+            _customer_id, customer_tid = customers[index % len(customers)]
+            batch.append(_one_message(bot_telegram_id, customer_tid, f"msg-{index}"))
         for ok, ms in await asyncio.gather(*batch):
             latencies.append(ms)
             failures += 0 if ok else 1

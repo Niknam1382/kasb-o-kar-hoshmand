@@ -157,7 +157,11 @@ async def main() -> int:
     if errors:
         problems.append(f"{len(errors)} خطا توی لاگ (احتمالاً pool timeout / 429 / خطایِ دیتابیس)")
     if max_checked_out >= settings.db_pool_size + settings.db_max_overflow:
-        problems.append("استخرِ دیتابیس کاملاً پر شد → DB_POOL_SIZE / DB_MAX_OVERFLOW رو زیاد کن (و max_connections پستگرس رو چک کن)")
+        problems.append(
+            "استخرِ دیتابیس کاملاً پر شد → DB_POOL_SIZE را زیاد کن (P20-F اندازه گرفت که "
+            "اتصال‌هایِ DB_MAX_OVERFLOW در اوج، توان را تا ۲٫۸ برابر کم می‌کنند؛ پس استخرِ ثابت "
+            "بهتر از سرریزِ موقت است) و max_connections پستگرس را چک کن"
+        )
     if fake.max_active >= settings.ai_max_concurrent_calls:
         print(
             "ℹ️ سقفِ فراخوانیِ هم‌زمانِ AI پر شد؛ فراخوانی‌هایِ اضافه صف کشیدن (طبیعیه؛ اگه جواب‌ها خیلی دیر شد، "

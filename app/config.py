@@ -20,10 +20,18 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str
-    # ظرفیت (فازِ ۶-الف): اندازه‌یِ استخرِ اتصال‌هایِ دیتابیس و سقفِ فراخوانی‌هایِ هم‌زمانِ AI.
-    # مجموعِ pool_size+max_overflow باید از max_connections پستگرس (پیش‌فرض ۱۰۰) کمتر بمونه.
-    db_pool_size: int = 20
-    db_max_overflow: int = 30
+    # ظرفیت (فازِ ۶-الف · بازمهندسیِ P20-F): اندازه‌یِ استخرِ اتصال‌هایِ دیتابیس.
+    # بارسنجیِ E (دیتابیسِ جدا، ۲۰۰۰ پیام در هر سطح): با `pool=20/overflow=30` در همزمانیِ ۵۰
+    # تنها ۴۸ پیام/ثانیه و میانگینِ ۹۴۶ms گرفتم؛ با همان استخرِ ثابت و `overflow=0` همان بار
+    # ۱۳۶ پیام/ثانیه و ۲۴۵ms شد (سقفِ واقعیِ پروسه ≈ ۱۴۵). علتِ افتِ اولِ «ساختن و بستنِ
+    # اتصالِ اضافه» در هر موج است، نه دیتابیس (pgbench روی همین میزبان ≈ ۲٬۰۰۰ تراکنش/ثانیه).
+    # پس: استخر را به اندازهٔ اوجِ ترافیک بگیر و overflow را صفر بگذار — صفِ کوتاه، بهتر از
+    # پرِتشِ اتصال است. `pool_timeout` هم سقفِ صبرِ یکِ درخواست است (نه زمانِ پاسخِ AI).
+    # نکتهٔ مقیاس: هر پروسهٔ کارگر استخرِ خودش را دارد ⇒ workers × (pool_size+overflow) +
+    # چند اتصالِ مدیریت < max_connections پستگرس (پیش‌فرض ۱۰۰).
+    db_pool_size: int = 25
+    db_max_overflow: int = 0
+    db_pool_timeout: int = 15
     ai_max_concurrent_calls: int = 40
     main_bot_token: str
     admin_telegram_ids: str = ""
