@@ -635,6 +635,8 @@ _INT_FIELDS: dict[str, str] = {
     "wallet_cost_voice_transcription_toman": texts.ADMIN_ASK_WALLET_COST_VOICE_TRANSCRIPTION,
     "wallet_cost_order_detection_toman": texts.ADMIN_ASK_WALLET_COST_ORDER_DETECTION,
     "wallet_topup_validity_months": texts.ADMIN_ASK_WALLET_TOPUP_VALIDITY_MONTHS,
+    # PHASE 5A: کمترینِ مبلغِ شارژِ کیف‌پول (سمتِ سرور هم در payment_service چک می‌شود).
+    "min_topup_amount_toman": texts.ADMIN_ASK_MIN_TOPUP_AMOUNT,
     "wallet_trial_credit_toman": texts.ADMIN_ASK_WALLET_TRIAL_CREDIT,
     "wallet_low_balance_warning_toman": texts.ADMIN_ASK_WALLET_LOW_BALANCE_WARNING,
     "usd_to_toman_rate": texts.ADMIN_ASK_USD_TO_TOMAN_RATE,
@@ -655,6 +657,7 @@ _INT_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset({"referral_reward_value", "ni
 # که اینجا نیستن سقف ندارن.
 _INT_FIELDS_MAX: dict[str, int] = {
     "nightly_report_hour_utc": 23,
+    "min_topup_amount_toman": 10_000_000,
 }
 
 # فیلدهای متنیِ قابل‌خالی‌کردن: اگه کاربر «خالی» بفرسته، به‌جای اینکه رشته‌ی

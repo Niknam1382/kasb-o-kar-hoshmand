@@ -367,7 +367,11 @@ async def cb_topup_start(callback: CallbackQuery, session: AsyncSession) -> None
         await callback.answer(texts.WALLET_TOPUPS_DISABLED, show_alert=True)
         return
     await callback.answer()
-    await callback.message.answer(texts.ASK_TOPUP_AMOUNT, reply_markup=keyboards.topup_amount_keyboard())
+    # PHASE 5A: همان عددی که در سرویس چک می‌شود به UI هم داده می‌شود تا هرگز جدا نیفتند.
+    await callback.message.answer(
+        texts.ASK_TOPUP_AMOUNT,
+        reply_markup=keyboards.topup_amount_keyboard(await payment_service.minimum_recharge_toman(session)),
+    )
 
 
 @router.callback_query(F.data == "cost_calc_start")
@@ -386,15 +390,27 @@ async def cb_cost_calc_volume(callback: CallbackQuery, session: AsyncSession) ->
 
 
 @router.callback_query(F.data.startswith("topup_amount:"))
-async def cb_topup_amount(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_topup_amount(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     choice = callback.data.split(":", 1)[1]
     if choice == "custom":
         await state.set_state(PaymentStates.waiting_topup_amount)
         await callback.answer()
-        await callback.message.answer(texts.ASK_CUSTOM_TOPUP_AMOUNT)
+        await callback.message.answer(texts.custom_topup_prompt(await payment_service.minimum_recharge_toman(session)))
         return
 
-    amount = int(choice)
+    # PHASE 5A: دکمه‌یِ کهنه/دستکاری‌شده (topup_amount:1) باید همان حداقلِ سرویس را رد کند،
+    # وگرنه UI فقط «پیش‌فرض‌هایِ درست» را نشان می‌دهد و callback جعلی از آن رد می‌شود.
+    try:
+        amount = int(choice)
+    except ValueError:
+        await callback.answer(texts.INVALID_TOPUP_AMOUNT_FALLBACK, show_alert=True)
+        return
+    minimum = await payment_service.minimum_recharge_toman(session)
+    if amount < minimum:
+        await callback.answer(texts.topup_below_minimum_toast(minimum), show_alert=True)
+        await callback.message.edit_reply_markup(reply_markup=keyboards.topup_amount_keyboard(minimum))
+        return
+
     await state.update_data(
         duration_months=None,
         purpose=PaymentPurpose.WALLET_TOPUP.value,
@@ -408,13 +424,15 @@ async def cb_topup_amount(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(PaymentStates.waiting_topup_amount, F.text)
-async def topup_custom_amount_received(message: Message, state: FSMContext) -> None:
+async def topup_custom_amount_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    minimum = await payment_service.minimum_recharge_toman(session)
     try:
         amount = int(message.text.strip())
-        if amount < 10_000:
-            raise ValueError
-    except ValueError:
-        await message.answer(texts.INVALID_TOPUP_AMOUNT)
+        await payment_service.ensure_recharge_amount_allowed(
+            session, amount, PaymentPurpose.WALLET_TOPUP
+        )  # PHASE 5A: همان گاردِ سرویس، نه یک عددِ دوباره‌نویسه‌شده در UI
+    except (ValueError, payment_service.MinRechargeAmountError):
+        await message.answer(texts.invalid_topup_amount(minimum))
         return
 
     await state.update_data(

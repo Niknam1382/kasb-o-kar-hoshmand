@@ -313,6 +313,9 @@ class AdminSettings(Base):
 
     # --- تنظیماتِ سیستمِ کیف‌پول (جایگزینِ اشتراکِ ثابت) ---
     wallet_topup_validity_months: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
+    # PHASE 5A: کمترینِ مبلغِ «شارژِ کیف‌پول». تصمیمِ ادمین است، ولی در *سرویسِ* پرداخت
+    # هم چک می‌شود (نه فقط در UI) تا فراخوانِ جعلی یا ورودیِ دستکاری‌شده رد شود.
+    min_topup_amount_toman: Mapped[int] = mapped_column(Integer, default=50_000, server_default="50000", nullable=False)
     wallet_cost_per_1k_tokens_toman: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
     # سه فیلدِ زیر برای محاسبه‌ی خودکارِ wallet_cost_per_1k_tokens_toman از
     # روی فرمول (هزینه‌ی واقعیِ AI × نرخِ ارز × ضریب) هستن — نتیجه توی همون

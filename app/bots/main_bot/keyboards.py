@@ -334,12 +334,12 @@ def cost_calc_volume_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def topup_amount_keyboard() -> InlineKeyboardMarkup:
-    from app.bots.main_bot.texts import TOPUP_AMOUNT_PRESETS_TOMAN, topup_amount_button_label
+def topup_amount_keyboard(minimum_toman: int = 0) -> InlineKeyboardMarkup:
+    from app.bots.main_bot import texts
 
     rows = [
-        [InlineKeyboardButton(text=topup_amount_button_label(amount), callback_data=f"topup_amount:{amount}")]
-        for amount in TOPUP_AMOUNT_PRESETS_TOMAN
+        [InlineKeyboardButton(text=texts.topup_amount_button_label(amount), callback_data=f"topup_amount:{amount}")]
+        for amount in texts.topup_presets_for(minimum_toman)
     ]
     rows.append([InlineKeyboardButton(text="✏️ مبلغ دلخواه", callback_data="topup_amount:custom")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

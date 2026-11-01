@@ -19,6 +19,46 @@ from app.database.models import (
 )
 from app.services import discount_service, referral_service, shop_bot_service, shop_prefs_service, subscription_service, wallet_service
 from app.services.admin_settings_service import get_admin_settings
+from app.utils.validators import format_toman
+
+# PHASE 5A — کمترینِ مبلغِ شارژِ کیف‌پول.
+# قاعدهٔ دامنه (مستند، نه حدس): حداقل فقط رویِ `PaymentPurpose.WALLET_TOPUP` اثر می‌کند، چون خواسته
+# «حداقلِ شارژِ کیف‌پول» است نه «حداقلِ خریدِ اشتراک». مبلغِ *پرداخت‌شده* می‌تواند با کدِ تخفیف کمتر
+# از این عدد شود؛ آنچه مقیده شدنِ شارژ را تعیین می‌کند `base_amount` (مقدارِ اعتبار) است.
+DEFAULT_MIN_TOPUP_TOMAN = 50_000
+MIN_TOPUP_HARD_FLOOR_TOMAN = 1_000  # اگر تنظیمات خراب/صفر/منفی باشد، این کفِ ایمنی در کد می‌ماند
+
+
+class MinRechargeAmountError(ValueError):
+    """مبلغِ شارژ از حداقلِ مجازِ پلتفرم کمتر است. پیامِ فارسی و بدونِ هیچ رازِ فنی."""
+
+    def __init__(self, minimum_toman: int) -> None:
+        self.minimum_toman = minimum_toman
+        super().__init__(f"حداقلِ مبلغِ شارژ {format_toman(minimum_toman)} است.")
+
+
+async def minimum_recharge_toman(session: AsyncSession) -> int:
+    """عددِ مؤثرِ حداقل: تنظیماتِ ادمین، ولی هیچ‌وقت زیرِ کفِ ایمنیِ کد نه."""
+    admin_settings = await get_admin_settings(session)
+    try:
+        configured = int(admin_settings.min_topup_amount_toman)
+    except (TypeError, ValueError):
+        configured = DEFAULT_MIN_TOPUP_TOMAN
+    return max(MIN_TOPUP_HARD_FLOOR_TOMAN, configured)
+
+
+async def ensure_recharge_amount_allowed(session: AsyncSession, base_amount: int, purpose: PaymentPurpose) -> int:
+    """قبلِ ساختِ هر ردیفِ پرداخت صدا می‌شود؛ None نمی‌دهد و در صورتِ نامعبری `MinRechargeAmountError`."""
+    if purpose != PaymentPurpose.WALLET_TOPUP:
+        return 0
+    try:
+        amount = int(base_amount)
+    except (TypeError, ValueError) as exc:
+        raise MinRechargeAmountError(await minimum_recharge_toman(session)) from exc
+    minimum = await minimum_recharge_toman(session)
+    if amount < minimum:
+        raise MinRechargeAmountError(minimum)
+    return amount
 
 
 async def get_by_id(session: AsyncSession, payment_id: int) -> Payment | None:
@@ -89,6 +129,7 @@ async def create_card_to_card_payment(
     duration_months: int | None = None,
     purpose: PaymentPurpose = PaymentPurpose.SUBSCRIPTION,
 ) -> Payment:
+    await ensure_recharge_amount_allowed(session, base_amount, purpose)  # PHASE 5A (سمتِ سرور)
     admin_settings = await get_admin_settings(session)
     # نکته‌ی مهم: تخفیف همین‌جا و به‌صورت داخلی روی base_amount اعمال می‌شه، نه
     # اینکه از caller انتظار بره base_amount از قبل تخفیف‌خورده باشه — این باعث
@@ -126,6 +167,7 @@ async def create_zarinpal_payment(
     duration_months: int | None = None,
     purpose: PaymentPurpose = PaymentPurpose.SUBSCRIPTION,
 ) -> Payment:
+    await ensure_recharge_amount_allowed(session, base_amount, purpose)  # PHASE 5A (سمتِ سرور)
     discounted_amount = discount_service.apply_discount(base_amount, discount) if discount else base_amount
 
     payment = Payment(
@@ -153,6 +195,7 @@ async def create_bale_payment(
     duration_months: int | None = None,
     purpose: PaymentPurpose = PaymentPurpose.SUBSCRIPTION,
 ) -> Payment:
+    await ensure_recharge_amount_allowed(session, base_amount, purpose)  # PHASE 5A (سمتِ سرور)
     discounted_amount = discount_service.apply_discount(base_amount, discount) if discount else base_amount
 
     payment = Payment(

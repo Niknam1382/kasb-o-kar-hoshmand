@@ -98,6 +98,8 @@ TEST_FILES = [
     "test_p18_bot_branding.py",
     "test_p18_ai_model_pool.py",
     "test_p18_pdf_invoice.py",
+    "test_p2_credit_expiry_preserved.py",
+    "test_p5_min_recharge.py",
 ]
 
 

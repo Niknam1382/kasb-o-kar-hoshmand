@@ -413,9 +413,29 @@ def topup_amount_button_label(amount_toman: int) -> str:
     return format_toman(amount_toman)
 
 
+def topup_presets_for(minimum_toman: int) -> list[int]:
+    """پیش‌فرض‌هایی که واقعاً از حداقلِ پلتفرم بالا هستند (اگر ادمین حداقل را ۲۰۰ هزار بگذارد، ۵۰ هزار نباید دیده شود)."""
+    return [amount for amount in TOPUP_AMOUNT_PRESETS_TOMAN if amount >= minimum_toman]
+
+
 ASK_TOPUP_AMOUNT = "می‌خوای چقدر شارژ کنی؟"
-ASK_CUSTOM_TOPUP_AMOUNT = "مبلغِ موردنظرت رو به تومان بنویس (حداقل ۱۰٬۰۰۰ تومان):"
-INVALID_TOPUP_AMOUNT = "لطفاً فقط عدد بنویس (به تومان) و حداقل ۱۰٬۰۰۰ تومان باشه."
+
+
+def custom_topup_prompt(minimum_toman: int) -> str:
+    return f"مبلغِ موردنظرت رو به تومان بنویس (حداقل {format_toman(minimum_toman)}):"
+
+
+def invalid_topup_amount(minimum_toman: int) -> str:
+    return f"لطفاً فقط عدد بنویس (به تومان) و دستِ‌کم {format_toman(minimum_toman)} باشه."
+
+
+INVALID_TOPUP_AMOUNT_FALLBACK = "این مبلغ قابلِ خواندن نبود 🙏 دوباره انتخاب کن."
+
+
+def topup_below_minimum_toast(minimum_toman: int) -> str:
+    return f"حداقلِ شارژِ کیف‌پول {format_toman(minimum_toman)} است."
+
+
 ASK_DISCOUNT_CODE = "اگه کد تخفیف داری بفرست، وگرنه روی «⏭ رد شدن از کد تخفیف» بزن."
 INVALID_DISCOUNT_CODE = "این کد تخفیف معتبر نیست، منقضی شده، یا قبلاً استفادش کردی."
 
@@ -1190,6 +1210,8 @@ ADMIN_ASK_MARKUP_MULTIPLIER = "ضریبِ سودِ شما روی هزینه‌ی
 ADMIN_ASK_WALLET_COST_VOICE_TRANSCRIPTION = "هزینه‌ی هر بار رونویسیِ پیامِ صوتی، به تومان چقدر باشه؟"
 ADMIN_ASK_WALLET_COST_ORDER_DETECTION = "هزینه‌ی پیش‌فرضِ تشخیصِ سفارش (وقتی تعدادِ توکنِ واقعی در دسترس نباشه)، به تومان چقدر باشه؟"
 ADMIN_ASK_WALLET_TOPUP_VALIDITY_MONTHS = "هر بار شارژِ کیف‌پول، چند ماه اعتبار داشته باشه؟"
+# PHASE 5A
+ADMIN_ASK_MIN_TOPUP_AMOUNT = "کمترینِ مبلغِ «شارژِ کیف‌پول» چقدر باشه؟ (تومان، ۱ تا ۱۰٬۰۰۰٬۰۰۰):"
 ADMIN_ASK_WALLET_TRIAL_CREDIT = "اعتبارِ آزمایشیِ رایگانِ فروشگاه‌دارهای جدید، به تومان چقدر باشه؟"
 ADMIN_ASK_WALLET_LOW_BALANCE_WARNING = "از چه موجودی‌ای (به تومان) به پایین‌تر، به فروشگاه‌دار هشدارِ «موجودی کم داره» بدیم؟"
 ADMIN_ASK_GLOBAL_SYSTEM_PROMPT = (
@@ -1378,6 +1400,7 @@ def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
         ("wallet_cost_voice_transcription_toman", f"🎙 هزینه‌ی رونویسیِ صوت: {format_toman(admin_settings.wallet_cost_voice_transcription_toman)}"),
         ("wallet_cost_order_detection_toman", f"🔎 هزینه‌ی پیش‌فرضِ تشخیصِ سفارش: {format_toman(admin_settings.wallet_cost_order_detection_toman)}"),
         ("wallet_topup_validity_months", f"📅 اعتبارِ هر شارژ: {admin_settings.wallet_topup_validity_months} ماه"),
+        ("min_topup_amount_toman", f"🧾 کمترینِ شارژِ کیف‌پول: {format_toman(admin_settings.min_topup_amount_toman)}"),
         ("wallet_trial_credit_toman", f"🎁 اعتبارِ آزمایشیِ فروشگاه‌دارِ جدید: {format_toman(admin_settings.wallet_trial_credit_toman)}"),
         ("wallet_low_balance_warning_toman", f"🟡 آستانه‌ی هشدارِ کمبودِ موجودی: {format_toman(admin_settings.wallet_low_balance_warning_toman)}"),
         ("global_ai_system_prompt", f"🌍 دستور سراسری هوش مصنوعی: {global_prompt_label}"),

@@ -81,7 +81,7 @@
 | فاز | وضعیت | یادداشت |
 |---|---|---|
 | 1 کشف و بیس‌لاین | **COMPLETED** | این بخش؛ بیس‌لاین بالا MEASURED است |
-| 2 حفظِ انقضایِ شارژ | **IN PROGRESS** | مکانیزمِ موجود شناسایی شد (زیر)؛ رگرسیون‌تست نوشته می‌شود |
+| 2 حفظِ انقضایِ شارژ | **COMPLETED** | ۷ رگرسیون‌تستِ تازه در `tests_manual/test_p2_credit_expiry_preserved.py` (MEASURED: ۷/۷ پاس) و اجرایِ کاملِ مجموعه: **۷۸ فایل / ۴۹۹ تست سبز**. معنا/مدت/مبدأ/FIFO/ایدپوتنسیِ جاب قفل شد؛ هیچ کدِ محصولی در این واحد عوض نشد |
 | 3 امنیت | NOT STARTED | یافته‌هایِ بالا (۵) و مرورِ دامنه‌هایِ پرداخت |
 | 4 درستیِ کارکردی | NOT STARTED | |
 | 5 مالی | NOT STARTED | حداقلِ شارژ، gating، commission، ledger |
@@ -126,3 +126,5 @@ MEASURED از کد (`app/database/models.py:463`، `app/services/wallet_service.
 | زمان | واحد | وضعیت | فایل‌ها | چک‌هایِ واقعی |
 |---|---|---|---|---|
 | ۲۰۲۶-۱۱-۰۱ | PHASE 1 کشف + بیس‌لاین | COMPLETED | `AUTONOMOUS_PROGRESS.md` (جدید) | ruff 260/۱۳۷ (MEASURED)، `alembic upgrade head` موفق، گیت‌هایِ استاتیک OK، ۴۹۲ تست سبز |
+| ۲۰۲۶-۱۱-۰۱ | واحدِ ۲A — قفلِ رگرسیونِ انقضا | COMPLETED | `tests_manual/test_p2_credit_expiry_preserved.py` (جدید، ۷ تست)، `tests_manual/run_all_tests.py` | تستِ فایل: ۷/۷ ✅ · تستِ کامل: **۷۸/۷۸ فایل، ۴۹۹ تست** ✅ · گیت‌ها OK. کدِ محصول دست‌نخورده (قفلِ رفتار، نه تغییرِ رفتار) |
+| ۲۰۲۶-۱۱-۰۱ | واحدِ ۳A — حداقلِ شارژ (PHASE 5A) | IN PROGRESS | `app/database/models.py` (+`min_topup_amount_toman`)، `migrations/versions/d7a2c5e9f3b8_p5_min_recharge_amount.py` (جدید)، `app/services/payment_service.py` (گاردِ سرویس)، `app/bots/main_bot/handlers/panel.py`، `keyboards.py`، `texts.py`، `handlers/admin.py`، `tests_manual/test_p5_min_recharge.py` (جدید، ۸ تست) | گیت‌هایِ استاتیک OK (MEASURED). اجرایِ تست‌ها در حالِ انجام است؛ عددِ نهایی در خطِ بعدی این جدول ثبت می‌شود |
