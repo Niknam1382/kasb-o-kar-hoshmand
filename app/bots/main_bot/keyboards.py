@@ -552,8 +552,16 @@ def admin_settings_group_keyboard(group: str, admin_settings) -> InlineKeyboardM
         rows.append([InlineKeyboardButton(text="🔎 آخرین رویدادهایِ پرداخت", callback_data="admin_payment_events")])
     if group == "branding":
         rows.append([InlineKeyboardButton(text="🧴 همگام‌سازیِ بیوگرافیِ ربات‌ها", callback_data="admin_branding_sync")])
+    if group == "shops":
+        rows.append([InlineKeyboardButton(text="📮 صفِ اعلان‌هایِ ارسال‌نشده", callback_data="admin_notification_queue")])
     rows.append([InlineKeyboardButton(text="🔙 بازگشت به فهرستِ تنظیمات", callback_data="admin_settings_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def notification_queue_retry_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=texts.NOTIFICATION_QUEUE_RETRY_BUTTON, callback_data="admin_notification_retry")]]
+    )
 
 
 def admin_owners_list_keyboard(owners, page: int = 0, shop_bots_by_owner: dict | None = None) -> InlineKeyboardMarkup:

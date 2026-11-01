@@ -20,7 +20,7 @@ from __future__ import annotations
 import datetime
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -139,3 +139,34 @@ async def stats(session: AsyncSession) -> dict[str, int]:
     rows = await session.execute(select(Notification.status, func.count()).group_by(Notification.status))
     counts = {status: int(count) for status, count in rows.all()}
     return {"pending": counts.get(PENDING, 0), "failed": counts.get(FAILED, 0), "sent": counts.get(SENT, 0)}
+
+
+async def next_attempt_time(session: AsyncSession) -> datetime.datetime | None:
+    """زمانِ نزدیک‌ترین تلاشِ باقی‌مانده (None ⇒ چیزی در صف نیست)."""
+    value = (
+        await session.execute(select(func.min(Notification.next_attempt_at)).where(Notification.status == PENDING))
+    ).scalar_one_or_none()
+    return value
+
+
+async def recent_failed(session: AsyncSession, limit: int = 3) -> list[Notification]:
+    result = await session.execute(
+        select(Notification).where(Notification.status == FAILED).order_by(Notification.id.desc()).limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def retry_failed(session: AsyncSession) -> int:
+    """شکست‌خورده‌ها را با backoffِ تازه به صف برمی‌گرداند؛ تاریخچه پاک نمی‌شود.
+
+    سقفِ تلاش یعنی صفِ «failed» خودش دیگر حرکت نمی‌کند، پس این دکمه تنها راهِ ارسالِ دوباره
+    است. `dedupe_key` دست نمی‌خورد ⇒ اگر رویدادِ همان خبر دوباره enqueue شود باز هم تکراری نمی‌شود.
+    """
+    now = _utcnow()
+    result = await session.execute(
+        update(Notification)
+        .where(Notification.status == FAILED)
+        .values(status=PENDING, attempts=0, next_attempt_at=now, last_error=None)
+    )
+    await session.flush()
+    return int(result.rowcount or 0)

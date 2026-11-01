@@ -10,6 +10,8 @@
 ۶. `wallet_service.credit_summary`: «قابل‌استفاده» = موجودی کمِ holdِ کمیسیون؛ «در آستانهٔ انقضا»
    فقط بسته‌هایِ زندهٔ ۳۰ روزِ آینده را می‌شمارد.
 ۷. رابطهٔ `ShopBot.products` دیگر selectin نیست (کوئریِ پنهانِ «همهٔ محصولات» در هر پیامِ مشتری).
+۸. پنلِ ادمین: گزارشِ صفِ اعلان‌ها + دکمهٔ «تلاشِ دوباره» که شکست‌خورده‌ها را با backoffِ تازه
+   به صف برمی‌گرداند (بدونِ این دکمه، `failed` یک‌باره برایِ همیشه ساکت می‌ماند).
 
 اجرا: python3 tests_manual/test_p20_performance_outbox.py
 """
@@ -282,6 +284,59 @@ def test_shop_bot_products_is_no_longer_eagerly_loaded() -> None:
     print("✅ test_shop_bot_products_is_no_longer_eagerly_loaded PASSED")
 
 
+# ============================================================================= ۸ — دیدِ ادمینِ صف
+async def _make_one_failed_notice(shop_bot_id: int, label: str) -> None:
+    async with session_scope() as session:
+        await notification_service.enqueue(session, CUSTOMER_TG_ID, "خبرِ سفارش", shop_bot_id=shop_bot_id, label=label)
+        row = (await session.execute(select(Notification))).scalars().one()
+        row.status = notification_service.FAILED
+        row.attempts = notification_service.MAX_ATTEMPTS
+        row.last_error = "502: service unavailable"
+        await session.commit()
+
+
+async def test_admin_notification_queue_panel_and_retry(main_dp) -> None:
+    """P20-E: ادمین باید بفهمد «چند خبر نرسیده» و بتواند تلاشِ دوباره را راه بیندازد."""
+    from aiogram import Bot
+
+    from app.bots.main_bot import keyboards, texts
+    from harness import FakeSession, make_callback_update
+
+    await reset_database()
+    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+
+    async with session_scope() as session:
+        admin = await get_admin_settings(session)
+    datas = [b.callback_data for row in keyboards.admin_settings_group_keyboard("shops", admin).inline_keyboard for b in row if b.callback_data]
+    assert "admin_notification_queue" in datas, "دکمه‌یِ صف باید در دستهٔ «فروشگاه‌دارها و گزارش‌ها» باشد"
+
+    # صفِ خالی ⇒ گزارشِ «همه‌چیز درست» (نه صفرهایِ گم‌گشاده)
+    admin_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
+    await main_dp.feed_update(admin_bot, make_callback_update(1, data="admin_notification_queue", user_id=ADMIN_TG_ID))
+    assert "خالی است" in admin_bot.session.sent_messages[-1]["text"]
+
+    await _make_one_failed_notice(shop_bot_id, "order-status:7")
+    await main_dp.feed_update(admin_bot, make_callback_update(2, data="admin_notification_queue", user_id=ADMIN_TG_ID))
+    report = admin_bot.session.sent_messages[-1]["text"]
+    assert "🛑 شکست‌خورده" in report and "order-status:7" in report and "502" in report, report
+    markup = admin_bot.session.sent_messages[-1]["reply_markup"]
+    assert any(
+        (b.callback_data or "") == "admin_notification_retry" for row in markup.inline_keyboard for b in row
+    ), "وقتی شکستی هست باید راهِ اقدام هم باشد"
+
+    await main_dp.feed_update(admin_bot, make_callback_update(3, data="admin_notification_retry", user_id=ADMIN_TG_ID))
+    assert admin_bot.session.sent_messages[-1]["text"] == texts.NOTIFICATION_QUEUE_RETRY_DONE.format(count=1)
+    async with session_scope() as session:
+        row = (await session.execute(select(Notification))).scalars().one()
+        assert row.status == notification_service.PENDING and row.attempts == 0, (row.status, row.attempts)
+        assert row.last_error is None, "دلیلِ شکستِ قبلی پاک می‌شود تا در گزارشِ بعدی گیج‌کننده نباشد"
+
+    # تلاشِ دوبارهٔ بی‌مورد ⇒ پیامِ «نبود»، نه عددِ صفرِ مبهم
+    await main_dp.feed_update(admin_bot, make_callback_update(4, data="admin_notification_retry", user_id=ADMIN_TG_ID))
+    assert admin_bot.session.sent_messages[-1]["text"] == texts.NOTIFICATION_QUEUE_RETRY_NONE
+    print("✅ test_admin_notification_queue_panel_and_retry PASSED")
+
+
 async def main() -> None:
     main_dp, _shop_dp, bot_manager, _main_bot = build_test_dispatchers()
     await test_outbox_lifecycle_and_dedupe()
@@ -290,6 +345,7 @@ async def main() -> None:
     await test_periodic_pass_drains_the_outbox(bot_manager)
     await test_credit_summary_shows_usable_and_expiring()
     test_shop_bot_products_is_no_longer_eagerly_loaded()
+    await test_admin_notification_queue_panel_and_retry(main_dp)
 
 
 if __name__ == "__main__":

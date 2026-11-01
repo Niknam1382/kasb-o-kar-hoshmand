@@ -41,6 +41,7 @@ from app.services import (
     discount_service,
     excel_export_service,
     moderation_service,
+    notification_service,
     otp_service,
     payment_event_service,
     payment_service,
@@ -53,6 +54,7 @@ from app.services import (
     wallet_service,
 )
 from app.services.admin_settings_service import get_admin_settings
+from app.utils.jalali import format_jalali_datetime
 from app.utils.validators import format_toman, normalize_telegram_username, parse_signed_toman_amount, to_e164_iran
 
 logger = logging.getLogger(__name__)
@@ -818,6 +820,52 @@ async def cb_payment_events(callback: CallbackQuery, session: AsyncSession) -> N
     await callback.answer()
     events = await payment_event_service.recent_events(session, limit=20)
     await callback.message.answer(texts.payment_events_text(events))
+
+
+@super_router.callback_query(F.data == "admin_notification_queue")
+async def cb_notification_queue(callback: CallbackQuery, session: AsyncSession) -> None:
+    """P20: «چند خبرِ پرداختی گم شده؟» — شمارشِ صفِ خروجی + نمونه‌یِ آخرین شکست‌ها (فقط خواندنی)."""
+    await callback.answer()
+    counts = await notification_service.stats(session)
+    if not counts["pending"] and not counts["failed"]:
+        await callback.message.answer(texts.NOTIFICATION_QUEUE_ALL_CLEAR.format(sent=counts["sent"]))
+        return
+    detail = ""
+    if counts["failed"]:
+        items = [
+            texts.NOTIFICATION_QUEUE_ITEM.format(
+                label=row.label or "بی‌برچسب",
+                error=(row.last_error or "بدونِ دلیلِ ثبت‌شده")[:90],
+                attempts=row.attempts,
+            )
+            for row in await notification_service.recent_failed(session)
+        ]
+        when = await notification_service.next_attempt_time(session)
+        detail = texts.NOTIFICATION_QUEUE_DETAIL.format(
+            when=format_jalali_datetime(when) if when else "—",
+            items="\n".join(items) or texts.NOTIFICATION_QUEUE_NO_ITEM,
+        )
+    markup = keyboards.notification_queue_retry_keyboard() if counts["failed"] else None
+    await callback.message.answer(
+        texts.NOTIFICATION_QUEUE_REPORT.format(
+            pending=counts["pending"],
+            failed=counts["failed"],
+            sent=counts["sent"],
+            max_attempts=notification_service.MAX_ATTEMPTS,
+            detail=detail,
+        ),
+        reply_markup=markup,
+    )
+
+
+@super_router.callback_query(F.data == "admin_notification_retry")
+async def cb_notification_retry(callback: CallbackQuery, session: AsyncSession) -> None:
+    """تلاشِ دوباره با backoffِ تازه؛ بدونِ پاک‌کردنِ تاریخچهٔ شکست."""
+    reset = await notification_service.retry_failed(session)
+    await callback.answer()
+    await callback.message.answer(
+        texts.NOTIFICATION_QUEUE_RETRY_DONE.format(count=reset) if reset else texts.NOTIFICATION_QUEUE_RETRY_NONE
+    )
 
 
 @super_router.callback_query(F.data == "admin_bale_selftest")
