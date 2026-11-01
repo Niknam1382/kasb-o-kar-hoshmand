@@ -191,7 +191,14 @@
    در هر نسخه اجرا می‌شود؛ کش‌هایِ in-process (`admin_alert_service`، `PooledAiService._circuit_states`،
    `rate_limiter`) در هر نسخه جدااند؛ `set_webhook` در بوت‌اپ با دو نسخه می‌جنگد. تا این سه جمع
    نشوند، «۲× اپ پشتِ LB» در سندِ سخت‌افزار **توصیهٔ executable نیست**.
-8. **P2-1..P2-4 بدونِ تغییر** (راف، `Unclosed client session`، ستونِ مردهٔ `zarinpal_merchant_id`،
+8. **P2-8 (تازه) · در حالتِ polling هیچ endpointِ سلامت/متریکی نیست.** `app/main.py:887-891` یا
+   `asyncio.run(run_polling())` را اجرا می‌کند **یا** uvicorn را — پس `/health`، `/metrics` و
+   `/webhook/*` در حالتِ پیش‌فرضِ استقرار (polling) اصلاً گوش نمی‌دهند و مانیتورینگِ لودبالانسر
+   ممکن نیست. طرحِ رفعِ کوچک: در هر دو حالت یک `uvicorn.Server(config).serve()` کنارِ polling به‌عنوانِ
+   تسکِ asyncio اجرا شود (پورتِ ۸۰۰۰ در compose مپ نشده ⇒ از بیرونِ ماشین بسته می‌ماند).
+   چرا الان نشد: تغییرِ مسیرِ بوت‌آپِ مشترکِ هر دو حالت است و در این محیط تستِ end-to-endِ
+   `RUN_MODE=webhook` ممنوع بود (همان دلیلی که بارِ HTTP اندازه نگرفتیم).
+9. **P2-1..P2-4 بدونِ تغییر** (راف، `Unclosed client session`، ستونِ مردهٔ `zarinpal_merchant_id`،
    `except Exception`ِ پهن) + **P19-۱۲** (ردیفِ `order_events` در گذارهایِ تکیِ `order_service`).
 
 ### چیزی که در این نشست اندازه‌گیری نشد و باید بشود

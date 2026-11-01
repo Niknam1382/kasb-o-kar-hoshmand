@@ -51,7 +51,9 @@ _مبنی بر: `bio-bale-fixes` = ۸۲ فایل / ۵۳۶ تست. پنج commit:
   `correlation id` در هر لاگ و در هر ردیفِ مالی؛ `JsonFormatter` با `JSON_LOGS=true`؛
   شمارنده‌هایِ in-process (`wallet.deduct`, `wallet.deduct_denied`, …) با `render_prometheus()`.
 - `GET /metrics`: اگر `METRICS_TOKEN` تنظیم نشده باشد **۴۰۴** می‌دهد (نه صفحهٔ عمومی)، وگرنه با
-  هدرِ `X-Metrics-Token`.
+  هدرِ `X-Metrics-Token`. **محدودیتِ صادق:** این مسیر (مثلِ `/health`) فقط وقتی در دسترس است که
+  `RUN_MODE=webhook` باشد — در حالتِ polling اصلاً سرورِ HTTP بالا نمی‌آید (`app/main.py:887`)،
+  پس برایِ آن حالت یا لاگِ داکر را بخوان یا استقرار را رویِ webhook ببر.
 - **زنجیرهٔ هشِ دفترِ ممیزی:** ستون‌هایِ افزودنیِ `prev_hash`/`row_hash` رویِ `audit_log_entries`،
   `canonical_payload()` + `compute_hash()` در `audit_log_service` (GENESIS = ششادِ صفر)، و
   `scripts/verify_audit_chain.py` که هر حذف/تغییرِ ردیفِ قدیمی را تشخیص می‌دهد. یعنی «ادیتِ بی‌صدایِ
