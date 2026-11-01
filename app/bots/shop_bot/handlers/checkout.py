@@ -1,7 +1,8 @@
 """چک‌اوتِ مرحله‌ایِ سبدِ خرید (W5 · C3 / 1.1).
 
-مراحل: نامِ تحویل‌گیرنده ← موبایل ← (فقط کالایِ فیزیکی) آدرس از دفترچه/ورودِ تازه ← (اگر حتی یک روشِ ارسالِ فعال
-وجود داشته باشد) روشِ ارسال ← سوال‌هایِ سفارشیِ فروشگاه‌دار ← توضیح ← پیش‌فاکتور (با هزینه‌یِ ارسال) ← «ثبتِ نهایی».
+مراحل: نامِ تحویل‌گیرنده ← موبایل ← (فقط کالایِ فیزیکی) آدرس از دفترچه/ورودِ تازه ← روشِ ارسال (با کالایِ
+فیزیکی همیشه پرسیده می‌شود؛ اگر فروشگاه روشی تعریف نکرده باشد گزینهٔ «هماهنگیِ ارسال») ← سوال‌هایِ
+سفارشیِ فروشگاه‌دار ← توضیح ← پیش‌فاکتور (با هزینه‌یِ ارسال) ← «ثبتِ نهایی».
 
 نگهبان‌هایِ قبلی حفظ شده‌اند: اثرانگشتِ سبد، `previewed_final_total` (مبلغی که می‌بینه = مبلغی که ثبت می‌شه)، قفلِ کمپین،
 و `state.clear()` قبلِ هر I/O در «ثبتِ نهایی» (دابل‌تپ = یک سفارش). این روتر قبل از `customer.router` include می‌شه (F20).
@@ -12,6 +13,7 @@ from __future__ import annotations
 import logging
 import secrets
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import NamedTuple
 
 from aiogram import Bot, F, Router
@@ -135,13 +137,24 @@ async def _load_ctx(event: Message | CallbackQuery, state: FSMContext, session: 
 # =============================================================================
 # حرکت بینِ مرحله‌ها
 # =============================================================================
+_COORDINATION_METHOD = SimpleNamespace(id=0, name="هماهنگی ارسال با فروشگاه")
+
+
 async def _resolve_shipping(session: AsyncSession, shop_bot, data: dict, items):
-    """(روش|None, هزینه, لازمِ‌انتخاب). بدونِ کالایِ فیزیکی/بدونِ روشِ فعال ⇒ (None, 0, False)."""
+    """(روش|None, هزینه, لازمِ‌انتخاب). بدونِ کالایِ فیزیکی ⇒ (None, 0, False).
+
+    P22 (مشکلِ ۵): سبدِ فیزیکی در فروشگاهِ بی‌روشِ ارسال هم «لازمِ‌انتخاب» است — گام رد نمی‌شود،
+    بلکه گزینهٔ «هماهنگیِ ارسال» پرسیده می‌شود (هزینه ۰ و بعداً هماهنگ)."""
     if not data.get("ck_physical"):
+        return None, 0, False
+    if checkout_flow.POS_SHIP in _disabled(data):
+        # گامِ ارسال را خودِ فروشگاه خاموش کرده (B9) ⇒ نه پرسش، نه هزینه — حتی وقتی روشی نیست.
         return None, 0, False
     methods = await shipping_service.list_methods(session, shop_bot.id, only_active=True)
     if not methods:
-        return None, 0, False
+        if data.get("ck_ship_id") == _COORDINATION_METHOD.id:
+            return _COORDINATION_METHOD, 0, False
+        return None, 0, True
     chosen = next((m for m in methods if m.id == data.get("ck_ship_id")), None)
     if chosen is None:
         # B8: حتی با یک روشِ فعال هم انتخابِ خودکار نداریم — مشتری باید هزینه‌یِ ارسال را ببیند و تایید کند.
@@ -292,9 +305,11 @@ async def _render(ctx: _Ctx, pos: str) -> None:
     elif pos == checkout_flow.POS_SHIP:
         methods = await shipping_service.list_methods(ctx.session, ctx.shop_bot.id, only_active=True)
         if not methods:
-            # روشِ ارسالِ فعالی نمانده (مثلاً فروشگاه‌دار وسطِ چک‌اوت همه را خاموش کرده) ⇒ مرحله رد می‌شود.
-            await ctx.state.update_data(ck_ship_choice=False, ck_ship_id=None, ck_no_shipping=bool(data.get("ck_physical")))
-            await _advance(ctx, checkout_flow.POS_SHIP)
+            # P22: بدونِ روشِ فعال گام رد نمی‌شود؛ «هماهنگیِ ارسال» پرسیده می‌شود (هزینه ۰، صادق).
+            await ctx.state.update_data(ck_ship_choice=True, ck_no_shipping=bool(data.get("ck_physical")))
+            await ctx.message.answer(ui.ASK_SHIPPING_COORDINATION, reply_markup=ui.shipping_keyboard([
+                (ui.SHIPPING_COORDINATION_ID, ui.SHIPPING_COORDINATION_LABEL)
+            ]))
             return
         subtotal = checkout_flow.physical_subtotal(ctx.items, digital_service.is_digital)
         options = [
@@ -372,7 +387,7 @@ async def cart_checkout_start(callback: CallbackQuery, session: AsyncSession, st
     # تغییرِ تنظیم وسطِ چک‌اوت، جریانِ نیمه‌کاره را نمی‌شکند.
     steps = checkout_config_service.parse(shop_bot.checkout_config)
     disabled = checkout_config_service.disabled_positions(steps)
-    ship_choice = physical and bool(methods)
+    ship_choice = physical  # P22: با روش هم دونادونه و با نبودِ روش هم پرسیده می‌شود (هماهنگی)
     # دیتایِ تلاشِ نیمه‌کاره‌یِ قبلی نباید به این چک‌اوت نشت کنه.
     await state.set_data(
         {
@@ -688,6 +703,16 @@ async def checkout_shipping_selected(callback: CallbackQuery, session: AsyncSess
     ctx = await _load_ctx(callback, state, session)
     if ctx is None:
         await callback.answer()
+        return
+    if raw == str(ui.SHIPPING_COORDINATION_ID):
+        # P22: «هماهنگیِ ارسال» — فقط وقتی که هیچ روشِ فعالی نیست (وگرنه جعلِ it قابلِ سوءاستفاده است)
+        if not await shipping_service.list_methods(session, ctx.shop_bot.id, only_active=True):
+            await callback.answer()
+            await state.update_data(ck_ship_id=_COORDINATION_METHOD.id)
+            await _advance(ctx, checkout_flow.POS_SHIP)
+            return
+        await callback.answer(ui.SHIPPING_GONE, show_alert=True)
+        await _render(ctx, checkout_flow.POS_SHIP)
         return
     method = await shipping_service.get_owned(session, int(raw), ctx.shop_bot.id) if raw.isdecimal() and raw.isascii() else None
     if method is None or not method.is_active:

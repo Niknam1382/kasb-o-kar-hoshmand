@@ -208,7 +208,7 @@ async def test_full_physical_flow_saves_everything(shop_dp, main_bot) -> None:
     assert "علی رضایی" in preview and "+989120000000" in preview and "تهران" in preview and "1234567890" in preview
     assert "لطفاً زنگ نزنید" in preview and "250,000" in preview
     assert "ck_edit:name" in s.last_callbacks() and "ck_edit:addr" in s.last_callbacks()
-    assert "ck_edit:ship" not in s.last_callbacks(), "بدونِ روشِ ارسال دکمه‌یِ ویرایشِ ارسال نمی‌آید"
+    assert "ck_edit:ship" in s.last_callbacks(), "P22: «هماهنگیِ ارسال» هم یکِ انتخابِ قابلِ ویرایش است"
 
     await s.tap("cart_checkout_confirm")
     orders = await _orders(shop_bot_id)
@@ -254,6 +254,7 @@ async def test_saved_address_chooser_manage_and_cap(shop_dp) -> None:
     await s.tap("ck_addr_pick")
     selector = next(c for c in s.last_callbacks() if c.startswith("ck_addr_sel:"))
     await s.tap(selector)
+    await s.tap("ck_ship:0")  # P22: گامِ ارسال پرسیده می‌شود ⇒ «هماهنگیِ ارسال» (فروشگاه روشی ندارد)
     await s.tap("ck_skip")  # مرحله‌یِ «توضیح» (اختیاری)
     assert "ثبت بشه؟" in s.last_text and "تهران" in s.last_text
 
@@ -352,8 +353,8 @@ async def test_single_method_still_requires_explicit_choice(shop_dp) -> None:
         method.is_active = False
     s2 = _Shopper(shop_dp)
     await s2.add(rice)
-    await run_checkout(s2.tap, s2.say)  # هیچ روشِ فعالی نیست ⇒ بدونِ مرحله‌یِ ارسال
-    assert "ck_edit:ship" not in s2.last_callbacks()
+    await run_checkout(s2.tap, s2.say)  # هیچ روشِ فعالی نمانده ⇒ P22: گام با «هماهنگیِ ارسال» پرسیده می‌شود
+    assert "ck_edit:ship" in s2.last_callbacks(), "هماهنگیِ ارسال هم قابلِ ویرایش در پیش‌نمایش است"
     assert "ثبت بشه؟" in s2.last_text
     print("✅ test_single_method_still_requires_explicit_choice PASSED")
 
@@ -410,6 +411,10 @@ async def test_invalid_inputs_back_edit_and_stale_buttons(shop_dp) -> None:
     await s.say("کرج")
     await s.say("بلوارِ اصلی، کوچه‌یِ سوم، پلاکِ پنج")
     await s.tap("ck_skip")  # کدپستی
+    for callback in s.last_callbacks():
+        if callback.startswith("ck_ship:"):
+            await s.tap(callback)  # P22: گامِ ارسال پرسیده می‌شود (هماهنگی یا روش)
+            break
     await s.tap("ck_skip")  # توضیح
     assert "کرج" in s.last_text and "ثبت بشه؟" in s.last_text
 
@@ -452,6 +457,10 @@ async def test_double_confirm_creates_one_order_and_contact_share(shop_dp) -> No
     await s.say("تهران")
     await s.say("خیابانِ آزادی، پلاکِ ده")
     await s.tap("ck_skip")
+    for callback in s.last_callbacks():
+        if callback.startswith("ck_ship:"):
+            await s.tap(callback)  # P22: گامِ ارسال (هماهنگی یا روش)
+            break
     await s.tap("ck_skip")
     customer = await _customer(s.user_id)
     assert customer.phone_number == "+989127778899" and customer.phone_via_contact is True

@@ -36,6 +36,7 @@ async def run_checkout(
     """از «🧾 نهایی‌کردن» تا پیش‌نمایشِ نهایی. physical=False ⇒ سبدِ فقط‌دیجیتال (بدونِ آدرس/ارسال).
     saved_address_id ⇒ آدرس از دفترچه؛ وگرنه آدرسِ تازه (استان ← شهر ← آدرس ← کدپستی/رد).
     ship_method_id همیشه وقتی لازمه که فروشگاه حتی یک روشِ ارسالِ فعال داره (B8: انتخابِ خودکار حذف شد).
+    از P22 اگر None باشد و سبد فیزیکی باشد، «هماهنگیِ ارسال» (ck_ship:0) انتخاب می‌شود — گام رد نمی‌شود.
     has_saved_addresses=True وقتی این مشتری قبلاً آدرسی ذخیره کرده (چک‌اوتِ دوم به بعد): فهرستِ آدرس‌ها نشون داده
     می‌شه و «➕ آدرسِ جدید» باید زده بشه."""
     if start:
@@ -57,6 +58,9 @@ async def run_checkout(
                 await say(postal)
         if ship_method_id is not None:
             await tap(f"ck_ship:{ship_method_id}")
+        else:
+            # P22 (مشکلِ ۵): گامِ ارسال همیشه پرسیده می‌شود؛ بدونِ روشِ فعال ⇒ «هماهنگیِ ارسال» (شناسهٔ ۰)
+            await tap("ck_ship:0")
     for answer in answers:
         await say(answer)
     if note is None:
