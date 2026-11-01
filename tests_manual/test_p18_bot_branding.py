@@ -258,7 +258,9 @@ async def test_main_bot_can_never_receive_a_bio() -> None:
     shop_bot = await _shop_bot(shop_bot_id)
 
     original_settings = branding.settings
-    branding.settings = SimpleNamespace(main_bot_token="9247775867:MAIN_ROBOT_FAKE_TOKEN")
+    branding.settings = SimpleNamespace(
+        main_bot_token="9247775867:MAIN_ROBOT_FAKE_TOKEN", bale_bot_token="9247775868:BALE_ROBOT_FAKE_TOKEN"
+    )
     try:
         main_like = _BioBot(initial="بیویِ رباتِ اصلی", token="9247775867:MAIN_ROBOT_FAKE_TOKEN")
         try:
@@ -268,6 +270,16 @@ async def test_main_bot_can_never_receive_a_bio() -> None:
         else:
             raise AssertionError("رباطِ اصلی نباید بتواند بیو بگیرد")
         assert main_like.get_calls == 0 and main_like.set_calls == 0, "حتی خوانده هم نمی‌شود"
+
+        # P21-F: توکنِ بله‌یِ پلتفرم هم محسوب می‌شود — اگر یکِ فروشگاه آن را در تنظیماتش جا بزند
+        bale_like = _BioBot(initial="بیویِ رباتِ بلهٔ پلتفرم", token="9247775868:BALE_ROBOT_FAKE_TOKEN")
+        try:
+            await branding._apply_to_bot(bale_like, shop_bot, ADMIN_TEXT)
+        except ValueError as exc:
+            assert "رباتِ اصلی" in str(exc)
+        else:
+            raise AssertionError("رباتِ بلهٔ پلتفرم نباید بتواند بیو بگیرد")
+        assert bale_like.get_calls == 0 and bale_like.set_calls == 0
 
         # مسیرِ واقعیِ پنلِ فروشگاه‌دار: ترنسپورت از منیجر خوانده می‌شود، نه از caller
         manager_bot = _BioBot(initial="", token="111111:SHOP_FAKE")

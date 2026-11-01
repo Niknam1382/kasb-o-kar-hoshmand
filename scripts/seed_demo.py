@@ -27,7 +27,6 @@ sys.path.insert(0, ".")
 
 from sqlalchemy import delete, func, select  # noqa: E402
 
-from app.config import settings  # noqa: E402
 from app.database.models import (  # noqa: E402
     ConversationMessage,
     Customer,
@@ -51,10 +50,13 @@ DEMO_BOT_PREFIX = 960_000_000
 
 def _guard() -> None:
     if os.environ.get("SEED_DEMO_CONFIRM") != "1":
+        # P21-F: رشتهٔ اتصال چاپ نمی‌شود — داخلِ آن رمزِ دیتابیس است و این پیام به stdout
+        # (و لاگِ CI) می‌رود. نامِ میزبان/دیتابیس هم برایِ تشخیصِ «کجا می‌نویسم» کافی بود،
+        # ولی ریسکش به آن ارزش را نداشت؛ اسکریپت خودش را با DEPLOY_ENV/سرویسِ داکر مشخص می‌کند.
         raise SystemExit(
-            "SEED_DEMO_CONFIRM=1 لازم است: این اسکریپت دیتابیس را می‌نویسد. "
-            f"DATABASE_URL فعلی: {settings.database_url} — رویِ دیتابیسِ اصلی اجرایِ واقعی مشکلی ندارد "
-            "چون فقط ردیف‌هایِ نمایشیِ شناسا می‌سازد، ولی با --cleanup هم پاک‌شدنی است."
+            "SEED_DEMO_CONFIRM=1 لازم است: این اسکریپت رویِ دیتابیسِ پیکربندی‌شده می‌نویسد. "
+            "رویِ دیتابیسِ اصلی اجرایِ واقعی مشکلی ندارد چون فقط ردیف‌هایِ نمایشیِ شناسا می‌سازد، "
+            "ولی با --cleanup هم پاک‌شدنی است."
         )
 
 

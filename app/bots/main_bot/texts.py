@@ -1678,12 +1678,16 @@ ADMIN_ROLE_SCOPE_BUTTON = "🏪 دامنهٔ فروشگاه‌ها"
 ADMIN_ROLE_SCOPE_UNLIMITED = "بدونِ محدودیت: همهٔ فروشگاه‌دارها"
 ASK_ROLE_SCOPE = (
     "شناسه‌یِ کاربریِ تلگرامِ فروشگاه‌دارهایی که این ادمینِ عملیاتی باید ببیند را با کاما بفرست\n"
-    "(مثال: 123456789,987654321). برایِ بازگشت به «همه» کلمه‌ی «همه» را بنویس."
+    "(مثال: 123456789,987654321). برایِ بازگشت به «همه» کلمه‌ی «همه» را بنویس و برایِ بستنِ "
+    "کاملِ دسترسی کلمه‌ی «هیچ» را."
 )
 ROLE_SCOPE_SAVED = "✅ دامنه ذخیره شد: {detail}"
 ROLE_SCOPE_UNLIMITED_LABEL = "همهٔ فروشگاه‌ها"
+ROLE_SCOPE_EMPTY_LABEL = "هیچ فروشگاه (دسترسی بسته)"
 ROLE_SCOPE_COUNT_LABEL = "{count} فروشگاه"
 ROLE_SCOPE_UNKNOWN_IDS = " ⚠️ این شناسه‌ها فروشگاه‌دارِ ثبت‌نام‌کرده ندارند و نادیده گرفته شدند: {ids}"
+# P21-F: دامنهٔ تهی عمدي است، پس هیچ‌وقت «ذخیره» نمی‌شود — وگرنه فهرستِ اشتباه یعنی دسترسیِ کامل.
+ROLE_SCOPE_NO_MATCH = "⚠️ هیچ‌کدام ازِ این شناسه‌ها فروشگاه‌دارِ ثبت‌نام‌کرده نیست؛ دامنه تغییر نکرد. دوباره بنویس."
 
 
 def admin_owner_suspended_confirmation(owner_name: str) -> str:
@@ -1820,10 +1824,11 @@ AUDIT_CSV_EMPTY = "📥 برایِ این فیلتر ردیفی نبود که خ
 AUDIT_CSV_READY = "📥 خروجیِ CSVِ دفترِ ممیزی (با خنثی‌سازیِ فرمول) — {count} ردیف"
 
 
-def audit_report_intro(group: str | None, window: str | None, count: int) -> str:
+def audit_report_intro(group: str | None, window: str | None, count: int, *, scoped: bool = False) -> str:
     group_label = dict(AUDIT_FILTER_GROUPS).get(group or "all", "همه")
     window_label = dict(AUDIT_FILTER_WINDOWS).get(window or "all", "همیشه")
-    return f"📜 گزارشِ ممیزی · دسته: {group_label} · بازه: {window_label} · {count} ردیفِ آخر:"
+    tail = " · فقطِ فروشگاه‌هایِ دامنهٔ تو" if scoped else ""
+    return f"📜 گزارشِ ممیزی · دسته: {group_label} · بازه: {window_label} · {count} ردیفِ آخر:{tail}"
 
 
 def audit_csv_headers() -> list[str]:
@@ -1937,8 +1942,10 @@ def admin_role_detail_text(role, label: str = "ادمین", granter_label: str =
 
 def admin_role_scope_label(role) -> str:
     ids = getattr(role, "allowed_owner_ids", None)
-    if not ids:
+    if ids is None:
         return ROLE_SCOPE_UNLIMITED_LABEL
+    if not str(ids).strip():
+        return ROLE_SCOPE_EMPTY_LABEL
     return ROLE_SCOPE_COUNT_LABEL.format(count=len([part for part in ids.split(",") if part.strip()]))
 
 

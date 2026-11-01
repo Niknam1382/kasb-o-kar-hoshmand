@@ -38,6 +38,9 @@ BACKOFF_SECONDS = (30, 120, 600, 1800, 3600, 7200)
 # P21-F: حلقهٔ تخلیه هر ۶۰ ثانیه اجرا می‌شود؛ ۲۰۰ در هر دور ≈ ۱۲ هزار پیام/ساعت،
 # که از سقف نرخ تلگرام (~۳۰ پیام/ثانیه به‌طور کلی) پایین‌تر است و برای پخشِ زمان‌بندی‌شده لازم است.
 DUE_LIMIT = 200
+# P21-F: سقفِ یکِ «تلاشِ دوبارهٔ دستی» (دکمهٔ پنل). صفِ شکست‌خورده می‌تواند ده‌ها هزار ردیف
+# داشته باشد؛ برگرداندنِ همه در یکِ کلیک یعنی ریزشِ ناگهانی رویِ همان کانالِ که قبلاً شکست خورده.
+RETRY_BATCH_LIMIT = 1000
 # P21-B (O3): مهلتِ نگهداریِ خودِ صف. `sent` بعد از ۳۰ روز بی‌فایده است؛ `failed` ۹۰ روز
 # می‌ماند چون «چه خبری هرگز نرسید» برایِ تشخیصِ قطعیِ تلگرام/بله لازم است.
 SENT_RETENTION_DAYS = 30
@@ -162,17 +165,27 @@ async def recent_failed(session: AsyncSession, limit: int = 3) -> list[Notificat
     return list(result.scalars().all())
 
 
-async def retry_failed(session: AsyncSession) -> int:
+async def retry_failed(session: AsyncSession, limit: int = RETRY_BATCH_LIMIT) -> int:
     """شکست‌خورده‌ها را با backoffِ تازه به صف برمی‌گرداند؛ تاریخچه پاک نمی‌شود.
 
     سقفِ تلاش یعنی صفِ «failed» خودش دیگر حرکت نمی‌کند، پس این دکمه تنها راهِ ارسالِ دوباره
     است. `dedupe_key` دست نمی‌خورد ⇒ اگر رویدادِ همان خبر دوباره enqueue شود باز هم تکراری نمی‌شود.
+    P21-F: `last_error` دیگر پاک نمی‌شود (همان یادداشتِ «چرا نرسید» تنها شاهدِ یکِ ارسالِ شکست‌خورده
+    است و وعدهٔ پنل هم «پاک نشدنِ تاریخچه» بود) و به‌جایِ کلِ صف، فقط `limit` ردیفِ تازه‌تر
+    برگردانده می‌شود ⇒ یکِ دابل‌تپِ تصادفی صفِ چندصد هزار تایی را ناگهان به تلگرام برنمی‌گرداند.
     """
     now = _utcnow()
+    newest = (
+        select(Notification.id)
+        .where(Notification.status == FAILED)
+        .order_by(Notification.id.desc())
+        .limit(limit)
+        .scalar_subquery()
+    )
     result = await session.execute(
         update(Notification)
-        .where(Notification.status == FAILED)
-        .values(status=PENDING, attempts=0, next_attempt_at=now, last_error=None)
+        .where(Notification.id.in_(newest), Notification.status == FAILED)
+        .values(status=PENDING, attempts=0, next_attempt_at=now)
     )
     await session.flush()
     return int(result.rowcount or 0)

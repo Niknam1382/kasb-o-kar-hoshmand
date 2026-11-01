@@ -61,7 +61,9 @@ def test_csv_neutralizes_formulas() -> None:
 # ============================================================================= ۲ — دامنه
 def test_scope_parsing_is_pure() -> None:
     assert admin_role_service.parse_owner_ids(None) is None
-    assert admin_role_service.parse_owner_ids("") is None
+    # P21-F: رشتهٔ خالی دیگر None نیست — «دامنهٔ تهی» با «بدونِ دامنه» یکی نبود (برعکسِ قبل که
+    # دامنهٔ تهی یعنی دسترسیِ کامل). تستِ کاملش در test_p21_security.py است.
+    assert admin_role_service.parse_owner_ids("") == set()
     assert admin_role_service.parse_owner_ids("3,7, 9") == {3, 7, 9}
     scope = admin_role_service.parse_owner_ids("3,7")
     assert admin_role_service.is_in_scope(scope, 3) and not admin_role_service.is_in_scope(scope, 4)

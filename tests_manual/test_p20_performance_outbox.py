@@ -342,7 +342,9 @@ async def test_admin_notification_queue_panel_and_retry(main_dp) -> None:
     async with session_scope() as session:
         row = (await session.execute(select(Notification))).scalars().one()
         assert row.status == notification_service.PENDING and row.attempts == 0, (row.status, row.attempts)
-        assert row.last_error is None, "دلیلِ شکستِ قبلی پاک می‌شود تا در گزارشِ بعدی گیج‌کننده نباشد"
+        # P21-F: دلیلِ شکست عمداً می‌ماند (سابقاً پاک می‌شد، در حالی که وعدهٔ پنل «پاک نشدنِ
+        # تاریخچه» بود و آن متن تنها شاهدِ «چرا نرسید» است). در تلاشِ بعدی با موفق/شکستِ جدید عوض می‌شود.
+        assert row.last_error and "502" in row.last_error, row.last_error
 
     # تلاشِ دوبارهٔ بی‌مورد ⇒ پیامِ «نبود»، نه عددِ صفرِ مبهم
     await main_dp.feed_update(admin_bot, make_callback_update(4, data="admin_notification_retry", user_id=ADMIN_TG_ID))

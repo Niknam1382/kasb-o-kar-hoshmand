@@ -1243,6 +1243,13 @@ async def cb_owners_list(callback: CallbackQuery, session: AsyncSession) -> None
     await callback.message.edit_text(text, reply_markup=keyboard)
 
 
+def _cb_id(data: str) -> int | None:
+    """شناسهٔ عددیِ داخلِ callback_data. رشتهٔ غیرِ عددی ⇒ None، نه استثنا (پیام‌هایِ قدیمی یا
+    بازنشرشده می‌توانند هر چیزی در payload داشته باشند)."""
+    part = data.split(":", 1)[1] if ":" in data else ""
+    return int(part) if part.isascii() and part.isdecimal() else None
+
+
 async def _scoped_owner(session: AsyncSession, actor_telegram_id: int, owner_id: int):
     """P21-E (F8): دامنهٔ ادمینِ عملیاتی. خروجی (owner, allowed) — اگر allowed نبود، پیام داده شده.
 
@@ -1333,7 +1340,10 @@ async def cb_owner_unsuspend(callback: CallbackQuery, session: AsyncSession, bot
 # --- اعطای اشتراک هدیه (این‌جلسه) ---
 @router.callback_query(F.data.startswith("admin_owner_gift:"))
 async def cb_owner_gift_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    owner_id = int(callback.data.split(":")[1])
+    owner_id = _cb_id(callback.data)
+    if owner_id is None:
+        await callback.answer(texts.GENERIC_ERROR, show_alert=True)
+        return
     _owner, allowed = await _scoped_owner(session, callback.from_user.id, owner_id)
     if not allowed:
         await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
@@ -1404,6 +1414,10 @@ async def owner_gift_confirmed(callback: CallbackQuery, state: FSMContext, sessi
     if owner is None:
         await callback.answer(texts.ADMIN_SHOP_OWNERS_EMPTY, show_alert=True)
         return
+    # P21-F: دامنه در لحظهٔ نوشتنِ پول دوباره سنجیده می‌شود (شروعِ فرم شاید ساعتی قبل بوده باشد).
+    if not await admin_role_service.can_touch_owner(session, callback.from_user.id, owner.id):
+        await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
+        return
 
     await wallet_service.add_charge(
         session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_GRANT, reference=f"gift:{nonce}"
@@ -1431,10 +1445,18 @@ async def owner_gift_confirmed(callback: CallbackQuery, state: FSMContext, sessi
 # --- استرداد/اصلاحِ تراکنشِ کیف‌پول (فازِ ۲-ب، زیربخشِ ۳) ---
 @router.callback_query(F.data.startswith("admin_owner_wallet_correction:"))
 async def cb_owner_wallet_correction_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
-    owner_id = int(callback.data.split(":")[1])
-    owner = await shop_owner_service.get_by_id(session, owner_id)
+    owner_id = _cb_id(callback.data)
+    if owner_id is None:
+        await callback.answer(texts.GENERIC_ERROR, show_alert=True)
+        return
+    owner, allowed = await _scoped_owner(session, callback.from_user.id, owner_id)
     if owner is None:
         await callback.answer(texts.ADMIN_SHOP_OWNERS_EMPTY, show_alert=True)
+        return
+    # P21-F: آخرین مسیری که دامنه را نمی‌سنجید همین بود؛ «دیدنِ دفترِ این فروشگاه» و
+    # «کم/زیاد کردنِ پولش» هر دو با یکِ شناسه از callback_data ممکن می‌شد.
+    if not allowed:
+        await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
         return
 
     transactions = await wallet_service.get_recent_transactions(session, owner.id)
@@ -1451,7 +1473,7 @@ async def owner_wallet_correction_amount_entered(message: Message, state: FSMCon
         await message.answer(texts.ADMIN_INVALID_SIGNED_AMOUNT)
         return
 
-    await state.update_data(correction_amount=amount_toman)
+    await state.update_data(correction_amount=amount_toman, correction_nonce=secrets.token_hex(8))
     await state.set_state(AdminWalletCorrectionStates.waiting_reason)
     await message.answer(texts.ADMIN_ASK_WALLET_CORRECTION_REASON)
 
@@ -1474,12 +1496,26 @@ async def owner_wallet_correction_reason_entered(message: Message, state: FSMCon
         await state.clear()
         await message.answer(texts.ADMIN_SHOP_OWNERS_EMPTY)
         return
+    # P21-F: دامنه در لحظهٔ *نوشتنِ* پول دوباره سنجیده می‌شود، نه فقط در شروعِ مسیر:
+    # دامنه ممکن است وسطِ فرم عوض شده باشد و آپدیتِ قدیمی هنوز state را زنده نگه دارد.
+    if not await admin_role_service.can_touch_owner(session, message.from_user.id, owner.id):
+        await state.clear()
+        await message.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST)
+        return
 
+    # کلیدِ ایدمپوتنسی از nonce همانِ جلسهٔ فرم می‌آید، نه از «یادداشتِ» آزادِ ادمین (تا پیشِ این
+    # یادداشت کلید بود ⇒ دو اصلاحِ جدا با دلیلِ یکسانِ همان فروشگاه با نقضِ قیدِ یکتا می‌شکست).
+    # دوبار-رسیدنِ همان آپدیت هم همین‌جا می‌شکند: هر دو تلاش همان nonce را می‌خوانند.
+    correction_key = f"wallet-correction:{owner_id}:{data.get('correction_nonce') or secrets.token_hex(8)}"
     if amount_toman > 0:
-        await wallet_service.add_charge(session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_CORRECTION, reference=note)
+        await wallet_service.add_charge(
+            session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_CORRECTION,
+            reference=note, idempotency_key=correction_key,
+        )
     else:
         applied = await wallet_service.deduct(
-            session, owner, abs(amount_toman), reason=WalletTransactionReason.ADMIN_CORRECTION, reference=note
+            session, owner, abs(amount_toman), reason=WalletTransactionReason.ADMIN_CORRECTION,
+            reference=note, idempotency_key=correction_key,
         )
         if not applied:
             await state.set_state(AdminWalletCorrectionStates.waiting_amount)
@@ -1750,12 +1786,17 @@ async def _audit_filter_state(state: FSMContext) -> tuple[str | None, str | None
 
 async def _render_audit_log(message: Message, state: FSMContext, session: AsyncSession) -> None:
     group, window = await _audit_filter_state(state)
-    entries = await audit_log_service.query(session, group=group, window=window, limit=AUDIT_PAGE_LIMIT)
+    # P21-F: ادمینِ دامنه‌دار ردیف‌هایِ فروشگاه‌هایِ دیگر را نمی‌بیند (جزئیاتِ آن ردیف‌ها مبلغ و
+    # شناسهٔ فروشگاه‌دارِ مشتریِ دیگر را دارد). سوپرادمین scope=None ⇒ همان دفترِ کامل.
+    scope = await admin_role_service.scope_for(session, getattr(message.from_user, "id", 0))
+    entries = await audit_log_service.query(
+        session, group=group, window=window, limit=AUDIT_PAGE_LIMIT, allowed_owner_ids=scope
+    )
     markup = keyboards.audit_filter_keyboard(group, window)
     if not entries:
         await message.answer(texts.AUDIT_FILTER_EMPTY if (group or window) else texts.AUDIT_LOG_EMPTY, reply_markup=markup)
         return
-    lines = [texts.audit_report_intro(group, window, len(entries)), ""]
+    lines = [texts.audit_report_intro(group, window, len(entries), scoped=scope is not None), ""]
     lines.extend(texts.audit_log_entry_line(entry) for entry in entries)
     await message.answer("\n\n".join(lines), reply_markup=markup)
 
@@ -1939,7 +1980,10 @@ async def cb_admin_role_view(callback: CallbackQuery, session: AsyncSession) -> 
 @super_router.callback_query(F.data.startswith("admin_role_scope:"))
 async def cb_admin_role_scope(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     """P21-E (F8): دامنهٔ فروشگاه‌دارهایِ یکِ ادمینِ عملیاتی."""
-    role_id = int(callback.data.split(":")[1])
+    role_id = _cb_id(callback.data)
+    if role_id is None:
+        await callback.answer(texts.GENERIC_ERROR, show_alert=True)
+        return
     role = await admin_role_service.get_by_id(session, role_id)
     if role is None:
         await callback.answer(texts.GENERIC_ERROR, show_alert=True)
@@ -1969,12 +2013,28 @@ async def admin_role_scope_entered(message: Message, state: FSMContext, session:
         await state.clear()
         await message.answer(texts.ROLE_SCOPE_SAVED.format(detail=texts.ROLE_SCOPE_UNLIMITED_LABEL))
         return
+    if raw in {"هیچ", "هیچکس", "none"}:
+        # P21-F: «بستنِ کاملِ دسترسی» باید راهِ صریح داشته باشد، وگرنه دامنهٔ تهی با
+        # «بدونِ دامنه» یکی به نظر می‌رسید و نتیجهٔ عملِ ادمین برعکسِ قصدش می‌شد.
+        await admin_role_service.set_scope(session, role, [])
+        await audit_log_service.log(
+            session, AuditEventType.OPERATOR_ADMIN_GRANTED, actor_telegram_id=message.from_user.id,
+            details=f"دامنهٔ ادمینِ عملیاتی {role.telegram_id} ⇒ هیچِ فروشگاه",
+        )
+        await state.clear()
+        await message.answer(texts.ROLE_SCOPE_SAVED.format(detail=texts.ROLE_SCOPE_EMPTY_LABEL))
+        return
 
     wanted = {int(part) for part in re.split(r"[,\s]+", raw) if part.strip().lstrip("+").isdigit()}
     if not wanted:
         await message.answer(texts.ADMIN_INVALID_NUMBER)  # state می‌ماند تا دوباره بنویسد
         return
     known_ids = await shop_owner_service.ids_by_telegram_ids(session, list(wanted))
+    if not known_ids:
+        # P21-F: دامنهٔ تهی ذخیره نمی‌شود. یک فهرستِ اشتباه/تایپی نباید به «دسترسیِ کامل»
+        # یا «دسترسیِ صفر» تعبیر شود؛ از ادمین می‌خواهید دوباره بنویسد.
+        await message.answer(texts.ROLE_SCOPE_NO_MATCH)
+        return
     await admin_role_service.set_scope(session, role, sorted(known_ids.values()))
     unknown = sorted(wanted - set(known_ids))
     await audit_log_service.log(

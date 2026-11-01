@@ -44,8 +44,13 @@ async def revoke(session: AsyncSession, role: AdminRole) -> None:
 # P21-E (F8): دامنهٔ دسترسیِ ادمینِ عملیاتی رویِ فروشگاه‌دارها
 # =============================================================================
 def parse_owner_ids(raw: str | None) -> set[int] | None:
-    """None ⇒ «بدونِ محدودیت». فهرستِ کاماجدا ⇒ مجموعهٔ شناسه‌ها."""
-    if raw is None or not str(raw).strip():
+    """None ⇒ «بدونِ دامنه». رشتهٔ خالی ⇒ دامنهٔ *تهی* (هیچ فروشگاه). فهرستِ کاماجدا ⇒ شناسه‌ها.
+
+    P21-F: تا پیشِ این، رشتهٔ خالی هم None برمی‌گرداند. چون `set_scope(role, [])` همان رشتهٔ
+    خالی را می‌نوشت، «بستنِ دسترسی» و «بدونِ محدودیت» یکی شده بودند: ادمینی که دامنهٔ تهی
+    می‌خواست (یا فهرستِ اشتباه می‌فرستاد) ناگهان *همهٔ* فروشگاه‌ها را در اختیار می‌گرفت.
+    """
+    if raw is None:
         return None
     return {int(part) for part in str(raw).split(",") if part.strip().lstrip("-").isdigit()}
 
@@ -68,6 +73,7 @@ async def can_touch_owner(session: AsyncSession, telegram_id: int, owner_id: int
 
 
 async def set_scope(session: AsyncSession, role: AdminRole, owner_ids: list[int] | None) -> AdminRole:
-    role.allowed_owner_ids = None if not owner_ids else ",".join(str(int(pk)) for pk in sorted(set(owner_ids)))
+    """None ⇒ بدونِ دامنه؛ [] ⇒ هیچِ فروشگاه. P21-F: تهی دیگر به None تبدیل نمی‌شود."""
+    role.allowed_owner_ids = None if owner_ids is None else ",".join(str(int(pk)) for pk in sorted(set(owner_ids)))
     await session.flush()
     return role

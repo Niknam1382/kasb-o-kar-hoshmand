@@ -216,10 +216,11 @@ def _assert_not_main_bot(bot: Bot) -> None:
     """B6 (قاعدهٔ محصول): بیوگرافی هرگز نباید رویِ رباتِ اصلیِ «کسب و کار هوشمند» نوشته شود.
 
     رباتِ اصلی فقط برایِ فرستادنِ پیامِ اخطار به فروشگاه‌دار در این سرویس مصرف می‌شود. مقایسه
-    در حافظه است و هیچ توکنی لاگ/چاپ نمی‌شود.
+    در حافظه است و هیچ توکنی لاگ/چاپ نمی‌شود. هر دو ترنسپورت سنجیده می‌شود (P21-F): اگر یکِ
+    فروشگاه توکنِ بله‌یِ خودِ پلتفرم را در تنظیماتش جا بزند، همان رباتِ سراسریِ ما بیو می‌گیرد.
     """
-    main_token = (settings.main_bot_token or "").strip()
-    if main_token and bot.token == main_token:
+    protected = {(settings.main_bot_token or "").strip(), (settings.bale_bot_token or "").strip()}
+    if bot.token in protected - {""}:
         raise ValueError("بیوگرافی فقط رویِ ربات‌هایِ فروشگاهیِ ساخته‌شده اعمال می‌شود، نه رباتِ اصلی")
 
 
@@ -274,6 +275,12 @@ async def _apply_transports(bot_manager, shop_bot: ShopBot, admin_text: str | No
     return results
 
 
+def _one_line(value: str, limit: int = 140) -> str:
+    """متنِ دیده‌شده را صاحبِ فروشگاه می‌تواند عوض کند. اگر خطِ تازه داشته باشد، همان
+    خط‌شکن در گزارشِ ادمین ردیفِ جعلیِ «دفترِ ممیزی» می‌سازد ⇒ متن تک‌خط می‌شود."""
+    return " ".join((value or "").split())[:limit]
+
+
 async def _record_breach(session: AsyncSession, shop_bot: ShopBot, results: list[tuple[str, str, str]], now: datetime.datetime) -> str | None:
     """اگر بیو دستکاری یا حذف شده بود: شمارنده + ردیفِ ممیزی. نامِ تخلف برمی‌گرداند (یا None).
 
@@ -291,7 +298,7 @@ async def _record_breach(session: AsyncSession, shop_bot: ShopBot, results: list
         session,
         AuditEventType.BOT_BIO_TAMPERED,
         shop_bot_id=shop_bot.id,
-        details=f"متنِ بیو {reason} شد و بازگردانی شد؛ متنِ دیده‌شده: " + previous_text[:140],
+        details=f"متنِ بیو {reason} شد و بازگردانی شد؛ متنِ دیده‌شده: " + _one_line(previous_text),
     )
     return breach
 

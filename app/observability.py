@@ -37,7 +37,11 @@ MAX_CORRELATION_LENGTH = 32
 
 # توکنِ ربات: رقم:حروف/ارقام/[-_] (هم تلگرام هم بله همین شکل‌اند)
 _PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b\d{6,}:[A-Za-z0-9_\-]{20,}\b"),
+    # توکنِ ربات: رقم:حروف/ارقام/[-_] (هم تلگرام هم بله همین شکل‌اند).
+    # P21-F: \b اولِ الگو حذف شد — در آدرسِ واقعیِ API («/bot123456789:AA…/sendMessage») بینِ
+    # «bot» و رقم‌ها مرزِ کلمه‌ای وجود ندارد، پس الگویِ قبلی دقیقاً در همان محتمل‌ترین جایِ نشت
+    # توکن هیچی را ماسک نمی‌کرد.
+    re.compile(r"\d{6,}:[A-Za-z0-9_\-]{20,}"),
     re.compile(r"\bsk-[A-Za-z0-9_\-]{10,}\b"),
     re.compile(r"\bgAAAAA[A-Za-z0-9_\-]{10,}"),  # رمزِ Fernet
     re.compile(r"\b(eyJ[A-Za-z0-9_\-]{5,}\.){2}[A-Za-z0-9_\-]{5,}\b"),  # JWT
@@ -90,6 +94,15 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+class ScrubbingFormatter(logging.Formatter):
+    """فیلترِ ساده فقط `msg`/`args` را می‌شَوَرد؛ متنِ استثنا (traceback) بعد ازِ آن به خروجی
+    اضافه می‌شود و از فیلتر رد نمی‌شود. P21-F: اینجا کلِ خطِ نهایی دوباره scrub می‌شود، چون
+    خطاهایِ شبکه/aiogram می‌توانند آدرسِ کاملِ `bot<token>/sendMessage` را در خودِ متن داشته باشند."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return scrub(super().format(record))
+
+
 def install(level: str = "INFO", as_json: bool = False) -> None:
     """رویِ root logger بنشین (از main.py فراخوانده می‌شود)."""
     root = logging.getLogger()
@@ -102,7 +115,7 @@ def install(level: str = "INFO", as_json: bool = False) -> None:
         if as_json:
             handler.setFormatter(JsonFormatter())
         else:
-            handler.setFormatter(logging.Formatter(CORRELATION_PLAIN_FORMAT))
+            handler.setFormatter(ScrubbingFormatter(CORRELATION_PLAIN_FORMAT))
 
 
 CORRELATION_PLAIN_FORMAT = "%(asctime)s %(levelname)s %(name)s%(corr)s: %(message)s"

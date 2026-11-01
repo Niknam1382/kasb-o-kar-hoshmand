@@ -20,7 +20,7 @@ import hashlib
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import AuditEventType, AuditLogEntry
+from app.database.models import AuditEventType, AuditLogEntry, ShopBot
 
 GENESIS = "0" * 64
 
@@ -118,8 +118,15 @@ async def query(
     actor_telegram_id: int | None = None,
     limit: int = 25,
     now: datetime.datetime | None = None,
+    allowed_owner_ids: set[int] | None = None,
 ) -> list[AuditLogEntry]:
-    """دفترِ ممیزی با فیلترِ دسته/بازهٔ زمانی/اCTOR. هیچ فیلدی ⇒ همان `get_recent`."""
+    """دفترِ ممیزی با فیلترِ دسته/بازهٔ زمانی/اCTOR. هیچ فیلدی ⇒ همان `get_recent`.
+
+    `allowed_owner_ids` (P21-F): دامنهٔ ادمینِ عملیاتی. ردیف‌هایِ مربوط بهِ فروشگاه‌دارِ دیگر
+    دیده نمی‌شوند، چون `details` همان ردیف‌ها مبلغ و شناسهٔ فروشگاه‌دارِ آن مشتری را دارد.
+    ردیف‌هایِ بی‌فروشگاه (سوییچ‌ها، تنظیمات، نقش‌ها) پلتفرمی‌اند و برایِ همهٔ ادمین‌ها می‌مانند.
+    None ⇒ بدونِ محدودیت (سوپرادمین). مجموعهٔ تهی ⇒ فقطِ ردیف‌هایِ پلتفرمی.
+    """
     statement = select(AuditLogEntry).order_by(AuditLogEntry.id.desc()).limit(limit)
     events = FILTER_GROUPS.get(group or "")
     if events:
@@ -130,5 +137,13 @@ async def query(
         statement = statement.where(AuditLogEntry.created_at >= since)
     if actor_telegram_id is not None:
         statement = statement.where(AuditLogEntry.actor_telegram_id == actor_telegram_id)
+    if allowed_owner_ids is not None:
+        if allowed_owner_ids:
+            in_scope = select(ShopBot.id).where(ShopBot.shop_owner_id.in_(sorted(allowed_owner_ids)))
+            statement = statement.where(
+                AuditLogEntry.shop_bot_id.is_(None) | AuditLogEntry.shop_bot_id.in_(in_scope)
+            )
+        else:
+            statement = statement.where(AuditLogEntry.shop_bot_id.is_(None))
     result = await session.execute(statement)
     return list(result.scalars().all())
