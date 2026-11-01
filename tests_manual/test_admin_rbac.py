@@ -90,6 +90,13 @@ async def test_operator_cannot_trigger_super_only_handler(main_dp) -> None:
         await main_dp.feed_update(main_bot, make_message_update(update_id, text=text, user_id=OPERATOR_TG_ID))
         after = len(main_bot.session.sent_messages)
         assert after == before, f"ادمینِ عملیاتی نباید بتونه «{text}» رو باز کنه، ولی پاسخی فرستاده شد"
+
+    # P20: همان نگهبانی برایِ دکمه‌هایِ inlineِ رویِ super_router (callback_data قابلِ جعل/بازیابی است)
+    for offset, data in enumerate(["admin_notification_queue", "admin_notification_retry", "admin_branding_sync"], start=10):
+        before = len(main_bot.session.sent_messages)
+        await main_dp.feed_update(main_bot, make_callback_update(offset, data=data, user_id=OPERATOR_TG_ID))
+        assert len(main_bot.session.sent_messages) == before, f"«{data}» فقط سوپرادمین است ولی اجرا شد"
+        assert not main_bot.session.answered_callbacks, f"«{data}» نباید حتی callback.answer می‌گرفت"
     print("✅ test_operator_cannot_trigger_super_only_handler PASSED")
 
 
