@@ -136,3 +136,5 @@ MEASURED از کد (`app/database/models.py:463`، `app/services/wallet_service.
 3. **B1 (PHASE 20):** `app/observability.py` (schema + scrubber) ← انتشارِ correlation-id در
    `main.py`/`middlewares`/`scheduler` ← متریک‌هایِ شمارشی ← پنلِ خوانش/خروجیِ ممیزی ← زنجیرهٔ هش.
 4. `ruff check .` دوباره (باید ≤ بیس‌لاینِ ۲۶۰ باشد) و سپس یک commitِ F-codes.
+
+| ۲۰۲۶-۱۱-۰۱ | P19: رفعِ سه ریشهٔ باگِ بیوگرافی + رباتِ بلهٔ هر فروشگاه + منویِ دسته‌ای | COMPLETED (بدونِ deploy/push) | `bot_branding_service`، `platform_service` (جدید)، `bale_bot_service` (جدید)، `bot_manager`، `customer_service`، `shop_bot_service`، مایگریشن `a1d5e9f3b7c2`، `test_p19_bale_shop_bot.py`، `docs/changelog-p19.md` | MEASURED: ۸۲ فایل / ۵۳۶ تست سبز، head=`a1d5e9f3b7c2`، سه commit (`e21f9b2`، `b30366f`، `54e7495`). NOT RUN: هیچ درخواستِ واقعی به API بله زده نشد (توکنِ واقعی در دسترس نبود و طبقِ دستورالعمل ممنوع) ⇒ سازگاریِ بله با طرحِ تلگرام **فرضِ مستندات** است و قبل از رونماییِ عمومی باید با یک رباتِ واقعی چک شود |
