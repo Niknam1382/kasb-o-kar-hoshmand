@@ -1216,6 +1216,27 @@ BRANDING_REPORT_EMPTY = (
 BRANDING_REPORT_TITLE = "🧴 گزارشِ دستکاریِ بیوگرافی (فاصلهٔ بازرسی: هر {minutes} دقیقه)\n\n"
 BRANDING_REPORT_ITEM = "• {username}: {count} بار · آخرینِ بازبینی: {checked}"
 BRANDING_REPORT_NEVER = "هنوز بازبینی نشده"
+
+# P21-C (F3 و F4): قیمت‌گذاریِ منصفانه و طلبِ کمیسیون
+ADMIN_ASK_WALLET_COST_VOICE_PER_MINUTE = (
+    "هزینه‌یِ **هر دقیقه‌یِ صوت** (تومان) چقدر باشه؟ ۰ = همان نرخِ ثابتِ فعلی.\n"
+    "فرمول: max(کفِ فعلی, دقیقه_گرد_بالا × این نرخ) ⇒ ویسِ کوتاه ارزان‌تر از امروز نمی‌شود، ویسِ بلند گران‌تر."
+)
+ADMIN_ASK_WALLET_COST_RECEIPT_PER_1K_TOKENS = (
+    "هزینه‌یِ هر ۱۰۰۰ توکنِ تحلیلِ رسید (تومان) چقدر باشه؟ ۰ = همان نرخِ ثابتِ فعلی."
+)
+COMMISSION_DEBT_EMPTY = (
+    "🧾 طلبِ کمیسیونی ثبت نشده است — هر کمیسیونِ نهایی در همان لحظه از کیف‌پول گرفته شده.\n\n"
+    "فاصلهِ بازرسیِ جمع‌آوری: هر دورِ جابِ «کیف‌پول» (پیش‌فرض ۳۰ دقیقه) بررسی می‌شود."
+)
+COMMISSION_DEBT_REPORT = (
+    "🧾 طلبِ کمیسیونِ پلتفرم\n\n"
+    "💰 باز: {count} مورد · {toman} تومان\n"
+    "✅ وصول‌شده: {settled_count} مورد\n\n"
+    "{items}\n\n"
+    "با هر شارژِ کافی، خودکار وصول می‌شود (دیگر گم نمی‌شود)."
+)
+COMMISSION_DEBT_ITEM = "• {owner}: {toman} تومان · {note}"
 BRANDING_OWNER_ASK = (
     "متنِ خودت برایِ بیوگرافیِ ربات رو بنویس (حداکثر ۱۲۰ نویسه؛ کنارِ متنِ پلتفرم نمایش داده می‌شود).\n"
     "برایِ پاک کردن «خالی» بنویس. برایِ انصراف /cancel رو بزن."
@@ -1493,6 +1514,8 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
     "usd_to_toman_rate": "pricing",
     "wallet_markup_multiplier": "pricing",
     "wallet_cost_receipt_analysis_toman": "pricing",
+    "wallet_cost_voice_per_minute_toman": "pricing",
+    "wallet_cost_receipt_per_1k_tokens": "pricing",
     "wallet_cost_voice_transcription_toman": "pricing",
     "wallet_cost_order_detection_toman": "pricing",
     "commission_percent": "pricing",
@@ -1573,6 +1596,15 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         ),
         ("wallet_cost_receipt_analysis_toman", f"🧾 هزینه‌ی تحلیلِ رسید (مشورتی): {format_toman(admin_settings.wallet_cost_receipt_analysis_toman)}"),
         ("wallet_cost_voice_transcription_toman", f"🎙 هزینه‌ی رونویسیِ صوت: {format_toman(admin_settings.wallet_cost_voice_transcription_toman)}"),
+        # P21-C (F3): قیمت‌گذاریِ منصفانه — هر دو با ۰ یعنی «همان نرخِ ثابتِ قبل».
+        (
+            "wallet_cost_voice_per_minute_toman",
+            f"🎙 نرخِ هر دقیقهٔ صوت: {('خاموش (نرخ ثابت)' if not admin_settings.wallet_cost_voice_per_minute_toman else format_toman(admin_settings.wallet_cost_voice_per_minute_toman))}",
+        ),
+        (
+            "wallet_cost_receipt_per_1k_tokens",
+            f"🧾 هر ۱۰۰۰ توکنِ تحلیلِ رسید: {('خاموش (نرخ ثابت)' if not admin_settings.wallet_cost_receipt_per_1k_tokens else format_toman(admin_settings.wallet_cost_receipt_per_1k_tokens))}",
+        ),
         ("wallet_cost_order_detection_toman", f"🔎 هزینه‌ی پیش‌فرضِ تشخیصِ سفارش: {format_toman(admin_settings.wallet_cost_order_detection_toman)}"),
         ("wallet_topup_validity_months", f"📅 اعتبارِ هر شارژ: {admin_settings.wallet_topup_validity_months} ماه"),
         ("min_topup_amount_toman", f"🧾 کمترینِ شارژِ کیف‌پول: {format_toman(admin_settings.min_topup_amount_toman)}"),

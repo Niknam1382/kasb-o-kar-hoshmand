@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 import logging
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ConversationMessage, Customer
@@ -54,9 +54,14 @@ async def get_history_page(
 
 
 async def save_turn(session: AsyncSession, customer_id: int, user_message: str, assistant_reply: str) -> None:
-    session.add(ConversationMessage(customer_id=customer_id, role="user", content=user_message))
-    session.add(ConversationMessage(customer_id=customer_id, role="assistant", content=assistant_reply))
-    await session.flush()
+    """یک رفت و برگشت در یک گزاره (P21-C · O1): دو INSERT قبلاً دو round-trip ORM بود."""
+    await session.execute(
+        insert(ConversationMessage),
+        [
+            {"customer_id": customer_id, "role": "user", "content": user_message},
+            {"customer_id": customer_id, "role": "assistant", "content": assistant_reply},
+        ],
+    )
 
 
 async def prune_old_messages(session: AsyncSession, retention_days: int, now: datetime.datetime | None = None) -> int:

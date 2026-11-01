@@ -37,6 +37,7 @@ from app.services import (
     bale_service,
     bot_branding_service,
     channel_service,
+    commission_receivable_service,
     credit_batch_service,
     discount_service,
     excel_export_service,
@@ -723,6 +724,9 @@ _INT_FIELDS: dict[str, str] = {
     # P18 · A4: تحلیلِ عکسِ عمومی حذف شد ⇒ این هزینه دیگر تنظیم نمی‌شود (ستون و داده می‌مانند).
     "wallet_cost_receipt_analysis_toman": texts.ADMIN_ASK_WALLET_COST_RECEIPT_ANALYSIS,
     "wallet_cost_voice_transcription_toman": texts.ADMIN_ASK_WALLET_COST_VOICE_TRANSCRIPTION,
+    # P21-C (F3): قیمتِ منصفانه — هر دو با ۰ «خاموش» حساب می‌شوند، پس صفرِ مجاز هم هستند.
+    "wallet_cost_voice_per_minute_toman": texts.ADMIN_ASK_WALLET_COST_VOICE_PER_MINUTE,
+    "wallet_cost_receipt_per_1k_tokens": texts.ADMIN_ASK_WALLET_COST_RECEIPT_PER_1K_TOKENS,
     "wallet_cost_order_detection_toman": texts.ADMIN_ASK_WALLET_COST_ORDER_DETECTION,
     "wallet_topup_validity_months": texts.ADMIN_ASK_WALLET_TOPUP_VALIDITY_MONTHS,
     # PHASE 5A: کمترینِ مبلغِ شارژِ کیف‌پول (سمتِ سرور هم در payment_service چک می‌شود).
@@ -749,7 +753,15 @@ _DECIMAL_FIELDS_MAX: dict[str, Decimal] = {"commission_percent": Decimal("100")}
 
 # این فیلدها استثنائاً اجازه‌ی صفر دارن (صفر یعنی «غیرفعال»، یا برایِ
 # nightly_report_hour_utc، یعنی نیمه‌شبِ UTC — یه ساعتِ کاملاً معتبر).
-_INT_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset({"referral_reward_value", "nightly_report_hour_utc"})
+_INT_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset(
+    {
+        "referral_reward_value",
+        "nightly_report_hour_utc",
+        # P21-C (F3): ۰ یعنی «همان نرخِ ثابتِ قبل» ⇒ خاموش‌کردنِ قیمتِ دقیقه‌ای/توکنی.
+        "wallet_cost_voice_per_minute_toman",
+        "wallet_cost_receipt_per_1k_tokens",
+    }
+)
 
 # سقفِ مجاز برایِ بعضی فیلدهایِ عددی (مثلاً ساعت باید ۰ تا ۲۳ باشه). فیلدهایی
 # که اینجا نیستن سقف ندارن.
@@ -757,6 +769,9 @@ _INT_FIELDS_MAX: dict[str, int] = {
     "nightly_report_hour_utc": 23,
     "min_topup_amount_toman": 10_000_000,
     "branding_check_minutes": 1440,
+    # سقفِ هزینه‌ها: یکِ اشتباهِ تایپی نباید «هر دقیقهٔ صوت ۱۰۰ میلیون» بسازد.
+    "wallet_cost_voice_per_minute_toman": 1_000_000,
+    "wallet_cost_receipt_per_1k_tokens": 1_000_000,
 }
 
 # کفِ مجاز برایِ بعضی فیلدها (پیش‌فرضِ عمومی ۱ است). بازدیدِ بیو زیرِ ۵ دقیقه یعنی هر لوپِ
@@ -852,6 +867,32 @@ async def cb_payment_events(callback: CallbackQuery, session: AsyncSession) -> N
     await callback.answer()
     events = await payment_event_service.recent_events(session, limit=20)
     await callback.message.answer(texts.payment_events_text(events))
+
+
+@super_router.callback_query(F.data == "admin_commission_debt")
+async def cb_commission_debt(callback: CallbackQuery, session: AsyncSession) -> None:
+    """P21-C (F4): «پلتفرم چقدر کمیسیونِ نگرفته‌شده دارد؟» — تا پیش‌ازاین فقط در لاگ دیده می‌شد."""
+    await callback.answer()
+    totals = await commission_receivable_service.summary(session)
+    if not totals["open_count"]:
+        await callback.message.answer(texts.COMMISSION_DEBT_EMPTY)
+        return
+    items = [
+        texts.COMMISSION_DEBT_ITEM.format(
+            owner=row["owner_label"],
+            toman=format_toman(row["amount_toman"]),
+            note=row["note"] or "—",
+        )
+        for row in await commission_receivable_service.open_report(session)
+    ]
+    await callback.message.answer(
+        texts.COMMISSION_DEBT_REPORT.format(
+            count=totals["open_count"],
+            toman=format_toman(totals["open_toman"]),
+            settled_count=totals["settled_count"],
+            items="\n".join(items),
+        )
+    )
 
 
 @super_router.callback_query(F.data == "admin_notification_queue")

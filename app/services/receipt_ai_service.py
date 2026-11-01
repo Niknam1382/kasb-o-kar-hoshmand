@@ -200,9 +200,14 @@ async def analyze_receipt(
     order_created_at: datetime.datetime,
 ) -> str | None:
     """خطِ مشورتی یا None (غیرفعال/اعتبارِ ناکافی/AI نیست/شکست). ترتیب: بررسیِ اعتبار ← commit ← AI ← ذخیره ← کسرِ هزینه.
-    خطایِ AI ⇒ هیچ هزینه و هیچ اثری؛ تحلیلِ نامعتبر ⇒ ذخیره‌یِ verdict=error بدونِ هزینه."""
-    cost = admin_settings.wallet_cost_receipt_analysis_toman
-    if owner is None or owner.wallet_balance_toman < max(cost, 1):
+    خطایِ AI ⇒ هیچ هزینه و هیچ اثری؛ تحلیلِ نامعتبر ⇒ ذخیره‌یِ verdict=error بدونِ هزینه.
+
+    P21-C (F3): اگر ادمین `wallet_cost_receipt_per_1k_tokens` را روشن کرده باشد، هزینهٔ واقعی
+    بعد از پاسخِ AI با توکن‌هایِ گزارش‌شده محاسبه می‌شود؛ سنجشِ *ابتدا* با کفِ ثابت انجام می‌شود
+    تا هرگز فراخوانی‌ای که قطعاً پرداخت نمی‌شود شروع نشود.
+    """
+    floor_cost = wallet_service.estimate_receipt_cost(admin_settings, None)
+    if owner is None or owner.wallet_balance_toman < max(floor_cost, 1):
         return None
     ai = await ai_pool_service.build_ai_service(session, admin_settings, "vision")
     if ai is None:
@@ -230,6 +235,8 @@ async def analyze_receipt(
         {"analysis": None if analysis is None else analysis.__dict__, "flags": flags}, ensure_ascii=False
     )
     if analysis is not None:
-        await wallet_service.deduct(session, owner, cost, WalletTransactionReason.RECEIPT_ANALYSIS, reference=f"order_payment:{payment.id}")
+        cost = wallet_service.estimate_receipt_cost(admin_settings, getattr(result, "total_tokens", None))
+        if not await wallet_service.deduct(session, owner, cost, WalletTransactionReason.RECEIPT_ANALYSIS, reference=f"order_payment:{payment.id}"):
+            logger.warning("تحلیلِ رسیدِ پرداخت %s انجام شد ولی هزینه‌اش (%s تومان) از موجودی کم بود.", payment.id, cost)
     await session.commit()
     return advisory_line(verdict, flags)

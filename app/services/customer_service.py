@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Customer
@@ -85,29 +86,33 @@ async def get_or_create_customer(
     session: AsyncSession, shop_bot_id: int, telegram_id: int, first_name: str | None, username: str | None,
     last_name: str | None = None, *, platform: str = platform_service.TELEGRAM,
 ) -> Customer:
-    result = await session.execute(
-        select(Customer).where(
-            Customer.shop_bot_id == shop_bot_id, Customer.telegram_id == telegram_id, Customer.platform == platform
-        )
-    )
-    customer = result.scalar_one_or_none()
+    """یک گزاره‌ای: INSERT … ON CONFLICT DO UPDATE (P21-C · O1).
+
+    نسخهٔ قبلی «اول SELECT، بعد شاید INSERT» بود — یعنی برایِ هر پیامِ مشتریِ بازگشتی
+    (که غالبِ ترافیک است) یک رفت‌وبرگشتِ اضافه. معنایِ دقیقاً همان حفظ شده:
+    `COALESCE(مقدارِ تازه، مقدارِ قبلی)` یعنی فقط وقتی واقعاً چیزی داریم عوضش کن، پس
+    صدا زدنِ این تابع با `first_name=None` از یک تسکِ پس‌زمینه هیچ اطلاعاتِ قبلی را پاک
+    نمی‌کند، و `last_message_at` همیشه تازه می‌شود.
+    """
     now = datetime.datetime.now(datetime.timezone.utc)
-    if customer is None:
-        customer = Customer(
-            shop_bot_id=shop_bot_id, telegram_id=telegram_id, platform=platform, first_name=first_name,
-            username=username, last_name=last_name, last_message_at=now,
-        )
-        session.add(customer)
-    else:
-        # عمداً فقط وقتی مقدارِ جدید واقعاً داریم آپدیت می‌کنیم؛ صدا زدنِ این تابع با
-        # first_name/username=None (مثلاً از یه تسکِ پس‌زمینه که فقط telegram_id رو
-        # داره) نباید اطلاعاتِ قبلاً ذخیره‌شده رو پاک کنه.
-        if first_name is not None:
-            customer.first_name = first_name
-        if username is not None:
-            customer.username = username
-        if last_name is not None:
-            customer.last_name = last_name
-        customer.last_message_at = now
-    await session.flush()
-    return customer
+    stmt = insert(Customer).values(
+        shop_bot_id=shop_bot_id,
+        telegram_id=telegram_id,
+        platform=platform,
+        first_name=first_name,
+        username=username,
+        last_name=last_name,
+        last_message_at=now,
+    )
+    upsert = stmt.on_conflict_do_update(
+        constraint="uq_customers_shop_bot_id_platform",
+        set_={
+            "first_name": func.coalesce(stmt.excluded.first_name, Customer.first_name),
+            "username": func.coalesce(stmt.excluded.username, Customer.username),
+            "last_name": func.coalesce(stmt.excluded.last_name, Customer.last_name),
+            "last_message_at": now,
+        },
+    )
+    customer_id = (await session.execute(upsert.returning(Customer.id))).scalar_one()
+    # populate_existing: اگر همین session قبلاً ردیف را خوانده، نسخهٔ کهنهٔ حافظه برگردد نه نو
+    return await session.get(Customer, customer_id, populate_existing=True)

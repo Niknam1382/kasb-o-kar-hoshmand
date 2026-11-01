@@ -9,6 +9,7 @@ from aiogram import Bot
 from app.database.session import session_scope
 from app.services import (
     admin_alert_service,
+    commission_receivable_service,
     conversation_service,
     grace_period_service,
     job_gate_service,
@@ -57,6 +58,11 @@ async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
         async with session_scope() as session:
             await wallet_expiry_service.process_wallet_expiry_and_reminders(session, main_bot)
         await reconcile_wallet_ledgers()
+        # P21-C (F4): کمیسیونِ نگرفته‌شده با اولین شارژِ کافی جمع می‌شود (جابِ جدا نیست؛ همین گروه).
+        async with session_scope() as session:
+            collected = await commission_receivable_service.collect_due(session)
+        if collected["settled"]:
+            logger.info("جمعِ طلبِ کمیسیون: %s ردیف تسویه شد (از %s فروشگاهِ بدهکار).", collected["settled"], collected["owners"])
     if not job_gate_service.is_paused(admin_settings, "orders"):
         async with session_scope() as session:
             await order_expiry_service.process_order_expiry(session, main_bot)

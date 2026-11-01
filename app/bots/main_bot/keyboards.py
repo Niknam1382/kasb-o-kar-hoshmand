@@ -555,6 +555,8 @@ def admin_settings_group_keyboard(group: str, admin_settings) -> InlineKeyboardM
         rows.append([InlineKeyboardButton(text="📊 گزارشِ دستکاریِ بیوگرافی", callback_data="admin_branding_report")])
     if group == "shops":
         rows.append([InlineKeyboardButton(text="📮 صفِ اعلان‌هایِ ارسال‌نشده", callback_data="admin_notification_queue")])
+    if group == "payments":
+        rows.append([InlineKeyboardButton(text="🧾 طلبِ کمیسیونِ فروشگاه‌ها", callback_data="admin_commission_debt")])
     rows.append([InlineKeyboardButton(text="🔙 بازگشت به فهرستِ تنظیمات", callback_data="admin_settings_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

@@ -29,7 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import OrderConsultation, ShopOwner, WalletTransaction, WalletTransactionReason
-from app.services import order_state, wallet_service
+from app.services import commission_receivable_service, order_state, wallet_service
 
 logger = logging.getLogger(__name__)
 
@@ -218,11 +218,16 @@ async def settle(
             # موجودیِ فروشگاه‌دار در لحظهٔ تسویه تمام شده. قبلاً اینجا `return` می‌شد و hold
             # برایِ همیشه رویِ کیف‌پول قفل می‌ماند (پولِ مسکوت، بدونِ هیچ ردیفِ دفتری).
             # درستِ همین: hold آزاد می‌شود، ردیف‌ها released می‌شوند و هیچ پولی گرفته نمی‌شود ⇒
-            # دفتر و کشِ موجودی هم‌راستا می‌مانند؛ کمبودِ درآمد در لاگِ هشدار دیده می‌شود.
+            # دفتر و کشِ موجودی هم‌راستا می‌مانند.
+            # P21-C (F4): مبلغِ گرفته‌نشده حالا «بدهیِ باز» ثبت می‌شود تا درآمدِ از دست رفته
+            # عددِ داشته باشد و با شارژِ بعدیِ فروشگاه خودکار جمع شود (سابقه پاک نمی‌شود).
             logger.warning(
                 "کمیسیونِ گروه %s از کیف‌پولِ %s کم نشد (موجودیِ ناکافی در لحظهٔ تسویه)؛ رزرو آزاد شد.", group_key, owner_id
             )
             await release(session, owner_id=owner_id, group_key=group_key, rows=rows)
+            await commission_receivable_service.record(
+                session, owner_id=owner_id, group_key=group_key, amount_toman=actual, note="تسویهٔ ناموفق — موجودیِ ناکافی"
+            )
             return CommissionResult("settle", actual, False, "insufficient")
 
     owner.commission_reserved_toman = max(0, int(owner.commission_reserved_toman or 0) - hold)

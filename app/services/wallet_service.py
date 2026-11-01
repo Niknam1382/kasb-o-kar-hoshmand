@@ -479,8 +479,33 @@ def estimate_chat_cost(admin_settings, total_tokens: int | None) -> int:
     return max(1, round(total_tokens * admin_settings.wallet_cost_per_1k_tokens_toman / 1000))
 
 
-def estimate_voice_cost(admin_settings) -> int:
-    return admin_settings.wallet_cost_voice_transcription_toman
+def estimate_voice_cost(admin_settings, duration_seconds: int | None = None) -> int:
+    """هزینهٔ یکِ پیامِ صوتی.
+
+    قیمتِ ثابتِ «هر صوت ۳۰۰ تومان» ویسِ یک‌دقیقه‌ای را ~۱۰ برابر زیرِ هزینهٔ تمام‌شده می‌گذاشت.
+    با `wallet_cost_voice_per_minute_toman` (پیش‌فرض ۰ ⇒ خاموش) هزینه می‌شود
+    `max(کفِ ثابت, سقفِ دقیقه × نرخ)` — یعنی هیچ‌کس ارزان‌تر از امروز پرداخت نمی‌کند و
+    فقط ویسِ بلندتر، بیشتر پول می‌دهد.
+    """
+    floor = int(admin_settings.wallet_cost_voice_transcription_toman or 0)
+    per_minute = int(getattr(admin_settings, "wallet_cost_voice_per_minute_toman", 0) or 0)
+    if per_minute <= 0 or not duration_seconds or duration_seconds <= 0:
+        return max(1, floor)
+    minutes = -(-int(duration_seconds) // 60)  # گردِ بالا به دقیقهٔ کامل
+    return max(1, floor, minutes * per_minute)
+
+
+def estimate_receipt_cost(admin_settings, total_tokens: int | None = None) -> int:
+    """هزینهٔ تحلیلِ هوشمندِ رسید: توکن‌محور اگر `wallet_cost_receipt_per_1k_tokens` روشن باشد.
+
+    ارائه‌دهنده همیشه usage برنمی‌گرداند؛ در آن حالت به همان نرخِ ثابتِ برمی‌گردد (نه تخمینِ
+    ساختگی)، تا روشن‌کردنِ این گزینه هرگز هزینه را بی‌دلیل بالا نبرد.
+    """
+    flat = int(admin_settings.wallet_cost_receipt_analysis_toman or 0)
+    per_1k = int(getattr(admin_settings, "wallet_cost_receipt_per_1k_tokens", 0) or 0)
+    if per_1k <= 0 or not total_tokens or total_tokens <= 0:
+        return max(1, flat)
+    return max(1, round(total_tokens * per_1k / 1000))
 
 
 def estimate_order_detection_cost(admin_settings, total_tokens: int | None) -> int:

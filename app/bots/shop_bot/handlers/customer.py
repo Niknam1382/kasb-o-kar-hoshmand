@@ -870,7 +870,7 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
         await message.answer(texts.VOICE_TRANSCRIBE_ERROR)
         return
 
-    cost = wallet_service.estimate_voice_cost(admin_settings)
+    cost = wallet_service.estimate_voice_cost(admin_settings, getattr(message.voice, "duration", None))
     await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.VOICE_TRANSCRIPTION, main_bot)
 
     _schedule_debounced_processing(

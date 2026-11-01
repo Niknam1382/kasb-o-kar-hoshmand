@@ -359,6 +359,11 @@ class AdminSettings(Base):
     # P21-A: فاصلهِ بازرسیِ بیو حالا دادهٔ ادمین است نه ثابتِ کد (۵ تا ۱۴۴۰ دقیقه).
     branding_check_minutes: Mapped[int] = mapped_column(Integer, default=60, server_default="60", nullable=False)
     wallet_cost_voice_transcription_toman: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
+    # P21-C (F3): نرخِ «هر دقیقهٔ صوت» (۰ ⇒ همان قیمتِ ثابتِ بالا). ویسِ ۶۰ ثانیه‌ای با قیمتِ
+    # ثابت ~۱۰ برابر زیرِ هزینهٔ تمام‌شده حساب می‌شد. هزینه = max(کفِ ثابت, دقیقه_گرد_بالا × نرخ).
+    wallet_cost_voice_per_minute_toman: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # P21-C (F3): نرخِ «هر ۱۰۰۰ توکنِ تحلیلِ رسید» (۰ ⇒ همان قیمتِ ثابت). مثلِ چت، توکن‌محور.
+    wallet_cost_receipt_per_1k_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     wallet_cost_order_detection_toman: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     wallet_low_balance_warning_toman: Mapped[int] = mapped_column(Integer, default=20_000, nullable=False)
     wallet_trial_credit_toman: Mapped[int] = mapped_column(Integer, default=50_000, nullable=False)
@@ -1259,6 +1264,28 @@ class AdminCreditBatchItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     batch_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
+
+class CommissionReceivable(Base):
+    """P21-C (F4): «پلتفرم از این فروشگاه چقدر طلبِ کمیسیون دارد».
+
+    تا امروز اگر کیف‌پولِ فروشگاه‌دار برایِ تسویهٔ کمیسیون کافی نبود، `settle` رد می‌شد و
+    **هیچ رکوردی از بدهی نمی‌ماند** ⇒ درآمدِ از دست رفته نه دیده می‌شد نه پیگیری. این جدول
+    همان مبلغ را با status=`open` ثبت می‌کند؛ با شارژِ بعدی تسویه و `settled` می‌شود.
+    """
+
+    __tablename__ = "commission_receivables"
+    __table_args__ = (UniqueConstraint("group_key", "shop_owner_id", name="uq_commission_receivables_group_owner"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
+    # کلیدِ همان گروهِ سفارش (کمیسیون per-group است) ⇒ دو نوشتنِ همان رویداد یک ردیف می‌سازد
+    group_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    amount_toman: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), default="open", server_default="open", nullable=False, index=True)
+    note: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    settled_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class Notification(Base):
     """صندوقِ خروجیِ اعلان‌ها (P20 · پیشنهادِ «تحویلِ تضمینیِ خبر»): هر اعلانی که ارسالش
