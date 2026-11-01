@@ -113,9 +113,10 @@ def shop_owner_panel_keyboard(tenant_mode=None, bale_visible: bool = False) -> R
     mode_value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     consultation = mode_value == "consultation"
     # C1: مودِ مشاوره‌ای کاتالوگِ محصول/خدمت ندارد (افزودنِ محصول در مشاوره معنا ندارد).
-    rows = [["🔑 ثبت/ویرایش توکن ربات"]] if consultation else [["🔑 ثبت/ویرایش توکن ربات", "📦 محصولات"]]
+    token_row = ["🔑 ثبت/ویرایش توکن ربات"]
     if bale_visible:
-        rows.append([texts.BALE_SHOP_BOT_BUTTON])
+        token_row.append(texts.BALE_SHOP_BOT_BUTTON)  # P19: دو سرویسِ پیام‌رسان، کنارِ هم
+    rows = [token_row] if consultation else [token_row, ["📦 محصولات"]]
     if not consultation:
         rows.append(["🧾 مدیریتِ سفارش‌ها (جاری)"])  # W5: سفارش‌هایِ باز یک‌جا (اعلان‌ها دیگه گم نمی‌شن)
     rows += [
@@ -490,7 +491,11 @@ def discount_type_keyboard() -> InlineKeyboardMarkup:
 
 
 def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
-    from app.bots.main_bot.texts import admin_settings_button_labels
+    """صفحه‌یِ اصلیِ تنظیمات: فقط کلیدهایِ روشن/خاموشِ پلتفرم + دسته‌ها.
+
+    چهلِ مقدارِ ویرایشی در یک صفحه‌یِ تخت گم می‌شدند؛ حالا هر مقدار داخلِ دسته‌یِ خودش
+    ویرایش می‌شود (`admin_settings_group_keyboard`) و این صفحه فقط سوییچ‌هایِ کلِ پلتفرم را نشان می‌دهد."""
+    from app.bots.main_bot import texts
 
     zarinpal_label = "🙈 پنهان‌کردنِ زرین‌پال از فروشگاه‌دارها" if admin_settings.zarinpal_enabled else "👁 نمایشِ دوباره‌ی زرین‌پال"
     bale_pay_label = "🙈 پنهان‌کردنِ بله‌پی از فروشگاه‌دارها" if admin_settings.bale_pay_enabled else "👁 فعال‌کردنِ بله‌پی"
@@ -498,7 +503,6 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
         "🙈 پنهان‌کردنِ رباتِ بله‌یِ فروشگاه‌ها" if admin_settings.bale_shop_bots_enabled else "🟢 رونماییِ رباتِ بله‌یِ فروشگاه‌ها"
     )
     sms_label = "📩 خاموش‌کردنِ پیامکِ احراز" if admin_settings.sms_enabled else "📩 روشن‌کردنِ پیامکِ احراز"
-    branding_label = "🧴 همگام‌سازیِ بیوگرافیِ ربات‌ها"
     registrations_label = "⛔️ بستنِ ثبت‌نامِ کاربرانِ جدید" if admin_settings.allow_new_registrations else "✅ بازکردنِ ثبت‌نامِ کاربرانِ جدید"
     topups_label = "⛔️ غیرفعال‌کردنِ شارژِ کیف‌پول" if admin_settings.allow_wallet_topups else "✅ فعال‌کردنِ شارژِ کیف‌پول"
     maintenance_label = "🚧 فعال‌کردنِ حالتِ تعمیر (کلِ پلتفرم)" if not admin_settings.maintenance_mode else "✅ خروج از حالتِ تعمیر"
@@ -508,29 +512,47 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
         if admin_settings.knowledge_gap_enabled
         else "🧩 روشن‌کردنِ تشخیصِ سوال‌هایِ بی‌جواب"
     )
+    commission_label = "🧾 خاموش‌کردنِ کمیسیونِ سفارش" if admin_settings.commission_enabled else "🧾 روشن‌کردنِ کمیسیونِ سفارش"
     rows = [
+        [InlineKeyboardButton(text=maintenance_label, callback_data="admin_toggle_maintenance")],
+        [InlineKeyboardButton(text=registrations_label, callback_data="admin_toggle_registrations")],
+        [InlineKeyboardButton(text=topups_label, callback_data="admin_toggle_topups")],
         [InlineKeyboardButton(text=zarinpal_label, callback_data="admin_toggle_zarinpal")],
         [InlineKeyboardButton(text=bale_pay_label, callback_data="admin_toggle_bale_pay")],
         [InlineKeyboardButton(text=bale_bots_label, callback_data="admin_toggle_bale_bots")],
         [InlineKeyboardButton(text=sms_label, callback_data="admin_toggle_sms")],
-        [InlineKeyboardButton(text=branding_label, callback_data="admin_branding_sync")],
-        [InlineKeyboardButton(text="🧮 محاسبه‌ی خودکارِ هزینه از فرمول", callback_data="admin_recalc_wallet_cost")],
-        [InlineKeyboardButton(text=registrations_label, callback_data="admin_toggle_registrations")],
-        [InlineKeyboardButton(text=topups_label, callback_data="admin_toggle_topups")],
-        # PHASE 5D: کمیسیونِ درصدی (روشن/خاموش؛ درصد از همان فهرستِ تنظیمات ویرایش می‌شود)
-        [
-            InlineKeyboardButton(
-                text="🧾 خاموش‌کردنِ کمیسیونِ سفارش" if admin_settings.commission_enabled else "🧾 روشن‌کردنِ کمیسیونِ سفارش",
-                callback_data="admin_toggle_commission",
-            )
-        ],
-        [InlineKeyboardButton(text=maintenance_label, callback_data="admin_toggle_maintenance")],
+        [InlineKeyboardButton(text=commission_label, callback_data="admin_toggle_commission")],
         [InlineKeyboardButton(text=nightly_report_label, callback_data="admin_toggle_nightly_report")],
         [InlineKeyboardButton(text=knowledge_gap_label, callback_data="admin_toggle_knowledge_gap")],
-        [InlineKeyboardButton(text="🧪 آزمایشِ بله‌پی", callback_data="admin_bale_selftest")],
-        [InlineKeyboardButton(text="🔎 آخرین رویدادهایِ پرداخت", callback_data="admin_payment_events")],
     ]
-    rows += [[InlineKeyboardButton(text=label, callback_data=f"admin_setting_edit:{key}")] for key, label in admin_settings_button_labels(admin_settings)]
+    rows += [
+        [
+            InlineKeyboardButton(
+                text=f"{label} ({len(texts.admin_settings_button_labels(admin_settings, group=key))} مورد)",
+                callback_data=f"admin_settings_group:{key}",
+            )
+        ]
+        for key, label in texts.ADMIN_SETTINGS_GROUPS
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_settings_group_keyboard(group: str, admin_settings) -> InlineKeyboardMarkup:
+    """مقدارهایِ یک دسته + ابزارهایِ همان دسته + بازگشت به صفحه‌یِ اصلی."""
+    from app.bots.main_bot import texts
+
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"admin_setting_edit:{key}")]
+        for key, label in texts.admin_settings_button_labels(admin_settings, group=group)
+    ]
+    if group == "pricing":
+        rows.append([InlineKeyboardButton(text="🧮 محاسبه‌ی خودکارِ هزینه از فرمول", callback_data="admin_recalc_wallet_cost")])
+    if group == "bale":
+        rows.append([InlineKeyboardButton(text="🧪 آزمایشِ بله‌پی", callback_data="admin_bale_selftest")])
+        rows.append([InlineKeyboardButton(text="🔎 آخرین رویدادهایِ پرداخت", callback_data="admin_payment_events")])
+    if group == "branding":
+        rows.append([InlineKeyboardButton(text="🧴 همگام‌سازیِ بیوگرافیِ ربات‌ها", callback_data="admin_branding_sync")])
+    rows.append([InlineKeyboardButton(text="🔙 بازگشت به فهرستِ تنظیمات", callback_data="admin_settings_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

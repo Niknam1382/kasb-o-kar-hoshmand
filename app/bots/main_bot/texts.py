@@ -178,7 +178,7 @@ WALLET_TOPUPS_DISABLED = "شارژِ کیف‌پول فعلاً موقتاً غ�
 # =============================================================================
 # P19: رباتِ بله‌یِ خودِ فروشگاه (هوشمندسازی روی بله، با همان هزینه‌ها)
 # =============================================================================
-BALE_SHOP_BOT_BUTTON = "🟢 توکن ربات بله"
+BALE_SHOP_BOT_BUTTON = "🟢 توکنِ بله"
 ASK_BALE_SHOP_BOT_TOKEN = (
     "توکنِ رباتِ بله‌ات را بفرست (همان چیزی که از @BaleBotFather می‌گیری).\n"
     "از این به بعد مشتری‌هایِ بله‌ای مثلِ تلگرام با رباتِ هوشمندیِ خودت حرف می‌زنن، سفارش می‌دن و پرداخت می‌کنن.\n\n"
@@ -1413,15 +1413,79 @@ def _mask_secret(value: str | None) -> str:
     return f"●●●●{value[-4:]}"
 
 
-def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
+# P19 · مرتب‌سازیِ پنلِ ادمین: چهلِ تنظیمِ تخت در یک صفحه ⇒ هیچ‌کس پیدایشان نمی‌کند.
+# حالا صفحه‌یِ اصلی فقط کلیدهایِ روشن/خاموش + چند دسته است و مقدارها داخلِ دسته‌ها ویرایش می‌شوند.
+ADMIN_SETTINGS_GROUPS: tuple[tuple[str, str], ...] = (
+    ("ai", "🤖 هوش مصنوعی و دستورِ سراسری"),
+    ("pricing", "🪙 نرخ‌گذاریِ مصرفِ AI"),
+    ("payments", "💳 پرداخت، کارت و شارژ"),
+    ("bale", "🔵 توکن‌هایِ بله"),
+    ("messaging", "📩 پیامک و پشتیبانیِ پلتفرم"),
+    ("shops", "🏪 فروشگاه‌دارها و گزارش‌ها"),
+    ("branding", "🧴 بیوگرافیِ ربات‌ها"),
+)
+
+ADMIN_SETTINGS_GROUP_LABELS: dict[str, str] = dict(ADMIN_SETTINGS_GROUPS)
+ADMIN_SETTINGS_GROUP_KEYS: frozenset[str] = frozenset(ADMIN_SETTINGS_GROUP_LABELS)
+
+ADMIN_SETTING_GROUP: dict[str, str] = {
+    "ai_api_key": "ai",
+    "ai_model": "ai",
+    "ai_base_url": "ai",
+    "ai_fallback_api_key": "ai",
+    "ai_fallback_model": "ai",
+    "ai_fallback_base_url": "ai",
+    "global_ai_system_prompt": "ai",
+    "global_ai_prompt_sales": "ai",
+    "global_ai_prompt_consultation": "ai",
+    "reference_channel_link": "ai",
+    "conversation_history_limit": "ai",
+    "wallet_cost_per_1k_tokens_toman": "pricing",
+    "ai_cost_usd_per_1m_tokens": "pricing",
+    "usd_to_toman_rate": "pricing",
+    "wallet_markup_multiplier": "pricing",
+    "wallet_cost_receipt_analysis_toman": "pricing",
+    "wallet_cost_voice_transcription_toman": "pricing",
+    "wallet_cost_order_detection_toman": "pricing",
+    "commission_percent": "pricing",
+    "zarinpal_merchant_id": "payments",
+    "platform_card_number": "payments",
+    "platform_card_holder_name": "payments",
+    "min_topup_amount_toman": "payments",
+    "wallet_topup_validity_months": "payments",
+    "wallet_trial_credit_toman": "payments",
+    "wallet_low_balance_warning_toman": "payments",
+    "bale_bot_token": "bale",
+    "bale_provider_token": "bale",
+    "sms_api_key": "messaging",
+    "sms_sender_number": "messaging",
+    "sms_otp_template": "messaging",
+    "platform_support_username": "messaging",
+    "platform_support_phone": "messaging",
+    "platform_support_text": "messaging",
+    "referral_reward_value": "shops",
+    "grace_period_hours": "shops",
+    "rate_limit": "shops",
+    "periodic_report_frequency_days": "shops",
+    "nightly_report_hour_utc": "shops",
+    "branding_text": "branding",
+}
+
+ADMIN_SETTINGS_STALE_GROUP = "این دسته باز نیست. «🔑 تنظیمات کلیدها» را دوباره باز کن."
+
+
+def admin_settings_group_intro(group: str) -> str:
+    return f"{ADMIN_SETTINGS_GROUP_LABELS.get(group, '⚙️ تنظیمات')}\n\nروی هر مورد بزن تا مقدارش را عوض کنی."
+
+
+def admin_settings_button_labels(admin_settings, group: str | None = None) -> list[tuple[str, str]]:
     from app.services.sms_service import DEFAULT_OTP_TEMPLATE
 
     global_prompt_label = "تنظیم‌شده ✅" if admin_settings.global_ai_system_prompt else "خالی"
     reference_channel_label = admin_settings.reference_channel_link or "تنظیم‌نشده"
 
-    return [
-        ("sms_api_key", f"📲 کلید پیامک (کاوه‌نگار): {_mask_secret(admin_settings.sms_api_key)}"),
-        ("sms_sender_number", f"📲 سرشماره‌یِ پیامک: {admin_settings.sms_sender_number or 'تنظیم‌نشده'}"),
+    labels = [
+        ("sms_api_key", f"📲 کلید پیامک (کاوه‌نگار): {_mask_secret(admin_settings.sms_api_key)}"),        ("sms_sender_number", f"📲 سرشماره‌یِ پیامک: {admin_settings.sms_sender_number or 'تنظیم‌نشده'}"),
         ("sms_otp_template", f"📲 قالبِ OTP: {admin_settings.sms_otp_template or DEFAULT_OTP_TEMPLATE + ' (پیش‌فرض)'}"),
         ("ai_api_key", f"🤖 کلید هوش مصنوعی: {_mask_secret(admin_settings.ai_api_key)}"),
         ("ai_model", f"🧠 مدل هوش مصنوعی: {admin_settings.ai_model}"),
@@ -1472,6 +1536,9 @@ def admin_settings_button_labels(admin_settings) -> list[tuple[str, str]]:
         ("platform_support_phone", f"📞 پشتیبانیِ پلتفرم — تلفن: {format_phone_display(admin_settings.platform_support_phone) or 'تنظیم‌نشده'}"),
         ("platform_support_text", f"📞 پشتیبانیِ پلتفرم — متن: {'تنظیم‌شده ✅' if admin_settings.platform_support_text else 'خالی'}"),
     ]
+    if group is not None:
+        labels = [(key, label) for key, label in labels if ADMIN_SETTING_GROUP.get(key) == group]
+    return labels
 
 
 SUGGESTED_GLOBAL_SYSTEM_PROMPT = (

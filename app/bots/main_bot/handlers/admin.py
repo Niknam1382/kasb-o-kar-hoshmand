@@ -771,9 +771,41 @@ async def open_settings_menu(message: Message, state: FSMContext, session: Async
     await message.answer(texts.ADMIN_SETTINGS_MENU_INTRO, reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
-async def _refresh_settings_menu(message: Message, session: AsyncSession) -> None:
+async def _refresh_settings_menu(message: Message, session: AsyncSession, group: str | None = None) -> None:
+    """بعد از ذخیره، همان صفحه‌ای را نشان می‌دهد که کاربر از آن آمده بود (دسته یا فهرستِ اصلی)."""
     admin_settings = await admin_settings_service.get_admin_settings(session)
+    if group in texts.ADMIN_SETTINGS_GROUP_KEYS:
+        await message.answer(
+            texts.admin_settings_group_intro(group), reply_markup=keyboards.admin_settings_group_keyboard(group, admin_settings)
+        )
+        return
     await message.answer(texts.ADMIN_SETTINGS_MENU_INTRO, reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
+
+
+def _setting_group(field: str) -> str | None:
+    return texts.ADMIN_SETTING_GROUP.get(field)
+
+
+@super_router.callback_query(F.data == "admin_settings_menu")
+async def cb_admin_settings_menu(callback: CallbackQuery, session: AsyncSession) -> None:
+    admin_settings = await admin_settings_service.get_admin_settings(session)
+    await callback.answer()
+    await callback.message.edit_text(
+        texts.ADMIN_SETTINGS_MENU_INTRO, reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings)
+    )
+
+
+@super_router.callback_query(F.data.startswith("admin_settings_group:"))
+async def cb_admin_settings_group(callback: CallbackQuery, session: AsyncSession) -> None:
+    group = (callback.data or "").split(":", 1)[1]
+    if group not in texts.ADMIN_SETTINGS_GROUP_KEYS:
+        await callback.answer(texts.ADMIN_SETTINGS_STALE_GROUP, show_alert=True)
+        return
+    admin_settings = await admin_settings_service.get_admin_settings(session)
+    await callback.answer()
+    await callback.message.edit_text(
+        texts.admin_settings_group_intro(group), reply_markup=keyboards.admin_settings_group_keyboard(group, admin_settings)
+    )
 
 
 @super_router.callback_query(F.data == "admin_payment_events")
@@ -834,7 +866,7 @@ async def cb_prompt_default(callback: CallbackQuery, state: FSMContext, session:
     await state.clear()
     await admin_settings_service.update_setting(session, f"global_ai_prompt_{mode}", prompt_defaults.default_prompt_for(mode))
     await callback.message.answer(texts.ADMIN_PROMPT_DEFAULT_LOADED)
-    await _refresh_settings_menu(callback.message, session)
+    await _refresh_settings_menu(callback.message, session, "ai")
 
 
 @super_router.callback_query(F.data.startswith("admin_setting_edit:"))
@@ -966,7 +998,7 @@ async def setting_value_entered(
                 await message.answer(texts.BRANDING_SYNC_FAILED.format(error=counts["error"]))
         else:
             await message.answer(texts.BRANDING_SAVED_NO_BOTS)
-        await _refresh_settings_menu(message, session)
+        await _refresh_settings_menu(message, session, _setting_group(field))
         return
 
     if field in _SMS_FORMAT_FIELDS and value is not None:
@@ -985,13 +1017,13 @@ async def setting_value_entered(
         await bale_credentials_service.refresh(session)
         await state.clear()
         await message.answer(texts.ADMIN_SETTING_SAVED)
-        await _refresh_settings_menu(message, session)
+        await _refresh_settings_menu(message, session, _setting_group(field))
         return
 
     await admin_settings_service.update_setting(session, field, value)
     await state.clear()
     await message.answer(texts.ADMIN_SETTING_SAVED)
-    await _refresh_settings_menu(message, session)
+    await _refresh_settings_menu(message, session, _setting_group(field))
 
 
 @super_router.message(AdminSettingsStates.waiting_rate_limit_max, F.text)
@@ -1027,7 +1059,7 @@ async def rate_limit_window_entered(message: Message, state: FSMContext, session
 
     await state.clear()
     await message.answer(texts.ADMIN_SETTING_SAVED)
-    await _refresh_settings_menu(message, session)
+    await _refresh_settings_menu(message, session, _setting_group("rate_limit"))
 
 
 # =============================================================================
