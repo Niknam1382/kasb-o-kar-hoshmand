@@ -103,14 +103,14 @@ def test_no_order_word_in_consultation_reports() -> None:
     assert "سفارش" in main_texts.shop_stats_text(STATS)
     consult_stats = main_texts.shop_stats_text(STATS, consultation=True)
     assert "سفارش" not in consult_stats, consult_stats
-    assert "💬 مشاوره‌ها: 5" in consult_stats and "مخاطب" in consult_stats
+    assert "💬 مشاوره‌ها: ۵" in consult_stats and "مخاطب" in consult_stats
 
     assert "سفارش" not in main_texts.periodic_report_text(STATS, 7, consultation=True)
     assert "سفارش" in main_texts.periodic_report_text(STATS, 7)
 
     nightly = main_texts.nightly_report_text(NIGHTLY, consultation=True)
     assert "سفارش" not in nightly, nightly
-    assert "👥 مخاطبان جدید: 1" in nightly and "💬 مشاوره‌های جدید: 5" in nightly
+    assert "👥 مخاطبان جدید: ۱" in nightly and "💬 مشاوره‌های جدید: ۵" in nightly
     assert "سفارش" in main_texts.nightly_report_text(NIGHTLY)
 
     kb = keyboards.excel_export_choice_keyboard(consultation=True)
@@ -205,13 +205,13 @@ async def test_consult_contacts_screen_and_block(main_dp, shop_dp) -> None:
     assert f"cc_card:{visitor_id}:0" in data and f"cc_card:{visitor2_id}:0" in data, data
 
     await owner.tap(f"cc_card:{visitor_id}:0")
-    assert "💬 گفتگو با" in owner.last_edit_text and "در مجموع 16 پیام" in owner.last_edit_text, owner.last_edit_text
+    assert "💬 گفتگو با" in owner.last_edit_text and "در مجموع ۱۶ پیام" in owner.last_edit_text, owner.last_edit_text
     assert "✅ فعال" in owner.last_edit_text
     card = _datas(owner.last_edit_markup)
     assert f"cc_block:{visitor_id}" in card and f"cc_card:{visitor_id}:1" in card and "cc_list:0" in card, card
 
     await owner.tap(f"cc_card:{visitor_id}:1")
-    assert "صفحه‌یِ 2 از 2" in owner.last_edit_text, owner.last_edit_text
+    assert "صفحه‌یِ ۲ از ۲" in owner.last_edit_text, owner.last_edit_text
 
     await owner.tap(f"cc_block:{visitor_id}")
     assert owner.last_toast["text"] == main_texts.CONSULT_BLOCK_DONE
@@ -268,7 +268,9 @@ async def test_consult_contacts_empty_shop(main_dp) -> None:
     await _mode(shop_bot_id, TenantMode.CONSULTATION)
     owner = Chat(main_dp, OWNER_TG_ID)
     await owner.say(CONTACTS_BUTTON)
-    assert owner.last_text == main_texts.CONSULT_CONTACTS_EMPTY and owner.last_markup is None
+    # P22 (لایهٔ ناوبری): صفحهٔ خالی دیگر بی‌دکمه نیست ⇒ «بازگشت به پنل» هست تا کاربر گیر نکند
+    assert owner.last_text == main_texts.CONSULT_CONTACTS_EMPTY
+    assert any("بازگشت به پنل" in btn.text for row in owner.last_markup.inline_keyboard for btn in row), owner.last_markup
 
     # مخاطبی بدونِ گفتگو
     async with session_scope() as session:

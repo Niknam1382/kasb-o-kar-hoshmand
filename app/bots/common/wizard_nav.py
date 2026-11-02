@@ -12,6 +12,16 @@ BTN_SKIP = "⏭ رد کردن"
 BTN_CANCEL = "❌ انصراف"
 
 
+def page_label(page: int, total_pages: int) -> str:
+    """برچسبِ یکتایِ صفحه‌گردانی در هر دو پنل: «صفحه‌یِ ۲ از ۵».
+
+    شماره‌ها از ۱ به کاربر نشان داده می‌شوند (شمارشِ داخلی ۰-based است) و ارقام فارسی‌اند؛
+    قبلاً رباتِ مشتری «۲/۵» می‌نوشت و پنلِ ادمین «صفحه‌ی ۲ از ۵» — دو ظاهر برایِ یکِ چیز."""
+    from app.utils.validators import fa_number  # لازیم: این ماژول به app.utils وابسته نباشد
+
+    return f"صفحه‌یِ {fa_number(page + 1)} از {fa_number(total_pages)}"
+
+
 def nav_row(
     *,
     back_cb: str | None = None,

@@ -21,6 +21,7 @@ from app.bots.main_bot.states import OrderOpsStates
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.shop_bot.handlers.orders import parse_key
 from app.database.models import Customer, DirectMessage
+from app.utils.validators import fa_text
 from app.services import (
     notification_service,
     order_service,
@@ -149,7 +150,7 @@ async def _apply(
         bot_manager,
     )
     if edit_owner_message:
-        suffix = texts.ORDER_OPS_DONE_SUFFIX.format(label=texts.order_status_label(final))
+        suffix = fa_text(texts.ORDER_OPS_DONE_SUFFIX, label=texts.order_status_label(final))
         if final == order_state.REFUND_PENDING:
             suffix += f"\n{texts.ORDER_REFUND_GUIDE}"
         if not notified:
@@ -228,12 +229,12 @@ async def og_ship_code(message: Message, state: FSMContext, session: AsyncSessio
         return
     await session.commit()
     if not result.changed:
-        await message.answer(texts.ORDER_OPS_DONE_SUFFIX.format(label=texts.order_status_label(order_state.SHIPPED)))
+        await message.answer(fa_text(texts.ORDER_OPS_DONE_SUFFIX, label=texts.order_status_label(order_state.SHIPPED)))
         return
     notified = await notify_customer(
         session, shop_bot, rows, shop_texts.order_status_customer_message(order_state.SHIPPED, rows, tracking_code=tracking), bot_manager
     )
-    suffix = texts.ORDER_OPS_DONE_SUFFIX.format(label=texts.order_status_label(order_state.SHIPPED))
+    suffix = fa_text(texts.ORDER_OPS_DONE_SUFFIX, label=texts.order_status_label(order_state.SHIPPED))
     if not notified:
         suffix += f"\n{texts.ORDER_CUSTOMER_NOTIFY_FAILED}"
     await message.answer(suffix, reply_markup=keyboards.order_group_actions_keyboard(key, order_state.SHIPPED))
@@ -315,12 +316,12 @@ async def og_reject_text(message: Message, state: FSMContext, session: AsyncSess
         return
     await session.commit()
     if not result.changed:
-        await message.answer(texts.ORDER_OPS_DONE_SUFFIX.format(label=texts.order_status_label(result.to_status)))
+        await message.answer(fa_text(texts.ORDER_OPS_DONE_SUFFIX, label=texts.order_status_label(result.to_status)))
         return
     notified = await notify_customer(
         session, shop_bot, rows, shop_texts.order_status_customer_message(result.to_status, rows, reason=reason), bot_manager
     )
-    suffix = texts.ORDER_OPS_DONE_SUFFIX.format(label=texts.order_status_label(result.to_status))
+    suffix = fa_text(texts.ORDER_OPS_DONE_SUFFIX, label=texts.order_status_label(result.to_status))
     if result.to_status == order_state.REFUND_PENDING:
         suffix += f"\n{texts.ORDER_REFUND_GUIDE}"
     if not notified:

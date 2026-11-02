@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
+from app.utils.validators import fa_grouped
+
+from app.bots.common.wizard_nav import page_label
+
 _PAGE_SIZE = 8
 
 
@@ -96,7 +100,7 @@ def products_browse_keyboard(products, page: int = 0) -> InlineKeyboardMarkup:
     page_items, page, total_pages = _paginate(list(products), page)
     rows = []
     for p in page_items:
-        row = [InlineKeyboardButton(text=f"{p.name} — {p.price_toman:,} تومان", callback_data=f"cart_add:{p.id}")]
+        row = [InlineKeyboardButton(text=f"{p.name} — {fa_grouped(p.price_toman)} تومان", callback_data=f"cart_add:{p.id}")]
         if getattr(p, "photo_file_id", None):  # W5: محصولِ عکس‌دار دکمه‌یِ «🖼» دارد
             row.append(InlineKeyboardButton(text="🖼", callback_data=f"cart_photo:{p.id}"))
         rows.append(row)
@@ -104,7 +108,7 @@ def products_browse_keyboard(products, page: int = 0) -> InlineKeyboardMarkup:
         nav = []
         if page > 0:
             nav.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"cart_browse:{page - 1}"))
-        nav.append(InlineKeyboardButton(text=f"{page + 1}/{total_pages}", callback_data="noop"))
+        nav.append(InlineKeyboardButton(text=page_label(page, total_pages), callback_data="noop"))
         if page < total_pages - 1:
             nav.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"cart_browse:{page + 1}"))
         rows.append(nav)

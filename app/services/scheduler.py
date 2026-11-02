@@ -8,6 +8,7 @@ from aiogram import Bot
 from sqlalchemy import text as sql_text
 
 from app.database.session import session_scope
+from app.utils.validators import fa_number
 from app.services import (
     admin_alert_service,
     commission_receivable_service,
@@ -63,7 +64,7 @@ async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
 
 
 async def job_lock_acquired(session) -> bool:
-    """قفلِ sراسریِ جاب (کلیدِ ثابت؛ شماره‌اش بخشی از قرارداد است، تغییرش = دو قفلِ جدا)."""
+    """قفلِ سراسریِ جاب (کلیدِ ثابت؛ شماره‌اش بخشی از قرارداد است، تغییرش = دو قفلِ جدا)."""
     value = (await session.execute(sql_text("SELECT pg_try_advisory_lock(:key)"), {"key": SCHEDULER_LOCK_KEY})).scalar_one()
     return bool(value)
 
@@ -169,7 +170,7 @@ async def reconcile_wallet_ledgers() -> int:
     )
     admin_alert_service.record_event(
         admin_alert_service.KIND_LEDGER,
-        f"{len(gaps)} فروشگاه‌دار اختلافِ دفتر دارد (نمونهٔ id={worst['owner_id']}، {worst['ledger_delta_toman']} تومان)",
+        f"{len(gaps)} فروشگاه‌دار اختلافِ دفتر دارد (نمونهٔ id={worst['owner_id']}، {fa_number(worst['ledger_delta_toman'])} تومان)",
     )
     return len(gaps)
 

@@ -252,7 +252,7 @@ async def test_gift_requires_valid_range_and_confirmation(main_dp) -> None:
     assert await owner_balance(OWNER_TG_ID) == before, "خارج از بازه ⇒ هیچ نوشتن"
 
     await admin.say("500000")
-    assert "تاییدِ اعطای هدیه" in admin.last_text and "500,000" in admin.last_text, admin.last_text
+    assert "تاییدِ اعطای هدیه" in admin.last_text and "۵۰۰٬۰۰۰" in admin.last_text, admin.last_text
     assert "تومان تومان" not in admin.last_text, admin.last_text
     datas = {b.callback_data for row in admin.last_markup.inline_keyboard for b in row}
     assert {"admin_gift_confirm", "admin_gift_cancel"} <= datas, datas

@@ -23,7 +23,7 @@ TEMPLATE_HEADERS = ["نام محصول", "توضیحات", "قیمت (تومان
 _PHYSICAL_WORDS = {"", "physical", "فیزیکی"}
 _DIGITAL_WORDS = {"digital", "دیجیتال"}
 
-_STOCK_CLEAN_RE = re.compile(r"[,\u060C\s]")
+_STOCK_CLEAN_RE = re.compile(r"[,\u060C\u066B\u066C\s]")  # جداکنندهٔ هزارگانِ فارسی هم (P22)
 
 
 class InvalidExcelFileError(Exception):

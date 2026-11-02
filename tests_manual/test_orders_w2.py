@@ -213,7 +213,7 @@ async def test_invoice_pure_and_keys() -> None:
     assert data["list_total"] == 100_000 and data["discount"] == 10_000 and data["shipping"] == 20_000 and data["total"] == 110_000, data
     assert data["paid"] is False and data["payment_method"] == "manual"
     text = invoice_service.format_invoice_text(data)
-    assert "INV-1-202610-1" in text and "110,000" in text and "پرداخت در محل" in text
+    assert "INV-1-202610-1" in text and "۱۱۰٬۰۰۰" in text and "پرداخت در محل" in text
     html_doc = invoice_service.build_invoice_html(data)
     assert "dir='rtl'" in html_doc and "<b>برنج</b>" not in html_doc and "&lt;b&gt;" in html_doc, "escape"
     assert "http" not in html_doc, "بدونِ منبعِ خارجی"
@@ -457,7 +457,7 @@ async def test_my_orders_flow_and_invoice(shop_dp, main_dp, bot_manager, main_bo
     assert len(invoice_texts) == 2 and invoice_texts[0] == invoice_texts[1], "دوباره‌ارسال = همان شماره/متن"
     async with session_scope() as session:
         assert len(list((await session.execute(select(Invoice))).scalars().all())) == 1
-    assert f"INV-{shop_bot_id}-" in invoice_texts[0] and "250,000" in invoice_texts[0]
+    assert f"INV-{shop_bot_id}-" in invoice_texts[0] and "۲۵۰٬۰۰۰" in invoice_texts[0]
 
     # امنیت/کهنگی
     await env.cust_cb(f"myord_view:{g}", user_id=OTHER_CUSTOMER)

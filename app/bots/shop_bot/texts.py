@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.services import cart_edit_service
 from app.utils.text_limits import TELEGRAM_CAPTION_LIMIT, clip
-from app.utils.validators import format_toman
+from app.utils.validators import fa_number, format_toman
 
 SHOP_WELCOME = "سلام! خوش اومدی 👋 هر سوالی درباره‌ی محصولات یا خدمات داری بپرس، یا از دکمه‌ی «🛍 محصولات» برای دیدنِ مستقیمِ فهرست استفاده کن."
 
@@ -252,9 +252,9 @@ def cart_ai_outcome_line(outcome) -> str:
     new = outcome.new_quantity
     applied = outcome.applied_quantity
     if kind == cart_edit_service.ADDED:
-        return f"➕ {name}: {applied} عدد اضافه شد (الان {new} تا تو سبدته)"
+        return f"➕ {name}: {fa_number(applied)} عدد اضافه شد (الان {new} تا تو سبدته)"
     if kind == cart_edit_service.ADDED_PARTIAL:
-        return f"➕ {name}: فقط {applied} عدد موجود بود و همون اضافه شد (الان {new} تا تو سبدته)"
+        return f"➕ {name}: فقط {fa_number(applied)} عدد موجود بود و همون اضافه شد (الان {new} تا تو سبدته)"
     if kind == cart_edit_service.AT_STOCK_LIMIT:
         return f"⚠️ {name}: موجودیِ بیشتری نیست؛ همون {new} تا تو سبدت می‌مونه"
     if kind == cart_edit_service.OUT_OF_STOCK:
@@ -262,7 +262,7 @@ def cart_ai_outcome_line(outcome) -> str:
     if kind == cart_edit_service.UNAVAILABLE:
         return f"⚠️ {name}: دیگه در دسترس نیست"
     if kind == cart_edit_service.DECREASED:
-        return f"➖ {name}: {applied} عدد کم شد (الان {new} تا تو سبدته)"
+        return f"➖ {name}: {fa_number(applied)} عدد کم شد (الان {new} تا تو سبدته)"
     if kind == cart_edit_service.REMOVED:
         return f"🗑 {name} از سبدت حذف شد"
     if kind == cart_edit_service.SET:
@@ -281,7 +281,7 @@ def cart_ai_edit_reply(outcomes, rejected_count: int, items_with_products) -> st
     دقیقاً ببینه چی عوض شده و اگه AI اشتباه فهمیده بود بتونه سریع اصلاح کنه)."""
     lines = [cart_ai_outcome_line(outcome) for outcome in outcomes]
     if rejected_count:
-        lines.append(CART_AI_PARTLY_UNDERSTOOD.format(count=rejected_count))
+        lines.append(CART_AI_PARTLY_UNDERSTOOD.format(count=fa_number(rejected_count)))
     return "\n".join(lines) + "\n\n" + cart_summary(items_with_products)
 
 
@@ -350,9 +350,9 @@ def my_orders_list_text(groups, products: dict, totals: list[int], page: int, to
     lines = [MY_ORDERS_CONSULT_TITLE if consultation else MY_ORDERS_TITLE, ""]
     for index, (rows, total) in enumerate(zip(groups, totals), start=page * 5 + 1):
         label = _group_names(rows, products) if not consultation else (rows[0].summary or "—")
-        lines.append(f"{index}. {customer_status_label(rows[0].status)} — {label} — {format_toman(total)}")
+        lines.append(f"{fa_number(index)}. {customer_status_label(rows[0].status)} — {label} — {format_toman(total)}")
     if total_groups > len(groups):
-        lines.append(f"\n(صفحه‌یِ {page + 1} از {(total_groups + 4) // 5})")
+        lines.append(f"\n(صفحه‌یِ {fa_number(page + 1)} از {(total_groups + 4) // 5})")
     return "\n".join(lines)
 
 

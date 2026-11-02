@@ -27,7 +27,8 @@ from app.services import (
     time_freeze_service,
 )
 from app.services.admin_settings_service import get_admin_settings
-from app.utils.validators import format_toman, parse_positive_int_text
+from app.utils.jalali import format_jalali_datetime
+from app.utils.validators import fa_number, format_toman, parse_positive_int_text
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +85,11 @@ def _preview_text(batch) -> str:
     if batch.kind == "gift":
         amount = int(params.get("amount", 0))
         return (
-            f"🎁 پیش‌نمایشِ هدیه\nگیرندگان: {batch.target_count} نفر ({target})\n"
+            f"🎁 پیش‌نمایشِ هدیه\nگیرندگان: {fa_number(batch.target_count)} نفر ({target})\n"
             f"مبلغِ هر نفر: {format_toman(amount)}\nجمعِ کل: {format_toman(amount * batch.target_count)}\n\nاجرا بشه؟"
         )
     return (
-        f"➕ پیش‌نمایشِ تمدید\nهدف: {batch.target_count} نفر ({target})\n"
+        f"➕ پیش‌نمایشِ تمدید\nهدف: {fa_number(batch.target_count)} نفر ({target})\n"
         f"افزایش: {params.get('days')} روز به پایانِ اشتراک (اشتراکِ تمام‌شده یا بدونِ اشتراک رد می‌شه)\n\nاجرا بشه؟"
     )
 
@@ -206,7 +207,7 @@ async def batch_go(callback: CallbackQuery, session: AsyncSession) -> None:
             recipients.append(owner.telegram_id)
     await session.commit()
     await callback.answer()
-    await callback.message.edit_text(f"✅ انجام شد: {batch.applied_count} نفر اعمال، {batch.skipped_count} نفر رد شد.")
+    await callback.message.edit_text(f"✅ انجام شد: {fa_number(batch.applied_count)} نفر اعمال، {fa_number(batch.skipped_count)} نفر رد شد.")
     text = (
         f"🎁 {format_toman(int(params.get('amount', 0)))} اعتبارِ هدیه به کیف‌پولت اضافه شد."
         if batch.kind == "gift"
@@ -234,7 +235,7 @@ def _freeze_text(freezes) -> str:
     lines = ["❄️ توقف‌هایِ فعال:"]
     for f in freezes:
         who = "همه" if f.scope == "all" else f"فروشگاه‌دارِ {f.shop_owner_id}"
-        lines.append(f"#{f.id} — {who} — از {f.started_at:%Y-%m-%d %H:%M} (ازسرگیریِ خودکار تا {f.max_days} روز)")
+        lines.append(f"#{f.id} — {who} — از {format_jalali_datetime(f.started_at)} (ازسرگیریِ خودکار تا {fa_number(f.max_days)} روز)")
     return "\n".join(lines)
 
 
@@ -344,7 +345,7 @@ def _jobs_keyboard(admin_settings) -> InlineKeyboardMarkup:
 
 def _jobs_text(admin_settings) -> str:
     state = "⏸ همه متوقف‌اند" if admin_settings.jobs_paused else "▶️ فعال (مگر گروه‌هایِ علامت‌خورده)"
-    since = f"\nاز {admin_settings.jobs_paused_at:%Y-%m-%d %H:%M} توسطِ {admin_settings.jobs_paused_by}" if admin_settings.jobs_paused_at else ""
+    since = f"\nاز {format_jalali_datetime(admin_settings.jobs_paused_at)} توسطِ {admin_settings.jobs_paused_by}" if admin_settings.jobs_paused_at else ""
     return f"⏸ جاب‌هایِ زمان‌بندی: {state}{since}\n(جاب‌ها فقط رد می‌شن؛ چیزی پاک نمی‌شه.)"
 
 

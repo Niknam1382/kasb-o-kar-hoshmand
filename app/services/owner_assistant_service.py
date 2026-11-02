@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import KnowledgeGap, KnowledgeGapStatus
 from app.services import accounting_service, campaign_service, crm_service
 from app.utils.jalali import format_jalali_date
-from app.utils.validators import format_toman
+from app.utils.validators import fa_number, format_toman
 
 HISTORY_TURNS = 6
 HISTORY_ITEM_MAX_CHARS = 600
@@ -83,28 +83,28 @@ def render_digest(digest: Digest) -> str:
     from app.bots.main_bot import texts
 
     lines = [
-        f"تاریخِ گزارش: {digest.generated_on}",
+        f"تاریخِ گزارش: {fa_number(digest.generated_on)}",
         "",
         "فروشِ خالص (سفارش‌هایِ تاییدشده، بعد از تخفیف):",
-        f"- امروز: {format_toman(digest.today_net)} ({digest.today_orders} سفارش)",
-        f"- ۷ روزِ اخیر: {format_toman(digest.week_net)} ({digest.week_orders} سفارش)",
-        f"- ۳۰ روزِ اخیر: {format_toman(digest.month_net)} ({digest.month_orders} سفارش)",
+        f"- امروز: {format_toman(digest.today_net)} ({fa_number(digest.today_orders)} سفارش)",
+        f"- ۷ روزِ اخیر: {format_toman(digest.week_net)} ({fa_number(digest.week_orders)} سفارش)",
+        f"- ۳۰ روزِ اخیر: {format_toman(digest.month_net)} ({fa_number(digest.month_orders)} سفارش)",
         f"- جمعِ تخفیف‌هایِ ۳۰ روزِ اخیر: {format_toman(digest.month_discount)}",
         f"- میانگینِ هر سفارشِ ۳۰ روزِ اخیر: {format_toman(digest.month_average)}",
         "",
         "تعدادِ سفارش‌هایِ ثبت‌شده در ۳۰ روزِ اخیر به تفکیکِ وضعیت:",
     ]
     if digest.status_counts_30d:
-        lines.extend(f"- {texts.accounting_status_label(status)}: {count}" for status, count in digest.status_counts_30d.items())
+        lines.extend(f"- {texts.accounting_status_label(status)}: {fa_number(count)}" for status, count in digest.status_counts_30d.items())
     else:
         lines.append("- سفارشی ثبت نشده")
-    lines.append(f"کلِ سفارش‌هایِ منتظرِ بررسیِ فروشگاه‌دار (فارغ از بازه): {digest.pending_total}")
+    lines.append(f"کلِ سفارش‌هایِ منتظرِ بررسیِ فروشگاه‌دار (فارغ از بازه): {fa_number(digest.pending_total)}")
 
     lines.append("")
     lines.append("پرفروش‌ترین محصولاتِ ۳۰ روزِ اخیر:")
     if digest.top_products_30d:
         for name, units, net in digest.top_products_30d:
-            lines.append(f"- {name}: {units} عدد، فروشِ خالص {format_toman(net)}")
+            lines.append(f"- {name}: {fa_number(units)} عدد، فروشِ خالص {format_toman(net)}")
     else:
         lines.append("- فروشی ثبت نشده")
 
@@ -113,16 +113,16 @@ def render_digest(digest: Digest) -> str:
     if digest.campaigns:
         for name, status, uses, discount in digest.campaigns:
             status_label = _CAMPAIGN_STATUS_LABELS.get(status, status)
-            lines.append(f"- {name} ({status_label}): {uses} بار مصرف، تخفیفِ داده‌شده {format_toman(discount)}")
+            lines.append(f"- {name} ({status_label}): {fa_number(uses)} بار مصرف، تخفیفِ داده‌شده {format_toman(discount)}")
     else:
         lines.append("- کمپینی تعریف نشده")
 
     lines.append("")
-    lines.append(f"مشتری‌ها: کل {digest.customers_total} نفر")
+    lines.append(f"مشتری‌ها: کل {fa_number(digest.customers_total)} نفر")
     for key in crm_service.SEGMENT_KEYS:
-        lines.append(f"- {segment_label(key)}: {digest.segment_counts.get(key, 0)}")
+        lines.append(f"- {segment_label(key)}: {fa_number(digest.segment_counts.get(key, 0))}")
     lines.append("")
-    lines.append(f"سوال‌هایِ بی‌جوابِ بازِ ربات: {digest.open_gaps}")
+    lines.append(f"سوال‌هایِ بی‌جوابِ بازِ ربات: {fa_number(digest.open_gaps)}")
     lines.append(f"موجودیِ کیف‌پولِ فروشگاه‌دار: {format_toman(digest.wallet_balance)}")
     return "\n".join(lines)
 

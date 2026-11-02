@@ -34,7 +34,7 @@ async def _list_screen(session: AsyncSession, shop_bot, page: int):
         session, shop_bot.id, page, texts.CONSULT_CONTACTS_PAGE_SIZE
     )
     if not members:
-        return texts.CONSULT_CONTACTS_EMPTY, None
+        return texts.CONSULT_CONTACTS_EMPTY, keyboards.empty_screen_keyboard()
     return (
         texts.consult_contacts_text(members, total, page, total_pages),
         keyboards.consult_contacts_keyboard(members, page, total_pages),

@@ -552,7 +552,7 @@ async def test_owner_check_now_and_admin_report(main_dp, bot_manager) -> None:
     async with session_scope() as session:
         row = await session.get(ShopBot, shop_bot_id)
         owner_row = await session.get(ShopOwner, row.shop_owner_id)
-    assert "1 بار" in report, report
+    assert "۱ بار" in report, report
     assert (row.bot_username or f"#{shop_bot_id}").lstrip("@") in report, report
     assert str(owner_row.telegram_id) not in report, "شناسهٔ عددیِ کاربر در متنِ ادمین نشت نمی‌کند"
     print("✅ test_owner_check_now_and_admin_report PASSED")

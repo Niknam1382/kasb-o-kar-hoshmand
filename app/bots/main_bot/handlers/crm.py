@@ -46,7 +46,7 @@ _summary_inflight: set[tuple[int, int]] = set()
 async def _overview_payload(session: AsyncSession, shop_bot: ShopBot):
     stats, truncated = await crm_service.load_stats(session, shop_bot.id)
     if not stats:
-        return texts.CRM_EMPTY, None
+        return texts.CRM_EMPTY, keyboards.empty_screen_keyboard()
     counts = crm_service.segment_counts(stats)
     return texts.crm_overview_text(counts, len(stats), truncated), keyboards.crm_overview_keyboard(counts)
 

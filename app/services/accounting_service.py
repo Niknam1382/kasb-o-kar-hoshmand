@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Campaign, OrderConsultation, OrderStatus, Product
 from app.services import order_state
-from app.utils.jalali import JALALI_MONTH_NAMES, TEHRAN_TZ, format_jalali_date, gregorian_to_jalali, to_tehran
+from app.utils.jalali import JALALI_MONTH_NAMES, TEHRAN_TZ, PERSIAN_DIGITS, format_jalali_date, gregorian_to_jalali, to_tehran
 
 # منبعِ حقیقتِ یکتا: services/order_state.py (C4)
 SUCCESS_STATUS_VALUES = tuple(v for v in order_state.DISPLAY_ORDER if v in order_state.REVENUE)
@@ -171,7 +171,8 @@ def build_periods(now: datetime.datetime) -> dict[str, Period]:
         "today": Period("today", "امروز", today_start, tomorrow_start),
         "week": Period("week", "۷ روزِ اخیر", today_start - 6 * _ONE_DAY, tomorrow_start),
         "month30": Period("month30", "۳۰ روزِ اخیر", today_start - 29 * _ONE_DAY, tomorrow_start),
-        "jmonth": Period("jmonth", f"ماهِ جاری ({JALALI_MONTH_NAMES[jm - 1]} {jy})", month_start, month_end),
+        # P22: برچسبِ ماه را با ارقامِ فارسی می‌نویسیم تا با بقیهٔ متنِ پنل یکدست باشد.
+        "jmonth": Period("jmonth", f"ماهِ جاری ({JALALI_MONTH_NAMES[jm - 1]} {jy})".translate(PERSIAN_DIGITS), month_start, month_end),
     }
 
 

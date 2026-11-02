@@ -31,6 +31,7 @@ from app.database.models import OtpCode, ShopOwner  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import otp_service, sms_service, shop_owner_service  # noqa: E402
 from app.services.admin_settings_service import get_admin_settings  # noqa: E402
+from app.utils.validators import fa_text  # noqa: E402
 
 ADMIN_TG_ID = 12345
 OWNER_TG_ID = 999_911
@@ -211,7 +212,7 @@ async def test_admin_sms_panel(main_dp) -> None:
     assert (await settings()).sms_enabled is False, "پیش‌فرض خاموش ⇒ رفتارِ امروزِ همه‌یِ نصب‌ها"
     await admin.tap("admin_toggle_sms")
     assert (await settings()).sms_enabled is True
-    assert admin.last_toast["text"] == main_texts.SMS_SENT_VOLUME_LINE.format(days=otp_service.COST_WINDOW_DAYS, count=0)
+    assert admin.last_toast["text"] == fa_text(main_texts.SMS_SENT_VOLUME_LINE, days=otp_service.COST_WINDOW_DAYS, count=0)
     assert any(m["text"] == main_texts.SMS_ENABLED_WITHOUT_KEY for m in admin.sent), "هشدارِ «کلید نداری»"
 
     await admin.tap("admin_toggle_sms")

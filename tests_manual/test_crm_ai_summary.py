@@ -133,8 +133,8 @@ def test_prompt_builder_is_injection_safe_and_bounded() -> None:
 
     message = crm_summary_service.build_user_message("🟢 فعال", 3, 300_000, 5, evil)
     assert message.count(open_mark) == 1 and message.count(close_mark) == 1, "فقط جداکننده‌هایِ خودِ بلوک"
-    assert "- بخش: 🟢 فعال" in message and "- تعدادِ سفارشِ موفق: 3" in message and "300,000 تومان" in message
-    assert "- آخرین فعالیت: 5 روز پیش" in message
+    assert "- بخش: 🟢 فعال" in message and "- تعدادِ سفارشِ موفق: 3" in message and "۳۰۰٬۰۰۰ تومان" in message
+    assert "- آخرین فعالیت: ۵ روز پیش" in message
     assert "- آخرین فعالیت: نامشخص" in crm_summary_service.build_user_message("x", 0, 0, None, [])
 
     system_prompt = crm_summary_service.SUMMARY_SYSTEM_PROMPT
@@ -179,8 +179,8 @@ async def test_flow_charges_exact_cost_after_success_and_prompt_is_pii_free(main
     for expected in (
         "- بخش: 🟢 فعال",
         "- تعدادِ سفارشِ موفق: 1",
-        "100,000 تومان",
-        "- آخرین فعالیت: 1 روز پیش",
+        "۱۰۰٬۰۰۰ تومان",
+        "- آخرین فعالیت: ۱ روز پیش",
         "مشتری: سلام، دنبالِ چایِ ارزون هستم",
         "ربات: سلام! چایِ ممتاز ۵۰ هزار تومنه",
         "مشتری: تخفیف هم دارید؟",

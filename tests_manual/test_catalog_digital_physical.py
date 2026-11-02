@@ -105,7 +105,7 @@ async def test_pure_helpers() -> None:
     for bad in (None, "", "example.com", "ftp://x.com/a", "https://a b.com", "https://", "javascript:alert(1)", "https://x.com/\nevil"):
         assert digital_service.validate_link(bad) is None, bad
 
-    assert parse_nonneg_int("۱۲۰۰") == 1200 and parse_nonneg_int("1,200") == 1200 and parse_nonneg_int(" ٣ ") == 3
+    assert parse_nonneg_int("۱۲۰۰") == 1200 and parse_nonneg_int("1,200") == 1200 and parse_nonneg_int("۱٬۲۰۰") == 1200 and parse_nonneg_int(" ٣ ") == 3
     for bad in ("²", "①", "¹⁰", "-2", "", None, "abc", "1.5", "99999999999999"):
         assert parse_nonneg_int(bad) is None, bad
     assert parse_nonneg_int("0") == 0 and parse_nonneg_int("0", allow_zero=False) is None
@@ -554,7 +554,7 @@ async def test_physical_add_flow_unchanged_default_kind() -> None:
     async with session_scope() as session:
         product = (await session.execute(select(Product).where(Product.shop_bot_id == shop_bot_id))).scalar_one()
         assert product.kind == "physical" and product.digital_delivery is None and product.stock_quantity == 7 and product.price_toman == 20_000
-    assert texts.product_detail_text(product) == "🏷 چایِ ممتاز\n💰 20,000 تومان\n📦 موجودی: 7 عدد", "جزئیاتِ فیزیکیِ ساده دست‌نخورده"
+    assert texts.product_detail_text(product) == "🏷 چایِ ممتاز\n💰 ۲۰٬۰۰۰ تومان\n📦 موجودی: ۷ عدد", "جزئیاتِ فیزیکیِ ساده دست‌نخورده"
     print("✅ test_physical_add_flow_unchanged_default_kind PASSED")
 
 

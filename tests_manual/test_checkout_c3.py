@@ -206,7 +206,7 @@ async def test_full_physical_flow_saves_everything(shop_dp, main_bot) -> None:
     await run_checkout(s.tap, s.say, postal="1234567890", note="لطفاً زنگ نزنید")
     preview = s.last_text
     assert "علی رضایی" in preview and "+989120000000" in preview and "تهران" in preview and "1234567890" in preview
-    assert "لطفاً زنگ نزنید" in preview and "250,000" in preview
+    assert "لطفاً زنگ نزنید" in preview and "۲۵۰٬۰۰۰" in preview
     assert "ck_edit:name" in s.last_callbacks() and "ck_edit:addr" in s.last_callbacks()
     assert "ck_edit:ship" in s.last_callbacks(), "P22: «هماهنگیِ ارسال» هم یکِ انتخابِ قابلِ ویرایش است"
 
@@ -289,10 +289,10 @@ async def test_shipping_choice_fee_free_over_and_confirm(shop_dp, main_bot) -> N
     await s.say("خیابانِ آزادی، پلاکِ ده")
     await s.tap("ck_skip")
     assert any(c.startswith("ck_ship:") for c in s.last_callbacks()), "با ≥۲ روش باید انتخاب بپرسه"
-    assert "40,000" in s.last_text or any("40,000" in b.text for row in s.last_markup.inline_keyboard for b in row)
+    assert "۴۰٬۰۰۰" in s.last_text or any("۴۰٬۰۰۰" in b.text for row in s.last_markup.inline_keyboard for b in row)
     await s.tap(f"ck_ship:{post}")
     await s.tap("ck_skip")
-    assert "پست" in s.last_text and "40,000" in s.last_text and "90,000" in s.last_text, s.last_text  # جمعِ ۵۰ + ۴۰
+    assert "پست" in s.last_text and "۴۰٬۰۰۰" in s.last_text and "۹۰٬۰۰۰" in s.last_text, s.last_text  # جمعِ ۵۰ + ۴۰
     assert "ck_edit:ship" in s.last_callbacks()
 
     await s.tap("cart_checkout_confirm")
@@ -300,13 +300,13 @@ async def test_shipping_choice_fee_free_over_and_confirm(shop_dp, main_bot) -> N
     assert len(orders) == 1 and orders[0].estimated_value_toman == 50_000, "مبلغِ سفارش *بدونِ* ارسال ذخیره می‌شه"
     assert orders[0].shipping_fee_toman == 40_000 and orders[0].shipping_method_name == "پست"
     assert order_transition_service.group_total_toman(orders) == 90_000, "جمعِ گروه = اقلام + ارسال"
-    assert "90,000" in main_bot.session.sent_messages[-1]["text"]
+    assert "۹۰٬۰۰۰" in main_bot.session.sent_messages[-1]["text"]
 
     # ارسالِ رایگان بالایِ آستانه: برنج (۲۰۰٬۰۰۰) با پیک رایگان
     s2 = _Shopper(shop_dp)
     await s2.add(rice)
     await run_checkout(s2.tap, s2.say, ship_method_id=courier)
-    assert "رایگان" in s2.last_text and "200,000" in s2.last_text
+    assert "رایگان" in s2.last_text and "۲۰۰٬۰۰۰" in s2.last_text
     await s2.tap("cart_checkout_confirm")
     free = (await _orders(shop_bot_id))[-1]
     assert free.shipping_fee_toman == 0 and free.shipping_method_name == "پیک"
@@ -333,7 +333,7 @@ async def test_single_method_still_requires_explicit_choice(shop_dp) -> None:
     assert "ثبت بشه؟" not in s.last_text, "بدونِ انتخابِ روشِ ارسال نباید به پیش‌نمایش برسد"
     await s.tap(f"ck_ship:{post}")
     await s.tap("ck_skip")  # توضیح
-    assert "پست" in s.last_text and "30,000" in s.last_text and "80,000" in s.last_text, s.last_text
+    assert "پست" in s.last_text and "۳۰٬۰۰۰" in s.last_text and "۸۰٬۰۰۰" in s.last_text, s.last_text
     assert "ck_edit:ship" in s.last_callbacks()
 
     # بینِ پیش‌نمایش و ثبت: هزینه‌یِ ارسال عوض می‌شه ⇒ ثبت نمی‌شه و پیش‌نمایشِ تازه می‌آید
@@ -342,7 +342,7 @@ async def test_single_method_still_requires_explicit_choice(shop_dp) -> None:
         method.fee_toman = 45_000
     await s.tap("cart_checkout_confirm")
     assert await _orders(shop_bot_id) == [], "قیمت عوض شده؛ نباید ثبت بشه"
-    assert "45,000" in s.session.edited_texts[-1]["text"] and "95,000" in s.session.edited_texts[-1]["text"]
+    assert "۴۵٬۰۰۰" in s.session.edited_texts[-1]["text"] and "۹۵٬۰۰۰" in s.session.edited_texts[-1]["text"]
     await s.tap("cart_checkout_confirm")
     orders = await _orders(shop_bot_id)
     assert len(orders) == 1 and orders[0].shipping_fee_toman == 45_000

@@ -27,14 +27,14 @@ from app.database.models import Product  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import order_payment_service, product_photo_service, product_service  # noqa: E402
 
-RECEIPT = "کارت به کارت انجام شد مبلغ 200,000 تومان ساعت 14:32 شماره پیگیری 123456789"
+RECEIPT = "کارت به کارت انجام شد مبلغ ۲۰۰٬۰۰۰ تومان ساعت 14:۳۲ شماره پیگیری 123456789"
 
 
 async def test_parse_receipt_text_pure() -> None:
     parse = order_payment_service.parse_receipt_text
     text, tracking = parse(RECEIPT)
     assert text == RECEIPT and tracking == "123456789"
-    text, tracking = parse("مبلغ ۱٬۲۰۰٬۰۰۰ تومان به کارت 6037991234567890 واریز شد")
+    text, tracking = parse("مبلغ 1,200,000 تومان به کارت 6037991234567890 واریز شد")
     assert tracking is None, "مبلغ و شماره‌کارت هرگز پیگیری حساب نمی‌شن"
     assert parse("رهگیری: ۹۸۷۶۵۴۳۲۱ پرداخت شد 25000")[1] == "987654321"
     for bad in (None, "", "سلام این رسیده", "abc 12", "پرداخت کردم", "x" * 1001 + "1234"):
@@ -81,7 +81,7 @@ async def test_text_receipt_flow(shop_dp, main_dp, bot_manager, main_bot) -> Non
 
     # د) مبلغ/شماره‌کارت در متن ⇒ پیگیری استخراج نمی‌شه
     g3 = await start([p1])
-    await env.cust_say("مبلغ 1,200,000 تومان به کارت 6037991234567890 واریز شد")
+    await env.cust_say("مبلغ ۱٬۲۰۰٬۰۰۰ تومان به کارت 6037991234567890 واریز شد")
     pay3 = (await _payments())[2]
     assert pay3.tracking_ref is None and pay3.receipt_text and "6037991234567890" in pay3.receipt_text
 
@@ -137,7 +137,7 @@ async def test_product_photo_flow(shop_dp, main_dp, bot_manager, main_bot) -> No
 
     # ب) درخواستِ متنی ⇒ کارتِ عکس‌دار (بدونِ AI)، آپلودِ دوباره از رباتِ اصلی
     await env.cust_say("عکسِ برنج رو بفرست لطفاً")
-    assert len(photos) == 1 and "برنج" in photos[0]["caption"] and "200,000" in photos[0]["caption"]
+    assert len(photos) == 1 and "برنج" in photos[0]["caption"] and "۲۰۰٬۰۰۰" in photos[0]["caption"]
     assert photos[0]["photo"] != "fake_photo_id", "بار اول بافرِ آپلود است"
     async with session_scope() as session:
         product = await session.get(Product, p1)

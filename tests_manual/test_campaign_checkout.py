@@ -179,7 +179,7 @@ async def test_checkout_without_campaigns_is_unchanged(shop_dp, main_bot) -> Non
     shopper = _Shopper(shop_dp)
 
     preview = await shopper.reach_preview([rice, tea])
-    assert "250,000" in preview
+    assert "۲۵۰٬۰۰۰" in preview
     assert "تخفیف" not in preview and "مبلغِ نهایی" not in preview
     assert _callbacks(shopper.last_markup) == ["cart_checkout_confirm", "cart_checkout_cancel"], "بدونِ کمپین، کیبوردِ پیش‌نمایش مثلِ قبله"
 
@@ -188,7 +188,7 @@ async def test_checkout_without_campaigns_is_unchanged(shop_dp, main_bot) -> Non
     assert sorted(o.estimated_value_toman for o in orders) == [50_000, 200_000]
     assert all(o.campaign_id is None and o.discount_toman is None for o in orders)
     owner_text = main_bot.session.sent_messages[0]["text"]
-    assert "جمعِ کل: 250,000" in owner_text and "تخفیف" not in owner_text and "جمعِ اقلام" not in owner_text
+    assert "جمعِ کل: ۲۵۰٬۰۰۰" in owner_text and "تخفیف" not in owner_text and "جمعِ اقلام" not in owner_text
 
     print("✅ test_checkout_without_campaigns_is_unchanged PASSED")
 
@@ -203,9 +203,9 @@ async def test_auto_campaign_applies_in_preview_orders_and_owner_notification(sh
     shopper = _Shopper(shop_dp)
 
     preview = await shopper.reach_preview([rice, tea])
-    assert "جمعِ کل: 250,000" in preview
-    assert "🎁 تخفیفِ «جشنواره‌ی خودکار»: 25,000 تومان" in preview
-    assert "💰 مبلغِ نهایی: 225,000 تومان" in preview
+    assert "جمعِ کل: ۲۵۰٬۰۰۰" in preview
+    assert "🎁 تخفیفِ «جشنواره‌ی خودکار»: ۲۵٬۰۰۰ تومان" in preview
+    assert "💰 مبلغِ نهایی: ۲۲۵٬۰۰۰ تومان" in preview
     assert _callbacks(shopper.last_markup) == ["cart_checkout_confirm", "cart_checkout_cancel"], "کمپینِ بدونِ کد دکمه‌ی «کد دارم» نمی‌خواد"
 
     await shopper.tap("cart_checkout_confirm")
@@ -221,7 +221,7 @@ async def test_auto_campaign_applies_in_preview_orders_and_owner_notification(sh
 
     assert len(main_bot.session.sent_messages) == 1
     owner_text = main_bot.session.sent_messages[0]["text"]
-    for expected in ("جمعِ اقلام: 250,000", "جشنواره‌ی خودکار", "25,000", "جمعِ نهایی: 225,000"):
+    for expected in ("جمعِ اقلام: ۲۵۰٬۰۰۰", "جشنواره‌ی خودکار", "۲۵٬۰۰۰", "جمعِ نهایی: ۲۲۵٬۰۰۰"):
         assert expected in owner_text, f"اعلانِ فروشگاه‌دار باید «{expected}» رو داشته باشه:\n{owner_text}"
     assert "جمعِ کل" not in owner_text
 
@@ -237,11 +237,11 @@ async def test_fixed_campaign_applies_when_min_cart_reached(shop_dp) -> None:
 
     small = _Shopper(shop_dp)
     preview = await small.reach_preview([tea])  # ۵۰٬۰۰۰ < حداقلِ ۱۰۰٬۰۰۰
-    assert "تخفیف" not in preview and "50,000" in preview
+    assert "تخفیف" not in preview and "۵۰٬۰۰۰" in preview
 
     big = _Shopper(shop_dp)
     preview = await big.reach_preview([rice, tea])  # ۲۵۰٬۰۰۰
-    assert "🎁 تخفیفِ «ثابت»: 30,000 تومان" in preview and "💰 مبلغِ نهایی: 220,000 تومان" in preview
+    assert "🎁 تخفیفِ «ثابت»: ۳۰٬۰۰۰ تومان" in preview and "💰 مبلغِ نهایی: ۲۲۰٬۰۰۰ تومان" in preview
     await big.tap("cart_checkout_confirm")
     orders = [o for o in await _orders(shop_bot_id) if o.campaign_id is not None]
     assert len(orders) == 2 and sum(o.estimated_value_toman for o in orders) == 220_000
@@ -276,7 +276,7 @@ async def test_code_flow_errors_apply_remove_back_and_confirm(shop_dp) -> None:
     await shopper.say("mehr10")  # حروفِ کوچیک هم اوکیه
     text = shopper.last_text
     assert text.startswith(shop_texts.DISCOUNT_CODE_APPLIED)
-    assert "(کدِ MEHR10)" in text and "💰 مبلغِ نهایی: 225,000 تومان" in text
+    assert "(کدِ MEHR10)" in text and "💰 مبلغِ نهایی: ۲۲۵٬۰۰۰ تومان" in text
     assert _button(shopper.last_markup, "cart_discount_code").text == CODE_BUTTON_APPLIED
 
     await shopper.tap("cart_discount_code")
@@ -305,12 +305,12 @@ async def test_code_flow_errors_apply_remove_back_and_confirm(shop_dp) -> None:
 
 async def test_code_normalization_arabic_variants_and_best_offer_wins(shop_dp) -> None:
     shop_bot_id, rice, tea = await _seed()
-    await _new_campaign(shop_bot_id, name="یلدا", code="یلدا۱۴۰۵", discount_value=10)
+    await _new_campaign(shop_bot_id, name="یلدا", code="یلدا1405", discount_value=10)
     await _new_campaign(shop_bot_id, name="خودکارِ بهتر", discount_value=20)  # بدونِ کد، ۲۰٪
     shopper = _Shopper(shop_dp)
 
     preview = await shopper.reach_preview([rice, tea])
-    assert "«خودکارِ بهتر»" in preview and "💰 مبلغِ نهایی: 200,000 تومان" in preview, "خودکار از اول اعمال شده"
+    assert "«خودکارِ بهتر»" in preview and "💰 مبلغِ نهایی: ۲۰۰٬۰۰۰ تومان" in preview, "خودکار از اول اعمال شده"
 
     # «ي» و «ك» عربی و رقمِ عربی-هندی: \u064a\u0644\u062f\u0627 + \u0661\u0664\u0660\u0665 = «يلدا١٤٠٥»
     await shopper.tap("cart_discount_code")
@@ -318,7 +318,7 @@ async def test_code_normalization_arabic_variants_and_best_offer_wins(shop_dp) -
     text = shopper.last_text
     assert shop_texts.discount_code_problem("not_found") not in text, "کدِ عربی‌نویسی‌شده باید نرمال بشه و معتبر باشه"
     assert "کمپینِ «خودکارِ بهتر» تخفیفِ بیشتری می‌ده" in text, "کد معتبره ولی کمپینِ بهتری هست؛ باید همون اعمال بشه و به مشتری گفته بشه"
-    assert "💰 مبلغِ نهایی: 200,000 تومان" in text
+    assert "💰 مبلغِ نهایی: ۲۰۰٬۰۰۰ تومان" in text
 
     print("✅ test_code_normalization_arabic_variants_and_best_offer_wins PASSED")
 
@@ -391,7 +391,7 @@ async def test_confirm_revalidates_when_campaign_is_paused(shop_dp) -> None:
     shopper = _Shopper(shop_dp)
 
     preview = await shopper.reach_preview([rice, tea])
-    assert "💰 مبلغِ نهایی: 225,000 تومان" in preview
+    assert "💰 مبلغِ نهایی: ۲۲۵٬۰۰۰ تومان" in preview
 
     async with session_scope() as session:  # فروشگاه‌دار وسطِ کار کمپین رو متوقف می‌کنه
         await campaign_service.set_active(session, await session.get(Campaign, campaign_id), False)
@@ -432,7 +432,7 @@ async def test_confirm_drops_code_when_campaign_ended(shop_dp) -> None:
     await shopper.reach_preview([rice, tea])
     await shopper.tap("cart_discount_code")
     await shopper.say("MEHR10")
-    assert "💰 مبلغِ نهایی: 225,000 تومان" in shopper.last_text
+    assert "💰 مبلغِ نهایی: ۲۲۵٬۰۰۰ تومان" in shopper.last_text
 
     now = datetime.datetime.now(datetime.timezone.utc)
     async with session_scope() as session:  # بینِ پیش‌نمایش و ثبتِ نهایی، مدتش تموم می‌شه
@@ -461,7 +461,7 @@ async def test_last_slot_race_between_two_customers(shop_dp) -> None:
         await shopper.reach_preview([rice, tea])
         await shopper.tap("cart_discount_code")
         await shopper.say("last")
-        assert "💰 مبلغِ نهایی: 225,000 تومان" in shopper.last_text, "هر دو (هنوز) تخفیف رو می‌بینن؛ ظرفیت فقط ۱ ـه"
+        assert "💰 مبلغِ نهایی: ۲۲۵٬۰۰۰ تومان" in shopper.last_text, "هر دو (هنوز) تخفیف رو می‌بینن؛ ظرفیت فقط ۱ ـه"
 
     # هر دو هم‌زمان «ثبتِ نهایی» رو می‌زنن
     await asyncio.gather(*[shopper.tap("cart_checkout_confirm") for shopper in shoppers])
@@ -564,7 +564,7 @@ async def test_bale_invoice_uses_discounted_amount_and_free_order_skips_payment(
     await app_main._handle_bale_successful_payment(
         {"invoice_payload": f"cartgroup-{group_id}-abcdef1234", "telegram_payment_charge_id": "chg_campaign_1"}
     )
-    assert len(main_bot.session.sent_messages) == 1 and "225,000" in main_bot.session.sent_messages[0]["text"]
+    assert len(main_bot.session.sent_messages) == 1 and "۲۲۵٬۰۰۰" in main_bot.session.sent_messages[0]["text"]
 
     # --- سفارشِ رایگان (۱۰۰٪): نه فاکتور ساخته می‌شه، نه پیشنهادِ پرداخت ---
     async with session_scope() as session:
@@ -574,7 +574,7 @@ async def test_bale_invoice_uses_discounted_amount_and_free_order_skips_payment(
     messages_before = len(shopper.session.sent_messages)
 
     preview = await shopper.reach_preview([rice, tea])
-    assert "💰 مبلغِ نهایی: 0 تومان" in preview
+    assert "💰 مبلغِ نهایی: ۰ تومان" in preview
     await shopper.tap("cart_checkout_confirm")
     assert _created_invoices == [], "سفارشِ رایگان فاکتورِ بله‌پی نمی‌خواد"
     new_messages = shopper.session.sent_messages[messages_before:]

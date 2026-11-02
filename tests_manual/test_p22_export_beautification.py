@@ -38,7 +38,7 @@ from app.utils.jalali import JALALI_MONTH_NAMES  # noqa: E402
 
 OWNER_TG_ID = 999_601
 SHOP_BOT_TG_ID = 999_602
-JALALI_RE = re.compile(r"\d{1,2} (?:" + "|".join(JALALI_MONTH_NAMES) + r") \d{4}")
+JALALI_RE = re.compile(r"[0-9۰-۹]{1,2} (?:" + "|".join(JALALI_MONTH_NAMES) + r") [0-9۰-۹]{4}")
 
 STAMP = datetime.datetime(2026, 11, 2, 3, 4, tzinfo=datetime.timezone.utc)  # ۱۳:۳۴ به وقتِ تهران
 
@@ -153,8 +153,8 @@ def test_invoice_html_is_beautified_and_escaped() -> None:
     out = invoice_service.build_invoice_html(_invoice_data())
     assert "dir='rtl'" in out and "#0f5e5c" in out, "باید راست‌به‌چپ و با پالتِ برند باشد"
     assert "class='pill paid'" in out and "✅ پرداخت‌شده" in out, out[:400]
-    assert "جمعِ کل" in out and "290,000" in out
-    assert "🚚 هزینه‌یِ ارسال" in out and "40,000" in out and "🎁 تخفیف" in out
+    assert "جمعِ کل" in out and "۲۹۰٬۰۰۰" in out
+    assert "🚚 هزینه‌یِ ارسال" in out and "۴۰٬۰۰۰" in out and "🎁 تخفیف" in out
     # تزریق: نامِ محصول/روشِ ارسال از کاربر می‌آید ⇒ باید escape شود
     assert "<script>" not in out and "&lt;script&gt;" in out, out[:400]
     assert "<b>پیشتاز</b>" not in out and "&lt;b&gt;پیشتاز" in out

@@ -125,7 +125,7 @@ def test_periods_and_jalali_month_boundaries_pure() -> None:
     assert periods["month30"].start == START - 29 * DAY and periods["month30"].end == END
     assert periods["jmonth"].start == datetime.datetime(2026, 9, 22, 20, 30, tzinfo=UTC), "۱ مهر ۱۴۰۵ = ۲۳ سپتامبر، نیمه‌شبِ تهران"
     assert periods["jmonth"].end == datetime.datetime(2026, 10, 22, 20, 30, tzinfo=UTC), "مهر ۳۰ روزه؛ ۱ آبان = ۲۳ اکتبر"
-    assert periods["jmonth"].label == "ماهِ جاری (مهر 1405)"
+    assert periods["jmonth"].label == "ماهِ جاری (مهر ۱۴۰۵)"
     assert set(acc.PERIOD_KEYS) == set(periods)
 
     # مرزِ نیمه‌شبِ تهران: یک ثانیه فرق، یک روزِ دیگه
@@ -140,7 +140,7 @@ def test_periods_and_jalali_month_boundaries_pure() -> None:
     last_day = acc.build_periods(datetime.datetime(2026, 10, 22, 18, 0, tzinfo=UTC))["jmonth"]  # ۳۰ مهر، ۲۱:۳۰ تهران
     assert last_day.start == periods["jmonth"].start and last_day.end == periods["jmonth"].end
     first_day = acc.build_periods(datetime.datetime(2026, 10, 22, 20, 30, tzinfo=UTC))["jmonth"]  # ۱ آبان، ۰۰:۰۰ تهران
-    assert first_day.start == periods["jmonth"].end and first_day.label == "ماهِ جاری (آبان 1405)"
+    assert first_day.start == periods["jmonth"].end and first_day.label == "ماهِ جاری (آبان ۱۴۰۵)"
     assert (first_day.end - first_day.start) == 30 * DAY, "آبان ۳۰ روزه‌ست"
 
     # فروردین ۳۱ روزه، اسفندِ کبیسه ۳۰ روزه
@@ -373,18 +373,18 @@ async def test_panel_screens_excel_download_and_no_customer_pii(main_dp) -> None
     text = owner.last_text
     assert "🧮 حسابداری — امروز" in text
     for expected in (
-        "فروشِ ناخالص: 160,000 تومان",
-        "جمعِ تخفیف‌ها: 10,000 تومان",
-        "فروشِ خالص: 150,000 تومان",
+        "فروشِ ناخالص: ۱۶۰٬۰۰۰ تومان",
+        "جمعِ تخفیف‌ها: ۱۰٬۰۰۰ تومان",
+        "فروشِ خالص: ۱۵۰٬۰۰۰ تومان",
         "🧾 سفارشِ تاییدشده: 2",
-        "75,000 تومان",
-        "💳 پرداختِ آنلاین: 1 مورد — 50,000 تومان",
-        "کلاً 1 سفارش منتظرِ بررسیِ شماست",
-        "چایِ ممتاز — 2 عدد — 100,000 تومان",
+        "۷۵٬۰۰۰ تومان",
+        "💳 پرداختِ آنلاین: ۱ مورد — ۵۰٬۰۰۰ تومان",
+        "کلاً ۱ سفارش منتظرِ بررسیِ شماست",
+        "چایِ ممتاز — ۲ عدد — ۱۰۰٬۰۰۰ تومان",
         texts.ACCOUNTING_NOTE,
     ):
         assert expected in text, f"گزارش باید «{expected}» رو داشته باشه:\n{text}"
-    assert "999,000" not in text, "فروشِ فروشگاهِ دیگه نباید دیده بشه"
+    assert "۹۹۹٬۰۰۰" not in text, "فروشِ فروشگاهِ دیگه نباید دیده بشه"
     assert callbacks(owner.last_markup) == ["acct:today", "acct:week", "acct:month30", "acct:jmonth", "acct_xlsx:today"]
 
     for data in ("acct:week", "acct:month30", "acct:jmonth", "acct:evil", "acct:"):
@@ -410,7 +410,7 @@ async def test_panel_screens_excel_download_and_no_customer_pii(main_dp) -> None
     # فروشگاه‌دارِ دیگه گزارشِ خودش رو می‌بینه
     other = Chat(main_dp, OTHER_OWNER_TG_ID)
     await other.say("🧮 حسابداری")
-    assert "فروشِ خالص: 999,000 تومان" in other.last_text and "150,000" not in other.last_text
+    assert "فروشِ خالص: ۹۹۹٬۰۰۰ تومان" in other.last_text and "۱۵۰٬۰۰۰" not in other.last_text
 
     print("✅ test_panel_screens_excel_download_and_no_customer_pii PASSED")
 
@@ -449,7 +449,7 @@ async def test_empty_shop_report_renders_without_errors(main_dp) -> None:
     owner = Chat(main_dp, OWNER_TG_ID)
 
     await owner.say("🧮 حسابداری")
-    assert "فروشِ خالص: 0 تومان" in owner.last_text and "میانگینِ هر سفارش: 0 تومان" in owner.last_text
+    assert "فروشِ خالص: ۰ تومان" in owner.last_text and "میانگینِ هر سفارش: ۰ تومان" in owner.last_text
     assert "پرفروش" not in owner.last_text and "کمپین" not in owner.last_text and "منتظرِ بررسیِ شماست" not in owner.last_text
     await owner.tap("acct_xlsx:jmonth")
     workbook = load_workbook(io.BytesIO(owner.documents[-1]["document"].data))

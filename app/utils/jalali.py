@@ -74,14 +74,17 @@ def to_tehran(moment: datetime.datetime) -> datetime.datetime:
     return moment.astimezone(TEHRAN_TZ)
 
 
+PERSIAN_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
+
+
 def format_jalali_date(moment: datetime.datetime) -> str:
-    """مثلاً «17 مهر 1405»."""
+    """مثلاً «۱۷ مهر ۱۴۰۵» (ارقامِ فارسی، مثلِ بقیهٔ متنِ پنل و ربات)."""
     local = to_tehran(moment)
     jy, jm, jd = gregorian_to_jalali(local.year, local.month, local.day)
-    return f"{jd} {JALALI_MONTH_NAMES[jm - 1]} {jy}"
+    return f"{jd} {JALALI_MONTH_NAMES[jm - 1]} {jy}".translate(PERSIAN_DIGITS)
 
 
 def format_jalali_datetime(moment: datetime.datetime) -> str:
-    """مثلاً «17 مهر 1405، ساعت 17:35» (به وقتِ تهران)."""
+    """مثلاً «۱۷ مهر ۱۴۰۵، ساعت ۱۷:۳۵» (به وقتِ تهران، ارقامِ فارسی)."""
     local = to_tehran(moment)
-    return f"{format_jalali_date(moment)}، ساعت {local.hour:02d}:{local.minute:02d}"
+    return f"{format_jalali_date(moment)}، ساعت {local.hour:02d}:{local.minute:02d}".translate(PERSIAN_DIGITS)

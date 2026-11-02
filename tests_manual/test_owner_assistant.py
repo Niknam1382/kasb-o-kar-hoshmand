@@ -80,7 +80,7 @@ SECRETS = (
     "OTHER_SHOP_CUSTOMER",
     "OTHER_SHOP_CAMPAIGN",
     "OTHER_SHOP_GAP",
-    "888,888",
+    "۸۸۸٬۸۸۸",
     "888888",
     str(CUSTOMER_TG_ID),
 )
@@ -116,29 +116,29 @@ def _digest(**overrides) -> oas.Digest:
 def test_pure_digest_history_clamp_and_prompt() -> None:
     rendered = oas.render_digest(_digest())
     for expected in (
-        "تاریخِ گزارش: 1405/07/13",
-        "- امروز: 150,000 تومان (2 سفارش)",
-        "- ۷ روزِ اخیر: 400,000 تومان (5 سفارش)",
-        "- ۳۰ روزِ اخیر: 1,200,000 تومان (12 سفارش)",
-        "- جمعِ تخفیف‌هایِ ۳۰ روزِ اخیر: 90,000 تومان",
-        "- میانگینِ هر سفارشِ ۳۰ روزِ اخیر: 100,000 تومان",
-        "- ⏳ در انتظارِ بررسی: 1",
-        "- ✅ تاییدشده: 11",
-        "کلِ سفارش‌هایِ منتظرِ بررسیِ فروشگاه‌دار (فارغ از بازه): 3",
-        "- چایِ ممتاز: 20 عدد، فروشِ خالص 800,000 تومان",
-        "- جشنواره‌یِ مهر (فعال): 4 بار مصرف، تخفیفِ داده‌شده 60,000 تومان",
-        "مشتری‌ها: کل 30 نفر",
-        "- وفادار: 5",
-        "- در حالِ ریزش: 7",
-        "- بدونِ خرید: 5",
-        "سوال‌هایِ بی‌جوابِ بازِ ربات: 2",
-        "موجودیِ کیف‌پولِ فروشگاه‌دار: 75,000 تومان",
+        "تاریخِ گزارش: ۱۴۰۵/۰۷/۱۳",
+        "- امروز: ۱۵۰٬۰۰۰ تومان (۲ سفارش)",
+        "- ۷ روزِ اخیر: ۴۰۰٬۰۰۰ تومان (۵ سفارش)",
+        "- ۳۰ روزِ اخیر: ۱٬۲۰۰٬۰۰۰ تومان (۱۲ سفارش)",
+        "- جمعِ تخفیف‌هایِ ۳۰ روزِ اخیر: ۹۰٬۰۰۰ تومان",
+        "- میانگینِ هر سفارشِ ۳۰ روزِ اخیر: ۱۰۰٬۰۰۰ تومان",
+        "- ⏳ در انتظارِ بررسی: ۱",
+        "- ✅ تاییدشده: ۱۱",
+        "کلِ سفارش‌هایِ منتظرِ بررسیِ فروشگاه‌دار (فارغ از بازه): ۳",
+        "- چایِ ممتاز: ۲۰ عدد، فروشِ خالص ۸۰۰٬۰۰۰ تومان",
+        "- جشنواره‌یِ مهر (فعال): ۴ بار مصرف، تخفیفِ داده‌شده ۶۰٬۰۰۰ تومان",
+        "مشتری‌ها: کل ۳۰ نفر",
+        "- وفادار: ۵",
+        "- در حالِ ریزش: ۷",
+        "- بدونِ خرید: ۵",
+        "سوال‌هایِ بی‌جوابِ بازِ ربات: ۲",
+        "موجودیِ کیف‌پولِ فروشگاه‌دار: ۷۵٬۰۰۰ تومان",
     ):
         assert expected in rendered, f"گزارش باید «{expected}» رو داشته باشه:\n{rendered}"
 
     empty = oas.render_digest(_digest(status_counts_30d={}, top_products_30d=[], campaigns=[], customers_total=0, segment_counts={}))
     assert "- سفارشی ثبت نشده" in empty and "- فروشی ثبت نشده" in empty and "- کمپینی تعریف نشده" in empty
-    assert "- وفادار: 0" in empty, "بخشی که مشتری نداره صفر نشون داده می‌شه، نه حذف"
+    assert "- وفادار: ۰" in empty, "بخشی که مشتری نداره صفر نشون داده می‌شه، نه حذف"
 
     prompt = oas.build_system_prompt(_digest())
     assert prompt.startswith(oas.SYSTEM_PROMPT) and f"گزارشِ آماری:\n{rendered}" in prompt
@@ -281,7 +281,7 @@ async def test_digest_has_only_aggregates_never_pii_or_other_shops() -> None:
 
     rendered = oas.render_digest(digest)
     prompt = oas.build_system_prompt(digest)
-    for expected in ("چایِ ممتاز", "- جشنواره‌یِ ویژه (فعال): 0 بار مصرف", "- امروز: 150,000 تومان (2 سفارش)"):
+    for expected in ("چایِ ممتاز", "- جشنواره‌یِ ویژه (فعال): ۰ بار مصرف", "- امروز: ۱۵۰٬۰۰۰ تومان (۲ سفارش)"):
         assert expected in rendered, f"گزارش باید «{expected}» رو داشته باشه:\n{rendered}"
     for secret in SECRETS:
         assert secret not in rendered and secret not in prompt, f"«{secret}» هیچ‌وقت نباید توی ورودیِ AI باشه"
@@ -290,7 +290,7 @@ async def test_digest_has_only_aggregates_never_pii_or_other_shops() -> None:
     assert (other_digest.today_net, other_digest.today_orders) == (888_888, 1)
     assert other_digest.customers_total == 1 and other_digest.open_gaps == 1
     other_rendered = oas.render_digest(other_digest)
-    for foreign in ("چایِ ممتاز", "جشنواره‌یِ ویژه", "150,000", "نامِ محرمانه"):
+    for foreign in ("چایِ ممتاز", "جشنواره‌یِ ویژه", "۱۵۰٬۰۰۰", "نامِ محرمانه"):
         assert foreign not in other_rendered, f"دیتایِ فروشگاهِ اول («{foreign}») نباید توی گزارشِ فروشگاهِ دوم بیاد"
 
     print("✅ test_digest_has_only_aggregates_never_pii_or_other_shops PASSED")
@@ -326,7 +326,7 @@ async def test_flow_cost_history_trimming_and_end(main_dp) -> None:
     assert await owner_balance(OWNER_TG_ID) == balance_before - 8 * cost
 
     first_prompt, first_history, first_message = fake.chat_calls[0]
-    assert first_prompt.startswith(oas.SYSTEM_PROMPT) and "- امروز: 150,000 تومان (2 سفارش)" in first_prompt
+    assert first_prompt.startswith(oas.SYSTEM_PROMPT) and "- امروز: ۱۵۰٬۰۰۰ تومان (۲ سفارش)" in first_prompt
     assert first_history == [] and first_message == "سوال 1"
     assert fake.chat_calls[1][1] == [{"role": "user", "content": "سوال 1"}, {"role": "assistant", "content": "پاسخ به: سوال 1"}]
     last_history = fake.chat_calls[7][1]
@@ -456,8 +456,8 @@ async def test_menu_button_leaves_assistant_and_shops_are_isolated(main_dp) -> N
     await other.say("امروز چقدر فروختم؟")
     assert len(fake.chat_calls) == 1
     other_prompt = fake.chat_calls[0][0]
-    assert "- امروز: 888,888 تومان (1 سفارش)" in other_prompt, "فروشگاه‌دارِ دوم آمارِ خودش رو می‌گیره"
-    for foreign in ("چایِ ممتاز", "جشنواره‌یِ ویژه", "150,000"):
+    assert "- امروز: ۸۸۸٬۸۸۸ تومان (۱ سفارش)" in other_prompt, "فروشگاه‌دارِ دوم آمارِ خودش رو می‌گیره"
+    for foreign in ("چایِ ممتاز", "جشنواره‌یِ ویژه", "۱۵۰٬۰۰۰"):
         assert foreign not in other_prompt, f"«{foreign}» مالِ فروشگاهِ اوله و نباید به AIِ فروشگاهِ دوم برسه"
 
     stranger = Chat(main_dp, STRANGER_TG_ID)

@@ -297,7 +297,7 @@ async def test_owner_flow_answer_dismiss_and_validation(main_dp) -> None:
     owner = Chat(main_dp, OWNER_TG_ID)
 
     await owner.say("🧩 سوال‌هایِ بی‌جواب")
-    assert "قیمت ارسال به شیراز چقدره؟" in owner.last_text and "3 بار" in owner.last_text
+    assert "قیمت ارسال به شیراز چقدره؟" in owner.last_text and "۳ بار" in owner.last_text
     assert owner.last_text.index("قیمت ارسال") < owner.last_text.index("گارانتی"), "بیشترین تکرار اول"
     assert callbacks(owner.last_markup) == [
         f"gap_answer:{popular}",
@@ -465,7 +465,7 @@ async def test_nightly_report_mentions_new_gaps_only_when_any() -> None:
     gap_id = await _make_gap(shop_bot_id, "سوالِ تازه‌یِ امشب", times=2)
     after = await stats()
     assert after["new_knowledge_gaps"] == 1, "یه سوالِ متمایز یه بار شمرده می‌شه، نه به‌تعدادِ تکرارش"
-    assert "🧩 1 سوالِ بی‌جوابِ جدید" in texts.nightly_report_text(after)
+    assert "🧩 ۱ سوالِ بی‌جوابِ جدید" in texts.nightly_report_text(after)
 
     async with session_scope() as session:
         await knowledge_service.dismiss_gap(session, await knowledge_service.get_owned_gap(session, gap_id, shop_bot_id))

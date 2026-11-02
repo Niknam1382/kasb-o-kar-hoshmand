@@ -107,7 +107,7 @@ async def test_flow_list_filter_open_and_isolation(shop_dp, main_dp, bot_manager
     message = sent[-1]
     datas = [d for d in _datas(message["reply_markup"]) if d.startswith("om_v:")]
     assert datas == [f"om_v:{g_receipt}", f"om_v:{g_pending}", f"om_v:{g_wait}"], datas
-    assert "سفارش‌هایِ جاری: 3 مورد" in message["text"] and "منتظرِ اقدامِ تو: 2 مورد" in message["text"]
+    assert "سفارش‌هایِ جاری: ۳ مورد" in message["text"] and "منتظرِ اقدامِ تو: ۲ مورد" in message["text"]
     assert f"om_v:{g_dead}" not in str(_datas(message["reply_markup"]))
     assert "om_l:act:1" in _datas(message["reply_markup"]) and "om_l:all:1" in _datas(message["reply_markup"])
 
@@ -117,12 +117,12 @@ async def test_flow_list_filter_open_and_isolation(shop_dp, main_dp, bot_manager
     assert "فیلتر: فقط منتظرِ اقدام" in edited["text"]
     assert [d for d in _datas(edited["reply_markup"]) if d.startswith("om_v:")] == [f"om_v:{g_receipt}", f"om_v:{g_pending}"]
     await env.owner_cb("om_l:all:99")  # صفحه‌یِ خارج از محدوده ⇒ clamp، نه خطا
-    assert "صفحه" not in env.owner_bot.session.edited_texts[-1]["text"] or "1 از 1" in env.owner_bot.session.edited_texts[-1]["text"]
+    assert "صفحه" not in env.owner_bot.session.edited_texts[-1]["text"] or "۱ از ۱" in env.owner_bot.session.edited_texts[-1]["text"]
 
     # بازکردنِ سفارشِ رسیدِ ثبت‌شده ⇒ دکمه‌هایِ بررسیِ رسید
     await env.owner_cb(f"om_v:{g_receipt}")
     detail = sent[-1]
-    assert "جمعِ کل" in detail["text"] and "250,000" in detail["text"] and "🧾 سفارش" in detail["text"]
+    assert "جمعِ کل" in detail["text"] and "۲۵۰٬۰۰۰" in detail["text"] and "🧾 سفارش" in detail["text"]
     detail_datas = _datas(detail["reply_markup"])
     assert any(d.startswith("rcpt_ok:") for d in detail_datas) and any(d.startswith("rcpt_no:") for d in detail_datas)
     assert f"og_msg:{g_receipt}" in detail_datas and "om_l:all:1" in detail_datas
@@ -167,11 +167,11 @@ async def test_many_orders_paginate(shop_dp, main_dp, bot_manager, main_bot) -> 
     await env.owner_say(orders_manage.BTN_ORDERS_MANAGE)
     first = env.owner_bot.session.sent_messages[-1]
     assert len([d for d in _datas(first["reply_markup"]) if d.startswith("om_v:")]) == oms.PAGE_SIZE
-    assert "صفحه‌یِ 1 از 2" in first["text"] and "om_l:all:2" in _datas(first["reply_markup"])
+    assert "صفحه‌یِ ۱ از ۲" in first["text"] and "om_l:all:2" in _datas(first["reply_markup"])
     await env.owner_cb("om_l:all:2")
     second = env.owner_bot.session.edited_texts[-1]
     assert len([d for d in _datas(second["reply_markup"]) if d.startswith("om_v:")]) == 2
-    assert "صفحه‌یِ 2 از 2" in second["text"] and "om_l:all:1" in _datas(second["reply_markup"])
+    assert "صفحه‌یِ ۲ از ۲" in second["text"] and "om_l:all:1" in _datas(second["reply_markup"])
     print("✅ test_many_orders_paginate PASSED")
 
 

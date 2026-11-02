@@ -241,24 +241,24 @@ async def pays_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
         return
     if code == "card":
         if not row.card_enabled and not payment_settings_service.get_card_number(row):
-            await callback.answer("اول «💳 تنظیمِ کارت» رو کامل کن.", show_alert=True)
+            await callback.answer(texts.PAYS_NEEDS_CARD_FIRST, show_alert=True)
             return
         row.card_enabled = not row.card_enabled
     elif code == "bale":
         # A1: توکنِ درگاهِ سراسریِ مدیر پشتیبانِ توکنِ فروشگاه است، پس با هر کدام می‌شود روشن کرد.
         if not row.bale_enabled and not await bale_credentials_service.provider_token(session, shop_bot):
-            await callback.answer("اول «🔑 توکنِ درگاهِ بله‌پی» را همین صفحه ثبت کن.", show_alert=True)
+            await callback.answer(texts.PAYS_NEEDS_BALE_FIRST, show_alert=True)
             return
         row.bale_enabled = not row.bale_enabled
     elif code == "zarinpal":
         if not row.zarinpal_enabled and not row.zarinpal_merchant_id_enc:
-            await callback.answer("اول «🔑 مرچنتِ زرین‌پال» رو ثبت کن.", show_alert=True)
+            await callback.answer(texts.PAYS_NEEDS_ZARINPAL_FIRST, show_alert=True)
             return
         row.zarinpal_enabled = not row.zarinpal_enabled
     elif code == "manual":
         online = await bale_credentials_service.methods(session, shop_bot, row, include_manual=False)
         if row.manual_enabled and not online:
-            await callback.answer("حداقل یک روش باید فعال بمونه؛ پرداختِ دستی تنها روشِ فعاله.", show_alert=True)
+            await callback.answer(texts.PAYS_LAST_METHOD_GUARD, show_alert=True)
             return
         row.manual_enabled = not row.manual_enabled
         if not row.manual_enabled and not online:
@@ -266,7 +266,9 @@ async def pays_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
     else:
         row.auto_accept_online = not row.auto_accept_online
     await session.flush()
-    await callback.answer()
+    enabled = {"card": row.card_enabled, "bale": row.bale_enabled, "zarinpal": row.zarinpal_enabled, "manual": row.manual_enabled, "auto": row.auto_accept_online}[code]
+    # P22: سوییچ بی‌صدا نبود ⇒ فروشگاه‌دار همان لحظه می‌فهمد کدام طرف رفته است.
+    await callback.answer(texts.PAYS_TOGGLED.format(label=texts.PAYS_METHOD_LABELS[code], state="روشن ✅" if enabled else "خاموش ⏸"))
     await _show_menu(callback, session, shop_bot, row)
 
 

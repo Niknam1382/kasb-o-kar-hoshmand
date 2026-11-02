@@ -498,11 +498,11 @@ async def cb_wallet_history(callback: CallbackQuery, session: AsyncSession) -> N
     transactions = await wallet_service.get_recent_transactions(session, owner.id)
     await callback.answer()
     if not transactions:
-        await callback.message.answer(texts.WALLET_HISTORY_EMPTY)
+        await callback.message.answer(texts.WALLET_HISTORY_EMPTY, reply_markup=keyboards.empty_screen_keyboard())
         return
     lines = [texts.WALLET_HISTORY_INTRO, ""]
     lines.extend(texts.wallet_transaction_line(t) for t in transactions)
-    await callback.message.answer("\n".join(lines))
+    await callback.message.answer("\n".join(lines), reply_markup=keyboards.empty_screen_keyboard())
 
 
 @router.callback_query(F.data == "topup_start")
@@ -878,9 +878,9 @@ async def open_payment_history(message: Message, session: AsyncSession) -> None:
     owner = await _current_owner(message, session)
     payments = await payment_service.get_history_by_owner(session, owner.id)
     if not payments:
-        await message.answer(texts.PAYMENT_HISTORY_EMPTY)
+        await message.answer(texts.PAYMENT_HISTORY_EMPTY, reply_markup=keyboards.empty_screen_keyboard())
         return
-    await message.answer("\n".join(texts.payment_history_item(p) for p in payments))
+    await message.answer("\n".join(texts.payment_history_item(p) for p in payments), reply_markup=keyboards.empty_screen_keyboard())
 
 
 # =============================================================================

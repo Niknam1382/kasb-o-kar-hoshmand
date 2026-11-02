@@ -53,7 +53,7 @@ async def test_add_product_with_stock(main_dp) -> None:
     await main_dp.feed_update(main_bot, make_callback_update(2, data="product_add", user_id=OWNER_TG_ID))
     await main_dp.feed_update(main_bot, make_message_update(3, text="کیف چرم دست‌دوز", user_id=OWNER_TG_ID))
     await main_dp.feed_update(main_bot, make_message_update(4, text="رد شدن", user_id=OWNER_TG_ID))
-    await main_dp.feed_update(main_bot, make_message_update(5, text="450,000", user_id=OWNER_TG_ID))
+    await main_dp.feed_update(main_bot, make_message_update(5, text="۴۵۰٬۰۰۰", user_id=OWNER_TG_ID))
     await main_dp.feed_update(main_bot, make_message_update(6, text="رد شدن", user_id=OWNER_TG_ID))  # رد کردنِ عکس
     await main_dp.feed_update(main_bot, make_message_update(7, text="12", user_id=OWNER_TG_ID))  # موجودی
 

@@ -111,7 +111,7 @@ async def _receipt_tx_count() -> int:
 # ============================================================================= 2.1
 async def test_receipt_parse_and_compare_pure() -> None:
     parse, compare = receipt_ai_service.parse_receipt_json, receipt_ai_service.compare
-    ok = parse('```json\n{"is_receipt": true, "amount": "۱٬۲۰۰٬۰۰۰", "dest_card_last4":"۶۲۷۴","status":"successful","confidence":0.9}\n```')
+    ok = parse('```json\n{"is_receipt": true, "amount": "1,200,000", "dest_card_last4":"6274","status":"successful","confidence":0.9}\n```')
     assert ok and ok.amount == 1_200_000 and ok.dest_card_last4 == "6274"
     for bad in (None, "", "not json", "[]", '{"is_receipt":"yes"}', '{"amount":5}', "{"):
         assert parse(bad) is None, bad
@@ -298,16 +298,16 @@ async def test_owner_deadline_bounds_come_from_code(shop_dp, main_dp, bot_manage
     env = _Env(shop_dp, main_dp, bot_manager, main_bot, shop_bot_id, p1, p2)
 
     await env.owner_cb("pays_dl:card")
-    assert "بینِ 5 و 1440" in env.owner_bot.session.sent_messages[-1]["text"], env.owner_bot.session.sent_messages[-1]["text"]
+    assert "بینِ ۵ و ۱۴۴۰" in env.owner_bot.session.sent_messages[-1]["text"], env.owner_bot.session.sent_messages[-1]["text"]
     await env.owner_say("1441")
-    assert "بازه‌یِ مجاز: 5 تا 1440 دقیقه" in env.owner_bot.session.sent_messages[-1]["text"]
+    assert "بازه‌یِ مجاز: ۵ تا ۱۴۴۰ دقیقه" in env.owner_bot.session.sent_messages[-1]["text"]
     await env.owner_say("500")
     async with session_scope() as session:
         assert (await payment_settings_service.get_or_create(session, shop_bot_id)).card_deadline_minutes == 500
     await env.owner_cb("pays_hold")
-    assert "بینِ 60 و 4320" in env.owner_bot.session.sent_messages[-1]["text"]
+    assert "بینِ ۶۰ و ۴۳۲۰" in env.owner_bot.session.sent_messages[-1]["text"]
     await env.owner_say("4321")  # ۶ ساعت = ۳۶۰ دقیقه دیگر سقفِ ادمین نیست؛ بازه‌یِ کد ۴۳۲۰ است
-    assert "بازه‌یِ مجاز: 60 تا 4320 دقیقه" in env.owner_bot.session.sent_messages[-1]["text"]
+    assert "بازه‌یِ مجاز: ۶۰ تا ۴۳۲۰ دقیقه" in env.owner_bot.session.sent_messages[-1]["text"]
     await env.owner_say("300")
     async with session_scope() as session:
         assert (await payment_settings_service.get_or_create(session, shop_bot_id)).receipt_review_hold_minutes == 300

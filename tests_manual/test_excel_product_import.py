@@ -51,7 +51,7 @@ def _build_workbook(rows: list[tuple]) -> bytes:
 async def test_parse_workbook_validates_rows() -> None:
     content = _build_workbook(
         [
-            ("لپ‌تاپ", "توضیحِ کامل", "15,000,000", 5),  # معتبر
+            ("لپ‌تاپ", "توضیحِ کامل", "۱۵٬۰۰۰٬۰۰۰", 5),  # معتبر
             ("ماوس", None, 250_000, None),  # معتبر — توضیح/موجودی خالی = None
             (None, "توضیح", 100_000, None),  # نامِ خالی → خطا
             ("کیبورد", None, None, None),  # قیمتِ خالی → خطا
@@ -137,7 +137,7 @@ async def test_bulk_import_full_flow_creates_products(main_dp) -> None:
     )
 
     preview = main_bot.session.sent_messages[-1]
-    assert "2 ردیفِ معتبر" in preview["text"], f"پیامِ پیش‌نمایش: {preview['text']}"
+    assert "۲ ردیفِ معتبر" in preview["text"], f"پیامِ پیش‌نمایش: {preview['text']}"
     assert "قیمت نامعتبره" in preview["text"], "خطایِ ردیفِ سوم باید توی پیش‌نمایش دیده بشه"
     assert preview["reply_markup"] is not None, "باید کیبوردِ تایید/انصراف نشون داده بشه"
 
@@ -155,7 +155,7 @@ async def test_bulk_import_full_flow_creates_products(main_dp) -> None:
     mouse = next(p for p in products if p.name == "ماوس")
     assert mouse.price_toman == 300_000 and mouse.stock_quantity is None and mouse.description is None
 
-    assert "2 محصول" in main_bot.session.answered_callbacks[-1]["text"]
+    assert "۲ محصول" in main_bot.session.answered_callbacks[-1]["text"]
     print("✅ test_bulk_import_full_flow_creates_products PASSED")
 
 
@@ -219,7 +219,7 @@ async def test_bulk_import_all_invalid_rows_allows_retry(main_dp) -> None:
     await main_dp.feed_update(
         main_bot, make_message_update(3, document_file_id="import_good", document_file_name="good.xlsx", user_id=OWNER_TG_ID + 4)
     )
-    assert "1 ردیفِ معتبر" in main_bot.session.sent_messages[-1]["text"], "بعدِ یه فایلِ خراب، باید بشه دوباره فایلِ درست فرستاد"
+    assert "۱ ردیفِ معتبر" in main_bot.session.sent_messages[-1]["text"], "بعدِ یه فایلِ خراب، باید بشه دوباره فایلِ درست فرستاد"
     print("✅ test_bulk_import_all_invalid_rows_allows_retry PASSED")
 
 

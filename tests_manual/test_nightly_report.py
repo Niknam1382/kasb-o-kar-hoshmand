@@ -85,7 +85,7 @@ async def test_sent_once_when_due_then_not_duplicated_same_day(main_bot) -> None
 
     assert len(main_bot.session.sent_messages) == 1, f"دقیقاً یه گزارش باید فرستاده بشه؛ فرستاده‌شده: {len(main_bot.session.sent_messages)}"
     report_text = main_bot.session.sent_messages[0]["text"]
-    assert "سفارش‌های جدید: 1" in report_text, f"باید تعدادِ ۱ سفارشِ امروز رو نشون بده؛ متنِ گزارش: {report_text!r}"
+    assert "سفارش‌های جدید: ۱" in report_text, f"باید تعدادِ ۱ سفارشِ امروز رو نشون بده؛ متنِ گزارش: {report_text!r}"
 
     # شبیه‌سازیِ تیکِ ۳۰-دقیقه‌ایِ بعدیِ همون روزِ زمان‌بند:
     async with session_scope() as session:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 
 from app.services.identity_service import display_name, display_user
-from app.utils.validators import format_phone_display, format_toman
+from app.utils.validators import fa_number, fa_percent, format_phone_display, format_toman
 
 # =============================================================================
 # عمومی
@@ -260,7 +260,7 @@ def product_added_confirmation(name: str) -> str:
 def product_detail_text(product) -> str:
     lines = [f"🏷 {product.name}", f"💰 {format_toman(product.price_toman)}"]
     if product.stock_quantity is not None:
-        stock_line = "ناموجود" if product.stock_quantity <= 0 else f"{product.stock_quantity} عدد"
+        stock_line = "ناموجود" if product.stock_quantity <= 0 else f"{fa_number(product.stock_quantity)} عدد"
         lines.append(f"📦 موجودی: {stock_line}")
     lines.extend(product_kind_lines(product))
     if product.description:
@@ -327,7 +327,7 @@ _PRODUCT_IMPORT_ERROR_DISPLAY_CAP = 15
 
 
 def product_import_too_many_rows(max_rows: int) -> str:
-    return f"این فایل بیش از {max_rows} ردیف داره. لطفاً فایل رو به چند بخشِ کوچیک‌تر تقسیم کن و هر بخش رو جدا بفرست."
+    return f"این فایل بیش از {fa_number(max_rows)} ردیف داره. لطفاً فایل رو به چند بخشِ کوچیک‌تر تقسیم کن و هر بخش رو جدا بفرست."
 
 
 def _format_error_block(errors: list[str]) -> list[str]:
@@ -335,7 +335,7 @@ def _format_error_block(errors: list[str]) -> list[str]:
     lines = [f"• {e}" for e in shown]
     remaining = len(errors) - len(shown)
     if remaining > 0:
-        lines.append(f"...و {remaining} موردِ دیگه.")
+        lines.append(f"...و {fa_number(remaining)} موردِ دیگه.")
     return lines
 
 
@@ -349,16 +349,16 @@ def product_import_no_valid_rows(errors: list[str]) -> str:
 
 
 def product_import_preview(valid_count: int, errors: list[str]) -> str:
-    lines = ["📊 بررسیِ فایل تموم شد.", f"✅ {valid_count} ردیفِ معتبر آماده‌ی افزودنه."]
+    lines = ["📊 بررسیِ فایل تموم شد.", f"✅ {fa_number(valid_count)} ردیفِ معتبر آماده‌ی افزودنه."]
     if errors:
-        lines.append(f"\n⚠️ {len(errors)} ردیف مشکل داشت و اضافه نمی‌شه:")
+        lines.append(f"\n⚠️ {fa_number(len(errors))} ردیف مشکل داشت و اضافه نمی‌شه:")
         lines.extend(_format_error_block(errors))
-    lines.append(f"\nمی‌خوای همین {valid_count} محصولِ معتبر اضافه بشه؟")
+    lines.append(f"\nمی‌خوای همین {fa_number(valid_count)} محصولِ معتبر اضافه بشه؟")
     return "\n".join(lines)
 
 
 def product_import_result_toast(count: int) -> str:
-    return f"✅ {count} محصول با موفقیت اضافه شد."
+    return f"✅ {fa_number(count)} محصول با موفقیت اضافه شد."
 
 
 # =============================================================================
@@ -428,7 +428,7 @@ def wallet_status_text(
             f"({format_toman(held)} به‌خاطرِ کمیسیونِ سفارش‌هایِ باز در انتظار است)"
         )
     if expiring_toman:
-        when = f"{expiring_days} روزِ دیگر" if expiring_days is not None else "به‌زودی"
+        when = f"{fa_number(expiring_days)} روزِ دیگر" if expiring_days is not None else "به‌زودی"
         lines.append(f"⏳ {format_toman(expiring_toman)} از این مبلغ تا {when} منقضی می‌شود.")
     return "\n".join(lines)
 
@@ -459,10 +459,12 @@ def wallet_reason_label(reason) -> str:
 
 
 def wallet_transaction_line(transaction) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
     reason_value = transaction.reason.value if hasattr(transaction.reason, "value") else transaction.reason
     label = _WALLET_REASON_LABELS.get(reason_value, reason_value)
     sign = "+" if transaction.amount_toman >= 0 else ""
-    when = transaction.created_at.strftime("%Y-%m-%d %H:%M")
+    when = format_jalali_datetime(transaction.created_at) if transaction.created_at else "—"
     return f"{label}: {sign}{format_toman(transaction.amount_toman)} — {when}"
 
 
@@ -515,7 +517,7 @@ def cost_calc_result_text(volume_key: str, cost_per_message_toman: int) -> str:
     daily = _COST_CALC_DAILY_ESTIMATES[volume_key]
     monthly_estimate = daily * 30 * cost_per_message_toman
     return (
-        f"📊 با حدودِ {daily} پیامِ مشتری در روز، هزینه‌ی تقریبیِ ماهانه‌ت "
+        f"📊 با حدودِ {fa_number(daily)} پیامِ مشتری در روز، هزینه‌ی تقریبیِ ماهانه‌ت "
         f"حدودِ {format_toman(monthly_estimate)} خواهد بود.\n\n"
         "این فقط یه تخمینه (بر اساسِ پیام‌های متنی)؛ اگه از تحلیلِ عکس یا رونویسیِ صدا هم "
         "زیاد استفاده کنی، هزینه‌ی واقعی می‌تونه کمی بیشتر بشه. برای خیالِ راحت، پیشنهاد می‌کنیم "
@@ -532,7 +534,7 @@ def card_to_card_payment_instructions(card_number: str, holder_name: str, amount
         "💳 لطفاً مبلغ دقیق زیر رو به شماره کارت زیر واریز کن:\n\n"
         f"شماره کارت: <code>{safe_card}</code>\n"
         f"به‌نام: {safe_name}\n"
-        f"مبلغ دقیق: <code>{amount:,}</code> تومان\n\n"
+        f"مبلغ دقیق: <code>{amount:,}</code> تومان\n\n"  # استثنایِ عمدی: رقمِ این بلوک باید برایِ «کپیِ مبلغ» لاتین بماند
         "👆 روی شماره کارت یا مبلغ بزن تا کپی بشه.\n\n"
         # A7: چند تومانِ آخرِ مبلغ برایِ راحت‌تر شدنِ بررسیِ واریزها توسطِ مدیر است، نه «تشخیصِ خودکار».
         "⚠️ مبلغ را دقیقاً همین عدد واریز کن؛ این چند تومانِ اختلاف برایِ راحت‌تر شدنِ بررسیِ واریزها توسطِ مدیر است.\n"
@@ -601,7 +603,7 @@ def admin_new_payment_notification(payment, owner) -> str:
     lines = [
         "🧾 درخواست پرداخت جدید:\n",
         f"فروشگاه‌دار: {owner_name}",
-        f"مدت: {payment.duration_months} ماه",
+        f"مدت: {fa_number(payment.duration_months)} ماه",
         f"مبلغ: {format_toman(payment.final_amount)}",
     ]
     # A7: رسیدِ متنی و پرچمِ تکراری هم برایِ ادمین نمایش داده می‌شود (تصمیم همیشه با ادمین است).
@@ -640,10 +642,12 @@ ZARINPAL_PAYMENT_FAILED_PAGE = "پرداخت ناموفق بود یا لغو ش�
 
 
 def payment_history_item(payment) -> str:
+    from app.utils.jalali import format_jalali_date
+
     status = payment.status.value if hasattr(payment.status, "value") else payment.status
     status_labels = {"pending": "⏳ در انتظار بررسی", "approved": "✅ تایید شده", "rejected": "❌ رد شده"}
     return (
-        f"{payment.created_at.strftime('%Y-%m-%d')} — {payment.duration_months} ماه — "
+        f"{format_jalali_date(payment.created_at) if payment.created_at else '—'} — {fa_number(payment.duration_months)} ماه — "
         f"{format_toman(payment.final_amount)} — {status_labels.get(status, status)}"
     )
 
@@ -659,33 +663,33 @@ def shop_stats_text(stats: dict, consultation: bool = False) -> str:
     title = "📊 آمار مخاطبان و مشاوره‌های تو:\n" if consultation else "📊 آمار فروشگاهت:\n"
     lines = [
         title,
-        f"پیام‌های امروز: {stats['messages_today']}",
-        f"پیام‌های هفته‌ی اخیر: {stats['messages_week']}",
-        f"پیام‌های ماه اخیر: {stats['messages_month']}",
+        f"پیام‌های امروز: {fa_number(stats['messages_today'])}",
+        f"پیام‌های هفته‌ی اخیر: {fa_number(stats['messages_week'])}",
+        f"پیام‌های ماه اخیر: {fa_number(stats['messages_month'])}",
     ]
     if consultation:
-        lines.append(f"\n💬 مشاوره‌ها: {stats['consultations_count']}")
+        lines.append(f"\n💬 مشاوره‌ها: {fa_number(stats['consultations_count'])}")
     else:
-        lines.append(f"\n🛒 سفارش‌ها: {stats['orders_count']}")
-        lines.append(f"💬 مشاوره‌ها: {stats['consultations_count']}")
+        lines.append(f"\n🛒 سفارش‌ها: {fa_number(stats['orders_count'])}")
+        lines.append(f"💬 مشاوره‌ها: {fa_number(stats['consultations_count'])}")
     if stats.get("success_rate") is not None:
-        lines.append(f"\n✅ نرخ پاسخ‌گویی موفق: {stats['success_rate']:.1f}٪")
+        lines.append(f"\n✅ نرخ پاسخ‌گویی موفق: {fa_percent(stats['success_rate'], 1)}")
     if stats.get("top_products"):
         lines.append("\n🏆 پرطرفدارترین محصولات:")
         for name, count in stats["top_products"]:
-            lines.append(f"  • {name} ({count} بار)")
+            lines.append(f"  • {name} ({fa_number(count)} بار)")
     return "\n".join(lines)
 
 
 def platform_stats_text(stats: dict) -> str:
     return (
         "📊 آمار سراسری پلتفرم:\n\n"
-        f"👥 فروشگاه‌دارهای ثبت‌نام‌شده: {stats['total_owners']}\n"
-        f"🤖 ربات‌های فعال: {stats['total_active_bots']}\n"
-        f"💰 فروشگاه‌دارهای دارای موجودیِ کیف‌پول: {stats['owners_with_wallet_balance']}\n"
+        f"👥 فروشگاه‌دارهای ثبت‌نام‌شده: {fa_number(stats['total_owners'])}\n"
+        f"🤖 ربات‌های فعال: {fa_number(stats['total_active_bots'])}\n"
+        f"💰 فروشگاه‌دارهای دارای موجودیِ کیف‌پول: {fa_number(stats['owners_with_wallet_balance'])}\n"
         f"💵 مجموع درآمد تاییدشده: {format_toman(stats['total_revenue_toman'])}\n"
-        f"🛒 مجموع سفارش‌ها: {stats['orders_count']}\n"
-        f"💬 مجموع مشاوره‌ها: {stats['consultations_count']}\n\n"
+        f"🛒 مجموع سفارش‌ها: {fa_number(stats['orders_count'])}\n"
+        f"💬 مجموع مشاوره‌ها: {fa_number(stats['consultations_count'])}\n\n"
         "— اقتصادِ کیف‌پول —\n"
         f"📥 مجموع درآمدِ واقعی (شارژهای تاییدشده): {format_toman(stats['total_revenue_toman'])}\n"
         f"🎁 مجموعِ اعتبارِ رایگان (تراِیل/معرفی/هدیه): {format_toman(stats['total_given_away_toman'])}\n"
@@ -754,7 +758,7 @@ OWNER_NO_SHIPPING_METHOD_WARNING = (
 
 
 def order_confirmed_stock_notification(product_name: str, remaining_stock: int) -> str:
-    return f"✅ سفارش تایید شد و موجودی «{product_name}» کسر شد. موجودی باقی‌مانده: {remaining_stock} عدد."
+    return f"✅ سفارش تایید شد و موجودی «{product_name}» کسر شد. موجودی باقی‌مانده: {fa_number(remaining_stock)} عدد."
 
 
 ORDER_ALREADY_CONFIRMED = "این سفارش قبلاً تایید شده."
@@ -824,8 +828,8 @@ def referral_code_text(code: str, stats: dict, bot_username: str, reward_wallet_
         )
     else:
         lines.append("این کد رو با دیگران به اشتراک بذار! از هر لینک دعوت که به خرید منجر بشه پاداش می‌گیری.\n")
-    lines.append(f"مجموع معرفی‌ها: {stats['total']}")
-    lines.append(f"پاداش‌های دریافتی: {stats['rewarded']}\n")
+    lines.append(f"مجموع معرفی‌ها: {fa_number(stats['total'])}")
+    lines.append(f"پاداش‌های دریافتی: {fa_number(stats['rewarded'])}\n")
     lines.append(f"لینک دعوتت:\nhttps://t.me/{bot_username}?start={code}")
     return "\n".join(lines)
 
@@ -843,7 +847,7 @@ def referred_reward_notification(amount_toman: int) -> str:
 # =============================================================================
 def grace_period_reminder(hours: int) -> str:
     return (
-        f"⏰ اشتراکت به پایان رسیده. تا {hours} ساعت دیگه فرصت داری تمدید کنی تا ربات فروشگاهیت "
+        f"⏰ اشتراکت به پایان رسیده. تا {fa_number(hours)} ساعت دیگه فرصت داری تمدید کنی تا ربات فروشگاهیت "
         "بدون وقفه کار کنه. بعد از این مهلت، ربات غیرفعال می‌شه."
     )
 
@@ -877,7 +881,7 @@ def wallet_expiry_reminder(days_left: int, amount_toman: int) -> str:
     if days_left <= 1:
         urgency = "فردا"
     else:
-        urgency = f"{days_left} روزِ دیگه"
+        urgency = f"{fa_number(days_left)} روزِ دیگه"
     return (
         f"⏳ بخشی از اعتبارِ کیف‌پولت ({format_toman(amount_toman)}) {urgency} منقضی می‌شه.\n"
         "اگه استفاده نکنیش از دست می‌ره — تا وقتش هست مصرفش کن.\n"
@@ -889,23 +893,23 @@ def wallet_expiry_reminder(days_left: int, amount_toman: int) -> str:
 # گزارش دوره‌ای (مرحله ۱۰)
 # =============================================================================
 def periodic_report_text(stats: dict, freq_days: int, consultation: bool = False) -> str:
-    return f"📈 گزارش دوره‌ای ({freq_days} روز اخیر):\n\n" + shop_stats_text(stats, consultation)
+    return f"📈 گزارش دوره‌ای ({fa_number(freq_days)} روز اخیر):\n\n" + shop_stats_text(stats, consultation)
 
 
 def nightly_report_text(stats: dict, consultation: bool = False) -> str:
     """C1: در مودِ مشاوره‌ای «سفارش» و «مشتری» به «مشاوره» و «مخاطب» تبدیل می‌شوند."""
     lines = ["🌙 گزارش شبانه‌ی امروز:\n"]
     if not consultation:
-        lines.append(f"🛒 سفارش‌های جدید: {stats['new_orders_today']}")
-    lines.append(f"💬 مشاوره‌های جدید: {stats['new_consultations_today']}")
-    lines.append(("👥 مخاطبان جدید: " if consultation else "👥 مشتریان جدید: ") + str(stats["new_customers_today"]))
+        lines.append(f"🛒 سفارش‌های جدید: {fa_number(stats['new_orders_today'])}")
+    lines.append(f"💬 مشاوره‌های جدید: {fa_number(stats['new_consultations_today'])}")
+    lines.append(("👥 مخاطبان جدید: " if consultation else "👥 مشتریان جدید: ") + fa_number(stats["new_customers_today"]))
     if stats["confirmed_revenue_today_toman"] > 0:
         lines.append(f"💰 برآوردِ فروشِ تاییدشده‌ی امروز: {format_toman(stats['confirmed_revenue_today_toman'])}")
     # فازِ ۴: فقط وقتی >۰ باشه؛ با N=۰ خروجی دقیقاً مثلِ قبله. .get = دیکشنری‌هایِ قدیمی هم کار می‌کنن.
     if stats.get("new_knowledge_gaps", 0) > 0:
-        lines.append(f"🧩 {stats['new_knowledge_gaps']} سوالِ بی‌جوابِ جدید (از «🧩 سوال‌هایِ بی‌جواب» جوابشون رو بده)")
+        lines.append(f"🧩 {fa_number(stats['new_knowledge_gaps'])} سوالِ بی‌جوابِ جدید (از «🧩 سوال‌هایِ بی‌جواب» جوابشون رو بده)")
     if stats["pending_orders_count"] > 0 and not consultation:
-        lines.append(f"\n⏳ {stats['pending_orders_count']} سفارش هنوز منتظرِ بررسیِ شماست.")
+        lines.append(f"\n⏳ {fa_number(stats['pending_orders_count'])} سفارش هنوز منتظرِ بررسیِ شماست.")
     return "\n".join(lines)
 
 
@@ -920,7 +924,7 @@ def broadcast_preview(text: str) -> str:
 
 
 def broadcast_sent_confirmation(count: int) -> str:
-    return f"✅ پیام همگانی برای {count} فروشگاه‌دار ارسال شد."
+    return f"✅ پیام همگانی برای {fa_number(count)} فروشگاه‌دار ارسال شد."
 
 
 BROADCAST_CANCELLED = "ارسال پیام همگانی لغو شد."
@@ -936,17 +940,17 @@ CUSTOMER_BROADCAST_BOT_OFFLINE = "ربات فروشگاهی‌ات الان آن
 
 
 def customer_broadcast_preview(text: str, customer_count: int) -> str:
-    return f"پیش‌نمایشِ پیام (برایِ {customer_count} مشتری فرستاده می‌شه):\n\n{text}\n\nارسال بشه؟"
+    return f"پیش‌نمایشِ پیام (برایِ {fa_number(customer_count)} مشتری فرستاده می‌شه):\n\n{text}\n\nارسال بشه؟"
 
 
 def customer_broadcast_started(total: int) -> str:
-    return f"⏳ در حالِ ارسال برایِ {total} مشتری... وقتی تموم شد یه پیام جدا بهت می‌دم."
+    return f"⏳ در حالِ ارسال برایِ {fa_number(total)} مشتری... وقتی تموم شد یه پیام جدا بهت می‌دم."
 
 
 def customer_broadcast_sent_confirmation(sent: int, total: int) -> str:
     if sent == total:
-        return f"✅ پیام برایِ هر {total} مشتری با موفقیت ارسال شد."
-    return f"✅ ارسال تموم شد: {sent} از {total} مشتری پیام رو گرفتن (بقیه احتمالاً ربات رو بلاک کرده بودن)."
+        return f"✅ پیام برایِ هر {fa_number(total)} مشتری با موفقیت ارسال شد."
+    return f"✅ ارسال تموم شد: {fa_number(sent)} از {fa_number(total)} مشتری پیام رو گرفتن (بقیه احتمالاً ربات رو بلاک کرده بودن)."
 
 
 # =============================================================================
@@ -1232,12 +1236,12 @@ COMMISSION_DEBT_EMPTY = (
 )
 COMMISSION_DEBT_REPORT = (
     "🧾 طلبِ کمیسیونِ پلتفرم\n\n"
-    "💰 باز: {count} مورد · {toman} تومان\n"
+    "💰 باز: {count} مورد · {toman}\n"
     "✅ وصول‌شده: {settled_count} مورد\n\n"
     "{items}\n\n"
     "با هر شارژِ کافی، خودکار وصول می‌شود (دیگر گم نمی‌شود)."
 )
-COMMISSION_DEBT_ITEM = "• {owner}: {toman} تومان · {note}"
+COMMISSION_DEBT_ITEM = "• {owner}: {toman} · {note}"
 BRANDING_OWNER_ASK = (
     "متنِ خودت برایِ بیوگرافیِ ربات رو بنویس (حداکثر ۱۲۰ نویسه؛ کنارِ متنِ پلتفرم نمایش داده می‌شود).\n"
     "برایِ پاک کردن «خالی» بنویس. برایِ انصراف /cancel رو بزن."
@@ -1266,7 +1270,7 @@ def branding_owner_text(shop_bot, admin_text: str | None) -> str:
     lines.append(f"متنِ خودت: {owner or '—'}")
     lines.append(f"متنِ نهایی رویِ ربات: {composed or '—'}")
     if composed:
-        lines.append(f"جایِ باقی‌مانده از سقفِ {bot_branding_service.BIO_LIMIT}: {max(0, bot_branding_service.BIO_LIMIT - len(composed))} نویسه")
+        lines.append(f"جایِ باقی‌مانده از سقفِ {bot_branding_service.BIO_LIMIT}: {fa_number(max(0, bot_branding_service.BIO_LIMIT - len(composed)))} نویسه")
     lines.append("")
     if composed:
         lines.append("اگر جا نشود، متنِ خودت کوتاه می‌شود — متنِ پلتفرم همیشه کامل می‌ماند.")
@@ -1274,7 +1278,7 @@ def branding_owner_text(shop_bot, admin_text: str | None) -> str:
     else:
         lines.append(BRANDING_NOT_CONFIGURED)
     if shop_bot.branding_tamper_count:
-        lines.append(f"⚠️ {shop_bot.branding_tamper_count} بار بیوگرافی دستکاری/حذف شده و خودکار برگردانده شد.")
+        lines.append(f"⚠️ {fa_number(shop_bot.branding_tamper_count)} بار بیوگرافی دستکاری/حذف شده و خودکار برگردانده شد.")
     checked = shop_bot.branding_checked_at
     lines.append(f"🕓 آخرینِ بازبینی: {format_jalali_datetime(checked) if checked else '— (هنوز بازبینی نشده)'}")
     return "\n".join(lines)
@@ -1438,11 +1442,13 @@ def bale_selftest_config_steps(
 
 
 def payment_events_text(events) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
     if not events:
         return PAYMENT_EVENTS_EMPTY
     lines = ["🔎 آخرین رویدادهایِ پرداخت (جدید ← قدیم):\n"]
     for e in events:
-        when = e.created_at.strftime("%m-%d %H:%M:%S") if e.created_at else "—"
+        when = format_jalali_datetime(e.created_at) if e.created_at else "—"
         lines.append(f"{when} · {e.provider}/{e.direction} · {e.method} · {e.status or '—'}" + (f" · ref={e.reference}" if e.reference else ""))
     lines.append("\nجزئیاتِ خام در جدولِ payment_event_logs هست (توکن/شماره‌کارت ماسک شده).")
     return "\n".join(lines)
@@ -1573,19 +1579,19 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         ("platform_card_holder_name", f"👤 صاحب کارت: {admin_settings.platform_card_holder_name or 'تنظیم‌نشده'}"),
         # P18 · A2: متنِ اجباریِ بیویِ ربات‌هایِ فروشگاهی + دکمه‌یِ همگام‌سازیِ فوری.
         ("branding_text", f"🪪 بیوگرافیِ اجباریِ ربات‌ها: {admin_settings.branding_text or 'تنظیم‌نشده'}"),
-        ("branding_check_minutes", f"⏱ فاصلهِ بازرسیِ بیو: هر {admin_settings.branding_check_minutes} دقیقه"),
-        ("referral_reward_value", f"🎁 پورسانتِ معرف: {admin_settings.referral_reward_value}٪ از اولین شارژ"),
+        ("branding_check_minutes", f"⏱ فاصلهِ بازرسیِ بیو: هر {fa_number(admin_settings.branding_check_minutes)} دقیقه"),
+        ("referral_reward_value", f"🎁 پورسانتِ معرف: {fa_number(admin_settings.referral_reward_value)}٪ از اولین شارژ"),
         ("grace_period_hours", f"⏳ مهلت گریس‌پیریود: {admin_settings.grace_period_hours} ساعت"),
         (
             "rate_limit",
-            f"🚦 محدودیت پیام: {admin_settings.rate_limit_max_messages} پیام / {admin_settings.rate_limit_window_seconds} ثانیه",
+            f"🚦 محدودیت پیام: {fa_number(admin_settings.rate_limit_max_messages)} پیام / {fa_number(admin_settings.rate_limit_window_seconds)} ثانیه",
         ),
-        ("periodic_report_frequency_days", f"📈 بازه‌ی گزارش دوره‌ای: هر {admin_settings.periodic_report_frequency_days} روز"),
+        ("periodic_report_frequency_days", f"📈 بازه‌ی گزارش دوره‌ای: هر {fa_number(admin_settings.periodic_report_frequency_days)} روز"),
         (
             "nightly_report_hour_utc",
-            f"🌙 ساعتِ گزارشِ شبانه: {admin_settings.nightly_report_hour_utc}:00 UTC (≈ {(admin_settings.nightly_report_hour_utc + 3) % 24}:30 تهران)",
+            f"🌙 ساعتِ گزارشِ شبانه: {fa_number(admin_settings.nightly_report_hour_utc)}:00 UTC (≈ {fa_number((admin_settings.nightly_report_hour_utc + 3) % 24)}:30 تهران)",
         ),
-        ("conversation_history_limit", f"💭 حافظه‌ی مکالمه: {admin_settings.conversation_history_limit} پیام"),
+        ("conversation_history_limit", f"💭 حافظه‌ی مکالمه: {fa_number(admin_settings.conversation_history_limit)} پیام"),
         ("wallet_cost_per_1k_tokens_toman", f"🪙 هزینه‌ی هر ۱۰۰۰ توکن: {format_toman(admin_settings.wallet_cost_per_1k_tokens_toman)}"),
         ("ai_cost_usd_per_1m_tokens", f"💵 هزینه‌ی خامِ AI: ${admin_settings.ai_cost_usd_per_1m_tokens}/۱M توکن"),
         ("usd_to_toman_rate", f"💱 نرخِ دلار: {format_toman(admin_settings.usd_to_toman_rate)}"),
@@ -1593,7 +1599,7 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         # PHASE 5D
         (
             "commission_percent",
-            f"🧾 کمیسیون: {admin_settings.commission_percent}٪ ({'روشن' if admin_settings.commission_enabled else 'خاموش'})",
+            f"🧾 کمیسیون: {fa_number(admin_settings.commission_percent)}٪ ({'روشن' if admin_settings.commission_enabled else 'خاموش'})",
         ),
         ("wallet_cost_receipt_analysis_toman", f"🧾 هزینه‌ی تحلیلِ رسید (مشورتی): {format_toman(admin_settings.wallet_cost_receipt_analysis_toman)}"),
         ("wallet_cost_voice_transcription_toman", f"🎙 هزینه‌ی رونویسیِ صوت: {format_toman(admin_settings.wallet_cost_voice_transcription_toman)}"),
@@ -1665,7 +1671,7 @@ def admin_owner_list_item_label(owner, shop_bot=_NO_SHOP_INFO) -> str:
 
 def admin_shop_owners_intro(total: int, page: int, total_pages: int) -> str:
     return (
-        f"👥 فهرستِ فروشگاه‌دارها — {total} نفر (صفحه‌یِ {page + 1} از {total_pages})\n"
+        f"👥 فهرستِ فروشگاه‌دارها — {fa_number(total)} نفر (صفحه‌یِ {fa_number(page + 1)} از {fa_number(total_pages)})\n"
         "✅ ربات فعال · ⛔️ ربات معلق · «بدونِ ربات» = هنوز رباتی وصل نکرده\n"
         "روی هر مورد بزن تا جزئیات و مدیریتش باز بشه:"
     )
@@ -1807,8 +1813,11 @@ def moderation_rule_toggled_confirmation(is_active: bool) -> str:
     return "✅ قانون فعال شد." if is_active else "⏸ قانون غیرفعال شد."
 
 
+ACCOUNT_DELETED_NOTICE = "🔒 حسابِ این فروشگاه غیرفعال شده است. اگر باید برگردد، با پشتیبانیِ پلتفرم صحبت کن."
+
+
 AUDIT_LOG_EMPTY = "هنوز هیچ رویدادی در گزارشِ ممیزی ثبت نشده."
-AUDIT_LOG_INTRO = "📜 گزارشِ ممیزی — ۲۰ رویدادِ اخیر:"
+AUDIT_LOG_INTRO = "📜 گزارشِ ممیزی — رویدادهایِ اخیر:"
 # P21-E (F9): فیلترِ دسته/بازه + خروجیِ CSV (تا پیش‌ازاین فقط ۲۰ ردیفِ آخر دیده می‌شد)
 AUDIT_FILTER_GROUPS: tuple[tuple[str, str], ...] = (
     ("all", "همه"),
@@ -1829,7 +1838,7 @@ def audit_report_intro(group: str | None, window: str | None, count: int, *, sco
     group_label = dict(AUDIT_FILTER_GROUPS).get(group or "all", "همه")
     window_label = dict(AUDIT_FILTER_WINDOWS).get(window or "all", "همیشه")
     tail = " · فقطِ فروشگاه‌هایِ دامنهٔ تو" if scoped else ""
-    return f"📜 گزارشِ ممیزی · دسته: {group_label} · بازه: {window_label} · {count} ردیفِ آخر:{tail}"
+    return f"📜 گزارشِ ممیزی · دسته: {group_label} · بازه: {window_label} · {fa_number(count)} ردیفِ آخر:{tail}"
 
 
 def audit_csv_headers() -> list[str]:
@@ -1859,7 +1868,7 @@ def ai_pool_health_line(health: dict[str, int]) -> str:
     if not health.get("open_keys") and not health.get("failures"):
         return ""
     return (
-        f"\n\n⚠️ سلامتِ استخر: {health['open_keys']} کلید فعلاً کنار گذاشته شده · "
+        f"\n\n⚠️ سلامتِ استخر: {fa_number(health['open_keys'])} کلید فعلاً کنار گذاشته شده · "
         f"{health['failures']} شکستِ پیاپی در {health['tracked']} مسیرِ پایش‌شده.\n"
         "هر کلیدِ بازشده ۶۰ ثانیه بعد دوباره امتحان می‌شود."
     )
@@ -1939,7 +1948,9 @@ def admin_role_added_confirmation(label: str) -> str:
 
 def admin_role_detail_text(role, label: str = "ادمین", granter_label: str = "سوپرادمین") -> str:
     """صفحه‌یِ مدیریتیِ نقش‌ها (فقط سوپرادمین): هویتِ متنی؛ شناسه‌یِ عددی فقط در خطِ «🔧 فنی» (استثنایِ مجازِ H2)."""
-    when = role.created_at.strftime("%Y-%m-%d %H:%M")
+    from app.utils.jalali import format_jalali_datetime
+
+    when = format_jalali_datetime(role.created_at) if role.created_at else "—"
     scope = admin_role_scope_label(role)
     return (
         f"👤 {label}\n"
@@ -1983,6 +1994,9 @@ _AUDIT_EVENT_LABELS = {
     "bot_bio_tampered": "📝 تغییرِ بیوگرافیِ ربات",
     "branding_text_changed": "🧴 تغییرِ متنِ برند",
     "audit_exported": "📥 خروجیِ CSVِ دفترِ ممیزی",
+    "owner_deactivated": "🧊 غیرفعال‌کردنِ حسابِ فروشگاه‌دار",
+    "owner_restored": "♻️ بازگرداندنِ حسابِ فروشگاه‌دار",
+    "owner_purged": "🔥 حذفِ قطعیِ دادهٔ فروشگاه‌دار",
 }
 
 
@@ -2015,6 +2029,7 @@ CAMPAIGNS_EMPTY = (
     "و بعد با یه دکمه بهشون اعلامش کنی. مشتری تخفیف رو موقعِ «ثبتِ نهاییِ» سبدِ خرید می‌گیره."
 )
 CAMPAIGNS_LIST_INTRO = "🎯 کمپین‌هایِ تو (رویِ هرکدوم بزن تا جزئیات و مدیریتش رو ببینی):"
+CAMPAIGNS_LIST_TRUNCATED = "⚠️ فقط {limit} کمپینِ آخر نشان داده می‌شود؛ قدیمی‌ترها در این فهرست نیستند."
 CAMPAIGN_NOT_FOUND = "این کمپین پیدا نشد (شاید قبلاً حذف شده)."
 CAMPAIGN_ALREADY_ENDED = "مدتِ این کمپین تموم شده؛ دیگه نمی‌شه فعال/متوقفش کرد. اگه می‌خوای، یه کمپینِ جدید بساز."
 CAMPAIGN_PAUSED_TOAST = "کمپین متوقف شد."
@@ -2092,13 +2107,13 @@ def campaign_create_error(code: str) -> str:
 
 
 def _limit_text(value: int | None, unit: str = "بار") -> str:
-    return "نامحدود" if value is None else f"{value} {unit}"
+    return "نامحدود" if value is None else f"{fa_number(value)} {unit}"
 
 
 def campaign_discount_description(discount_type, value: int, max_discount_toman: int | None) -> str:
     type_value = discount_type.value if hasattr(discount_type, "value") else discount_type
     if type_value == "percent":
-        text = f"{value} درصد"
+        text = f"{fa_number(value)} درصد"
         if max_discount_toman:
             text += f" (حداکثر {format_toman(max_discount_toman)})"
         return text
@@ -2123,7 +2138,7 @@ def campaign_wizard_summary(data: dict, now: datetime.datetime) -> str:
         lines.append("نحوه‌ی استفاده: ⚡ خودکار برایِ همه (بدونِ کد)")
     if data.get("min_cart_total_toman"):
         lines.append(f"حداقلِ مبلغِ سبد: {format_toman(data['min_cart_total_toman'])}")
-    lines.append(f"مدت: {data['duration_days']} روز — از همین الان تا {format_jalali_datetime(ends_at)} (به وقتِ تهران)")
+    lines.append(f"مدت: {fa_number(data['duration_days'])} روز — از همین الان تا {format_jalali_datetime(ends_at)} (به وقتِ تهران)")
     lines.append(f"سقفِ کلِ استفاده: {_limit_text(data.get('total_usage_limit'))}")
     lines.append(f"سقفِ هر مشتری: {_limit_text(data.get('per_customer_limit'))}")
     if kind == "percent" and data["discount_value"] == 100:
@@ -2168,9 +2183,9 @@ def campaign_detail_text(campaign, status: str, uses: int, discount_total_toman:
     lines.append(f"پایان: {format_jalali_datetime(campaign.ends_at)} (به وقتِ تهران)")
     lines.append(f"سقفِ هر مشتری: {_limit_text(campaign.per_customer_limit)}")
     lines.append(f"سقفِ کلِ استفاده: {_limit_text(campaign.total_usage_limit)}")
-    lines.append(f"\nاستفاده‌شده: {uses} بار — جمعِ تخفیفِ داده‌شده: {format_toman(discount_total_toman)}")
+    lines.append(f"\nاستفاده‌شده: {fa_number(uses)} بار — جمعِ تخفیفِ داده‌شده: {format_toman(discount_total_toman)}")
     if campaign.total_usage_limit is not None:
-        lines.append(f"ظرفیتِ باقی‌مانده: {max(0, campaign.total_usage_limit - uses)} بار")
+        lines.append(f"ظرفیتِ باقی‌مانده: {fa_number(max(0, campaign.total_usage_limit - uses))} بار")
     lines.append("(سفارش‌هایی که ردشدن یا رزروشون منقضی شده، حساب نمی‌شن.)")
     return "\n".join(lines)
 
@@ -2181,7 +2196,7 @@ def campaign_announcement_text(campaign) -> str:
 
     type_value = campaign.discount_type.value if hasattr(campaign.discount_type, "value") else campaign.discount_type
     if type_value == "percent":
-        offer_line = f"{campaign.discount_value} درصد تخفیف روی کلِ سبدِ خرید"
+        offer_line = f"{fa_number(campaign.discount_value)} درصد تخفیف روی کلِ سبدِ خرید"
         if campaign.max_discount_toman:
             offer_line += f" (حداکثر {format_toman(campaign.max_discount_toman)} تخفیف)"
     else:
@@ -2199,7 +2214,7 @@ def campaign_announcement_text(campaign) -> str:
     if campaign.per_customer_limit == 1:
         lines.append("هر نفر فقط یک‌بار می‌تونه استفاده کنه.")
     elif campaign.per_customer_limit:
-        lines.append(f"هر نفر حداکثر {campaign.per_customer_limit} بار می‌تونه استفاده کنه.")
+        lines.append(f"هر نفر حداکثر {fa_number(campaign.per_customer_limit)} بار می‌تونه استفاده کنه.")
     lines.append("")
     if campaign.code:
         lines.append(
@@ -2231,9 +2246,9 @@ KNOWLEDGE_STALE_BUTTON = "این دکمه دیگه معتبر نیست. دوبا
 
 def gaps_page_text(gaps, total: int, page: int, page_size: int) -> str:
     """سوالِ مشتری غیرِ قابلِ اعتماده؛ همیشه متنِ ساده (بدونِ parse_mode) نمایش داده می‌شه."""
-    lines = [f"🧩 سوال‌هایِ بی‌جواب ({total} مورد) — بیشترین تکرار اول:\n"]
+    lines = [f"🧩 سوال‌هایِ بی‌جواب ({fa_number(total)} مورد) — بیشترین تکرار اول:\n"]
     for index, gap in enumerate(gaps, start=page * page_size + 1):
-        lines.append(f"{index}. «{gap.question_text}»\n   🔁 {gap.occurrences} بار پرسیده شده")
+        lines.append(f"{fa_number(index)}. «{gap.question_text}»\n   🔁 {fa_number(gap.occurrences)} بار پرسیده شده")
     return "\n".join(lines)
 
 
@@ -2257,7 +2272,7 @@ LEARNED_EMPTY = "📚 هنوز پرسش‌وپاسخِ تاییدشده‌ای �
 
 def learned_list_text(total: int) -> str:
     return (
-        f"📚 پرسش‌وپاسخ‌هایِ تاییدشده ({total} مورد)\n"
+        f"📚 پرسش‌وپاسخ‌هایِ تاییدشده ({fa_number(total)} مورد)\n"
         "رباتت از ۲۰ موردِ جدیدترِ «فعال» برایِ جواب‌دادن استفاده می‌کنه."
     )
 
@@ -2296,7 +2311,7 @@ ADMIN_RECONCILE_NOTE = "هیچ داده‌ای خودکار اصلاح نمی‌
 
 def admin_reconcile_gaps(gaps: list[dict], limit: int) -> str:
     """گزارشِ فارسیِ اختلاف‌ها؛ شناسه‌یِ داخلی نمایش داده نمی‌شود و فهرست سقف دارد."""
-    lines = [f"⚠️ {len(gaps)} فروشگاه‌دار اختلافِ حسابداری دارد:"]
+    lines = [f"⚠️ {fa_number(len(gaps))} فروشگاه‌دار اختلافِ حسابداری دارد:"]
     for gap in gaps[:8]:
         lines.append(
             f"• @{gap['telegram_id']} | کشیده: {format_toman(gap['cached_toman'])} | "
@@ -2304,7 +2319,7 @@ def admin_reconcile_gaps(gaps: list[dict], limit: int) -> str:
             f"بسته‌ها: {format_toman(gap['lots_toman'])}"
         )
     if len(gaps) > 8:
-        lines.append(f"نمونه‌یِ ۸ مورد نمایش داده شد (سقفِ کوئری {limit}).")
+        lines.append(f"نمونه‌یِ ۸ مورد نمایش داده شد (سقفِ کوئری {fa_number(limit)}).")
     lines.append(ADMIN_RECONCILE_NOTE)
     return "\n".join(lines)
 _ACCOUNTING_STATUS_OVERRIDES = {"awaiting_customer_confirmation": "🕓 منتظرِ تاییدِ مشتری"}
@@ -2334,22 +2349,22 @@ def accounting_report_text(report) -> str:
         f"🏷 جمعِ تخفیف‌ها: {format_toman(summary.discount_toman)}",
         f"✅ فروشِ خالص: {format_toman(summary.net_toman)}",
         f"🧾 سفارشِ تاییدشده: {summary.successful_count} — میانگینِ هر سفارش: {format_toman(summary.average_order_toman)}",
-        f"💳 پرداختِ آنلاین: {summary.online_paid_count} مورد — {format_toman(summary.online_paid_toman)}",
+        f"💳 پرداختِ آنلاین: {fa_number(summary.online_paid_count)} مورد — {format_toman(summary.online_paid_toman)}",
     ]
     if summary.status_counts:
         lines.append("\n📋 وضعیتِ سفارش‌هایِ ثبت‌شده در این بازه:")
-        lines.extend(f"  {accounting_status_label(status)}: {count}" for status, count in summary.status_counts.items())
+        lines.extend(f"  {accounting_status_label(status)}: {fa_number(count)}" for status, count in summary.status_counts.items())
     if report.pending_total > 0:
-        lines.append(f"\n⏳ در حالِ حاضر کلاً {report.pending_total} سفارش منتظرِ بررسیِ شماست.")
+        lines.append(f"\n⏳ در حالِ حاضر کلاً {fa_number(report.pending_total)} سفارش منتظرِ بررسیِ شماست.")
     if summary.top_products:
         lines.append("\n🏆 پرفروش‌ترین‌ها:")
         for index, product in enumerate(summary.top_products, start=1):
-            lines.append(f"  {index}. {product.name} — {product.units} عدد — {format_toman(product.net_toman)}")
+            lines.append(f"  {fa_number(index)}. {product.name} — {fa_number(product.units)} عدد — {format_toman(product.net_toman)}")
     if summary.campaigns:
         lines.append("\n🎯 عملکردِ کمپین‌ها (سفارش‌هایِ تاییدشده):")
         for campaign in summary.campaigns:
             lines.append(
-                f"  • {campaign.name}: {campaign.uses} بار مصرف — تخفیف {format_toman(campaign.discount_toman)}"
+                f"  • {campaign.name}: {fa_number(campaign.uses)} بار مصرف — تخفیف {format_toman(campaign.discount_toman)}"
                 f" — فروشِ خالص {format_toman(campaign.net_toman)}"
             )
     if report.truncated:
@@ -2408,7 +2423,7 @@ CONVERSATION_TEXT_MAX_CHARS = 3500
 
 
 def crm_conversation_text(customer_name: str, messages, page: int, total_pages: int, total: int) -> str:
-    lines = [f"💬 گفتگو با {customer_name}", f"صفحه‌یِ {page + 1} از {total_pages} — در مجموع {total} پیام", ""]
+    lines = [f"💬 گفتگو با {customer_name}", f"صفحه‌یِ {fa_number(page + 1)} از {fa_number(total_pages)} — در مجموع {fa_number(total)} پیام", ""]
     for item in messages:
         who = "👤 مشتری" if item.role == "user" else "🤖 ربات"
         body = " ".join((item.content or "").split())
@@ -2422,7 +2437,7 @@ def crm_conversation_text(customer_name: str, messages, page: int, total_pages: 
 
 
 def crm_overview_text(counts: dict, total: int, truncated: bool) -> str:
-    lines = [f"👥 مشتری‌هایِ فروشگاهت — کل: {total} نفر\n"]
+    lines = [f"👥 مشتری‌هایِ فروشگاهت — کل: {fa_number(total)} نفر\n"]
     for key, label in CRM_SEGMENT_LABELS.items():
         lines.append(f"{label}: {counts.get(key, 0)} نفر\n   ↳ {CRM_SEGMENT_HINTS[key]}")
     lines.append("\nروی یه بخش بزن تا فهرستش رو ببینی.")
@@ -2458,11 +2473,11 @@ def _crm_datetime(moment) -> str:
 
 def crm_segment_text(segment_key: str, members, total: int, page: int, total_pages: int, page_size: int) -> str:
     label = CRM_SEGMENT_LABELS.get(segment_key, segment_key)
-    lines = [f"{label} — {total} نفر (صفحه‌ی {page + 1} از {total_pages})\n"]
+    lines = [f"{label} — {fa_number(total)} نفر (صفحه‌ی {fa_number(page + 1)} از {fa_number(total_pages)})\n"]
     for index, stat in enumerate(members, start=page * page_size + 1):
         lines.append(
-            f"{index}. {crm_customer_name(stat)}\n"
-            f"   🧾 {stat.success_count} سفارش — 💰 {format_toman(stat.net_toman)} — 📅 {_crm_date(stat.last_activity)}"
+            f"{fa_number(index)}. {crm_customer_name(stat)}\n"
+            f"   🧾 {fa_number(stat.success_count)} سفارش — 💰 {format_toman(stat.net_toman)} — 📅 {_crm_date(stat.last_activity)}"
         )
     return "\n".join(lines)
 
@@ -2485,14 +2500,14 @@ def crm_card_text(stat, customer, orders) -> str:
             what = order.product_name or ("مشاوره" if order.type == "consultation" else "سفارش")
             quantity = f" ×{order.quantity}" if order.quantity and order.quantity > 1 else ""
             value = f" — {format_toman(order.value_toman)}" if order.value_toman else ""
-            lines.append(f"{index}. {order_status_label(order.status)} — {what}{quantity}{value} — {_crm_date(order.created_at)}")
+            lines.append(f"{fa_number(index)}. {order_status_label(order.status)} — {what}{fa_number(quantity)}{value} — {_crm_date(order.created_at)}")
     else:
         lines.append("\nهنوز سفارشی ثبت نکرده.")
     return "\n".join(lines)
 
 
 def crm_broadcast_ask(label: str, count: int) -> str:
-    return f"متنِ پیامی که می‌خوای برایِ {count} مشتریِ بخشِ «{label}» بفرستی رو بنویس:"
+    return f"متنِ پیامی که می‌خوای برایِ {fa_number(count)} مشتریِ بخشِ «{label}» بفرستی رو بنویس:"
 
 
 # --- خلاصه‌یِ هوشمند ---
@@ -2561,7 +2576,7 @@ SHOP_PREF_SAVED = "✅ ذخیره شد."
 SHOP_PREF_RESET_DONE = "↩️ به پیش‌فرضِ سراسری برگشت."
 SHOP_PREF_RESET_BUTTON = "↩️ پیش‌فرضِ سراسری"
 SHOP_PREF_CUSTOM_BUTTON = "✍️ مقدارِ دلخواه"
-SHOP_PREF_BACK_BUTTON = "↩️ برگشت"
+SHOP_PREF_BACK_BUTTON = "⬅️ برگشت"
 
 # برچسب / یکا / توضیحِ یک‌خطی. کلیدها با ستون‌هایِ `ShopBot` در `shop_prefs_service` یکی‌اند.
 SHOP_PREF_LABELS = {
@@ -2601,7 +2616,7 @@ def shop_prefs_text(shop_bot, admin_settings, prefs) -> str:
         label, unit, _help = SHOP_PREF_LABELS[pref.key]
         effective = shop_prefs_service.resolve(pref, shop_bot, admin_settings)
         origin = "خودت" if getattr(shop_bot, pref.key, None) is not None else "پیش‌فرضِ سراسری"
-        lines.append(f"• {label}: {effective} {unit} ({origin})")
+        lines.append(f"• {label}: {fa_number(effective)} {unit} ({origin})")
     lines.append("")
     lines.append("روی هر کدام بزن تا عوضش کنی. این‌ها سراسری نیستند و رویِ بقیه‌یِ فروشگاه‌ها اثر ندارند.")
     return "\n".join(lines)
@@ -2613,24 +2628,24 @@ def shop_pref_text(shop_bot, admin_settings, pref) -> str:
     label, unit, help_text = SHOP_PREF_LABELS[pref.key]
     stored = getattr(shop_bot, pref.key, None)
     effective = shop_prefs_service.resolve(pref, shop_bot, admin_settings)
-    origin = f"مقدارِ خودت: {stored} {unit}" if stored is not None else "هنوز تنظیم نکرده‌ای ⇒ پیش‌فرضِ سراسری"
+    origin = f"مقدارِ خودت: {fa_number(stored)} {unit}" if stored is not None else "هنوز تنظیم نکرده‌ای ⇒ پیش‌فرضِ سراسری"
     return (
         f"{label}\n\n"
-        f"اثرِ فعلی: {effective} {unit}\n"
+        f"اثرِ فعلی: {fa_number(effective)} {unit}\n"
         f"{origin}\n"
-        f"بازه‌یِ مجاز: {pref.low} تا {pref.high} {unit}\n\n"
+        f"بازه‌یِ مجاز: {fa_number(pref.low)} تا {fa_number(pref.high)} {unit}\n\n"
         f"{help_text}"
     )
 
 
 def shop_pref_ask(pref) -> str:
     _label, unit, _help = SHOP_PREF_LABELS[pref.key]
-    return f"عددِ دلخواه را به {unit} بنویس ({pref.low} تا {pref.high}). برایِ انصراف /cancel رو بزن."
+    return f"عددِ دلخواه را به {unit} بنویس ({fa_number(pref.low)} تا {fa_number(pref.high)}). برایِ انصراف /cancel رو بزن."
 
 
 def shop_pref_invalid(pref) -> str:
     _label, unit, _help = SHOP_PREF_LABELS[pref.key]
-    return f"عدد نامعتبره. یه عددِ صحیح بینِ {pref.low} تا {pref.high} {unit} بنویس."
+    return f"عدد نامعتبره. یه عددِ صحیح بینِ {fa_number(pref.low)} تا {fa_number(pref.high)} {unit} بنویس."
 
 
 # ------------------------------------------------------------------ P18 · C2: «💬 گفتگوها و کاربران» (مشاوره)
@@ -2640,14 +2655,14 @@ CONSULT_CONTACTS_EMPTY = "💬 هنوز کسی با رباتِ مشاوره‌ا
 CONSULT_CONTACTS_STALE = "این مخاطب پیدا نشد. دوباره «💬 گفتگوها و کاربران» رو بزن."
 CONSULT_BLOCK_DONE = "🚫 بلاک شد؛ ربات از این پس فقط یک پیامِ ادبی به او می‌دهد."
 CONSULT_UNBLOCK_DONE = "✅ رفعِ بلاک شد."
-CONSULT_CONTACT_BACK = "↩️ برگشت به فهرست"
+CONSULT_CONTACT_BACK = "⬅️ برگشت به فهرست"
 CONSULT_CONTACTS_SALES_HINT = "👥 در مودِ فروشگاهی همین اطلاعات را با بخش‌بندی و یادداشت در «👥 مشتری‌ها» داری."
 
 
 def consult_contacts_text(members, total: int, page: int, total_pages: int) -> str:
-    lines = [f"💬 گفتگوها و کاربران — {total} مخاطب (صفحه‌ی {page + 1} از {total_pages})\n"]
+    lines = [f"💬 گفتگوها و کاربران — {fa_number(total)} مخاطب (صفحه‌ی {fa_number(page + 1)} از {fa_number(total_pages)})\n"]
     for index, customer in enumerate(members, start=1):
-        lines.append(f"{index}. {crm_customer_label(customer)}")
+        lines.append(f"{fa_number(index)}. {crm_customer_label(customer)}")
     lines.append("\nروی هر کدام بزنی گفتگو و بلاک/رفعِ بلاک را می‌بینی.")
     return "\n".join(lines)
 
@@ -2666,8 +2681,11 @@ CHECKOUT_STEP_LABELS = {
 }
 CHECKOUT_STEP_ON = "⛔️ خاموش‌کردن"
 CHECKOUT_STEP_OFF = "✅ روشن‌کردن"
+# نشانِ وضعیت در فهرستِ گام‌ها (ردیفِ دونفره ⇒ برچسب باید کوتاه بماند؛ فعلِ «خاموش‌کردن» آن‌جا جا نمی‌شود)
+CHECKOUT_STEP_MARK_ON = "✅"
+CHECKOUT_STEP_MARK_OFF = "⏸"
 CHECKOUT_STEP_QUESTION_BUTTON = "✏️ متنِ پرسش"
-CHECKOUT_STEPS_BACK_BUTTON = "↩️ برگشت"
+CHECKOUT_STEPS_BACK_BUTTON = "⬅️ برگشت"
 CHECKOUT_STEPS_SAVED = "✅ ذخیره شد."
 CHECKOUT_STEPS_STALE = "این دکمه دیگه معتبر نیست. دوباره از «🛒 سوال‌هایِ چک‌اوتِ سبد» شروع کن."
 CHECKOUT_STEPS_GUARD = "🚫 آدرس و موبایل را نمی‌توانی هم‌زمان خاموش کنی؛ سفارش باید راهی برایِ تحویل داشته باشد."
@@ -2731,10 +2749,10 @@ REPORT_SCHEDULE_SAVED = "✅ زمانِ گزارش ذخیره شد."
 
 def shop_settings_text(shop_bot, default_seconds: int) -> str:
     current = shop_bot.message_batch_seconds
-    current_line = f"{current} ثانیه" if current else f"{default_seconds} ثانیه (پیش‌فرضِ سیستم)"
+    current_line = f"{fa_number(current)} ثانیه" if current else f"{fa_number(default_seconds)} ثانیه (پیش‌فرضِ سیستم)"
     names = REPORT_WEEKDAY_NAMES
     report_line = (
-        f"{names[int(shop_bot.weekly_report_weekday) % len(names)]} ساعتِ {int(shop_bot.weekly_report_hour):02d}:00"
+        f"{names[int(shop_bot.weekly_report_weekday) % len(names)]} ساعتِ {fa_number(f'{int(shop_bot.weekly_report_hour):02d}:00')}"
         if shop_bot.weekly_report_enabled
         else "خاموش"
     )
@@ -2759,7 +2777,7 @@ def report_schedule_text(shop_bot) -> str:
         "📈 گزارشِ دوره‌ای\n\n"
         f"وضعیت: {state}\n"
         f"روزِ هفته: {day}\n"
-        f"ساعت: {int(shop_bot.weekly_report_hour):02d}:00 (به وقتِ تهران)\n\n"
+        f"ساعت: {fa_number(f'{int(shop_bot.weekly_report_hour):02d}:00')} (به وقتِ تهران)\n\n"
         "ربات هر هفته دقیقاً یک‌بار، سرِ همین روز و ساعت، خلاصه‌یِ فروش و فعالیتِ فروشگاهت رو برات می‌فرسته.\n"
         "اگه ربات سرِ اون لحظه خاموش باشه، اولین باری که بالا بیاد همون گزارشِ عقب‌افتاده رو یک‌بار می‌فرسته."
     )
@@ -2827,11 +2845,11 @@ def digital_product_added(name: str, delivery: str, codes_added: int | None = No
 
 
 def dg_codes_result(added: int, duplicates: int, ignored: int, available: int) -> str:
-    lines = [f"✅ {added} کدِ جدید اضافه شد. موجودیِ فعلی: {available} کد."]
+    lines = [f"✅ {fa_number(added)} کدِ جدید اضافه شد. موجودیِ فعلی: {available} کد."]
     if duplicates:
         lines.append(f"♻️ {duplicates} کدِ تکراری نادیده گرفته شد.")
     if ignored:
-        lines.append(f"⚠️ {ignored} خط (تکراری/بیش‌ازحد بلند/خارج از سقفِ ۵۰۰۰تایی) نادیده گرفته شد.")
+        lines.append(f"⚠️ {fa_number(ignored)} خط (تکراری/بیش‌ازحد بلند/خارج از سقفِ ۵۰۰۰تایی) نادیده گرفته شد.")
     return "\n".join(lines)
 
 
@@ -2847,9 +2865,9 @@ def digital_delivery_owner_note(status: str) -> str:
 def digital_pending_delivered_note(delivered: int, still_waiting: int) -> str:
     lines = []
     if delivered:
-        lines.append(f"📬 {delivered} سفارشِ منتظر هم الان تحویل داده شد.")
+        lines.append(f"📬 {fa_number(delivered)} سفارشِ منتظر هم الان تحویل داده شد.")
     if still_waiting:
-        lines.append(f"⏳ {still_waiting} سفارش هنوز منتظرِ کدِ بیشتره.")
+        lines.append(f"⏳ {fa_number(still_waiting)} سفارش هنوز منتظرِ کدِ بیشتره.")
     return "\n".join(lines)
 
 
@@ -2863,7 +2881,7 @@ def product_kind_lines(product) -> list[str]:
         if product.digital_delivery == "file" and product.digital_file_name:
             lines.append(f"📎 {product.digital_file_name}")
         if product.digital_max_downloads is not None:
-            lines.append(f"📥 سقفِ دریافت: {product.digital_max_downloads} بار")
+            lines.append(f"📥 سقفِ دریافت: {fa_number(product.digital_max_downloads)} بار")
     else:
         if product.weight_grams is not None:
             lines.append(f"⚖️ وزن: {product.weight_grams} گرم")
@@ -2955,6 +2973,11 @@ RECEIPT_REJECT_REASONS = (
     "رسیدِ تکراری",
     "واریز در حسابم ننشسته",
 )
+def switch_toast(subject: str, enabled: bool) -> str:
+    """بازخوردِ هر سوییچِ پنل: چه چیزی و به کدام طرف عوض شد (P22 · لایهٔ بازخورد)."""
+    return f"{subject}: {'روشن ✅' if enabled else 'خاموش ⏸'}"
+
+
 PAYS_STALE = "این پرداخت پیدا نشد یا دیگه به این عملیات نیاز نداره."
 PAYS_ILLEGAL = "در وضعیتِ فعلیِ پرداخت این کار مجاز نیست (شاید قبلاً تصمیم گرفته شده)."
 PAYS_ASK_REJECT_REASON = "دلیلِ ردِ رسید رو انتخاب کن (مشتری همین رو می‌بینه):"
@@ -2964,6 +2987,21 @@ PAYS_REJECTED_SUFFIX = "❌ رسید رد شد؛ مشتری خبردار شد."
 PAYS_CUSTOMER_NOTIFY_FAILED = "⚠️ تصمیم ثبت شد ولی پیام به مشتری نرسید (احتمالاً رباتِ فروشگاه رو مسدود کرده)."
 PAYS_DONE = "ثبت شد."
 PAYS_SAVED = "✅ ذخیره شد."
+# P22 (لایهٔ بازخورد): هر سوییچ باید بگوید چه شد، و هر پیامِ راهنما باید در همین فایل باشد.
+PAYS_METHOD_LABELS = {
+    "card": "💳 کارت‌به‌کارت",
+    "bale": "🟢 بله‌پی",
+    "zarinpal": "🟡 زرین‌پال",
+    "manual": "🤝 پرداختِ دستی/هماهنگی",
+    "auto": "⚡ تاییدِ خودکارِ آنلاین",
+}
+PAYS_TOGGLED = "{label}: {state}"
+PAYS_NEEDS_CARD_FIRST = "اول «💳 تنظیمِ کارت» رو کامل کن (شماره و نامِ صاحبِ کارت)."
+PAYS_NEEDS_BALE_FIRST = "اول «🔑 توکنِ درگاهِ بله‌پی» را همین صفحه ثبت کن."
+PAYS_NEEDS_ZARINPAL_FIRST = "اول «🔑 مرچنتِ زرین‌پال» رو ثبت کن."
+PAYS_LAST_METHOD_GUARD = "حداقل یک روش باید فعال بمونه؛ پرداختِ دستی تنها روشِ فعاله."
+
+
 PAYS_INVALID_CARD = "شماره‌کارتِ معتبرِ ۱۶رقمی بفرست (فاصله/ارقامِ فارسی مشکلی نداره)."
 PAYS_ASK_CARD_NUMBER = "شماره‌کارتِ ۱۶رقمیِ فروشگاه رو بفرست (برایِ مشتری نمایش داده می‌شه):"
 PAYS_ASK_CARD_HOLDER = "نامِ صاحبِ کارت رو بنویس (برایِ رد کردن «-»):"
@@ -2991,14 +3029,14 @@ def payments_menu_text(row, shop_bot, bale_missing=()) -> str:
     bale_line = (
         f"بله‌پی: {flag(not bale_missing)} — توکنِ درگاهِ فروشگاه: {'تنظیم شده' if own_token else 'تنظیم نشده'}"
         f"{' (توکنِ سراسریِ مدیر استفاده می‌شود)' if using_global_provider else ''}"
-        f" — مهلت: {row.bale_deadline_minutes} دقیقه"
+        f" — مهلت: {fa_number(row.bale_deadline_minutes)} دقیقه"
     )
     lines = [
         "💳 روش‌هایِ پرداختِ مشتری",
         "",
-        f"کارت‌به‌کارت: {flag(row.card_enabled and bool(card_number))} — کارت: {pss.mask_card(card_number)} — مهلت: {row.card_deadline_minutes} دقیقه — نگهداریِ بررسیِ رسید: {row.receipt_review_hold_minutes} دقیقه",
+        f"کارت‌به‌کارت: {flag(row.card_enabled and bool(card_number))} — کارت: {pss.mask_card(card_number)} — مهلت: {fa_number(row.card_deadline_minutes)} دقیقه — نگهداریِ بررسیِ رسید: {fa_number(row.receipt_review_hold_minutes)} دقیقه",
         bale_line,
-        f"زرین‌پال: {flag(row.zarinpal_enabled and bool(row.zarinpal_merchant_id_enc))} — مرچنت: {'تنظیم شده' if row.zarinpal_merchant_id_enc else 'تنظیم نشده'} — مهلت: {row.zarinpal_deadline_minutes} دقیقه",
+        f"زرین‌پال: {flag(row.zarinpal_enabled and bool(row.zarinpal_merchant_id_enc))} — مرچنت: {'تنظیم شده' if row.zarinpal_merchant_id_enc else 'تنظیم نشده'} — مهلت: {fa_number(row.zarinpal_deadline_minutes)} دقیقه",
         f"پرداختِ دستی/هماهنگی: {flag(row.manual_enabled)}",
         f"تاییدِ خودکارِ پرداختِ آنلاین: {flag(row.auto_accept_online)}",
         "",
@@ -3035,15 +3073,15 @@ def receipt_submitted_notification(rows, payment, customer, total_toman: int) ->
 # W5 · 2.1/2.2 — حدودِ مهلت، تاییدِ دیرهنگام، هشدارِ بررسیِ رسید، برگشتِ موجودی
 # =============================================================================
 def pays_ask_deadline(low: int, high: int) -> str:
-    return f"مهلتِ پرداخت (دقیقه) رو بفرست — بینِ {low} و {high}. موجودی دقیقاً همین‌قدر رزرو می‌مونه:"
+    return f"مهلتِ پرداخت (دقیقه) رو بفرست — بینِ {fa_number(low)} و {fa_number(high)}. موجودی دقیقاً همین‌قدر رزرو می‌مونه:"
 
 
 def pays_ask_hold(low: int, high: int) -> str:
-    return f"مهلتِ بررسیِ رسید (دقیقه) — بینِ {low} و {high}. بعد از ارسالِ رسید موجودی تا این مدت رزرو می‌مونه:"
+    return f"مهلتِ بررسیِ رسید (دقیقه) — بینِ {fa_number(low)} و {fa_number(high)}. بعد از ارسالِ رسید موجودی تا این مدت رزرو می‌مونه:"
 
 
 def pays_range_hint(low: int, high: int, unit: str) -> str:
-    return f"بازه‌یِ مجاز: {low} تا {high} {unit}"
+    return f"بازه‌یِ مجاز: {fa_number(low)} تا {fa_number(high)} {unit}"
 
 
 PAYS_LATE_APPROVED_SUFFIX = "⏰ مهلتِ این سفارش تموم شده بود؛ با تاییدِ تو دوباره رزرو و «پرداخت‌شده» شد."
@@ -3052,7 +3090,7 @@ PAYS_LATE_OVERSOLD_SUFFIX = "⚠️ موجودیِ بعضی اقلام دیگه 
 
 def receipt_review_warning(code: str, hours_left: float) -> str:
     return (
-        f"⏰ رسیدِ سفارشِ {code} هنوز بررسی نشده و حدودِ {max(1, round(hours_left))} ساعتِ دیگه مهلتش تموم می‌شه "
+        f"⏰ رسیدِ سفارشِ {code} هنوز بررسی نشده و حدودِ {fa_number(max(1, round(hours_left)))} ساعتِ دیگه مهلتش تموم می‌شه "
         "(بعدش سفارش منقضی و موجودی آزاد می‌شه؛ البته بعدش هم می‌تونی با تایید دوباره فعالش کنی). لطفاً تایید یا رد کن."
     )
 
@@ -3061,15 +3099,18 @@ def receipt_review_warning(code: str, hours_left: float) -> str:
 # P21-D — خلاصهٔ روزانهٔ پولی، پخشِ زمان‌بندی‌شده، اخطارِ موجودی
 # =============================================================================
 def digest_wallet_line(balance_toman: int, usable_toman: int, expiring_toman: int, expiring_days: int | None, debt_toman: int) -> str:
-    """چند خطِ پولی به انتهایِ گزارشِ شبانه (پیش‌تر فقط تعدادِ سفارش/مشتری داشت)."""
+    """چند خطِ پولی به انتهایِ گزارشِ شبانه (پیش‌تر فقط تعدادِ سفارش/مشتری داشت).
+
+    `format_toman` خودش «تومان» دارد؛ افزودنِ دوبارهٔ آن واحدِ تکراری می‌ساخت
+    («۱٬۰۰۰٬۰۰۰ تومان تومان») — P22 اصلاح شد."""
     lines = ["", "💼 کیف‌پول:"]
-    lines.append(f"• موجودی: {format_toman(balance_toman)} تومان")
+    lines.append(f"• موجودی: {format_toman(balance_toman)}")
     if usable_toman != balance_toman:
-        lines.append(f"• قابل‌استفاده الان: {format_toman(usable_toman)} تومان (بقیه رزروِ کمیسیونِ سفارش‌هایِ درجریان است)")
+        lines.append(f"• قابل‌استفاده الان: {format_toman(usable_toman)} (بقیه رزروِ کمیسیونِ سفارش‌هایِ درجریان است)")
     if expiring_toman > 0 and expiring_days is not None:
-        lines.append(f"• تا {expiring_days} روزِ دیگر منقضی می‌شود: {format_toman(expiring_toman)} تومان")
+        lines.append(f"• تا {fa_number(expiring_days)} روزِ دیگر منقضی می‌شود: {format_toman(expiring_toman)}")
     if debt_toman > 0:
-        lines.append(f"• طلبِ کمیسیونِ وصول‌نشده: {format_toman(debt_toman)} تومان (با شارژِ بعدی خودکار کسر می‌شود)")
+        lines.append(f"• طلبِ کمیسیونِ وصول‌نشده: {format_toman(debt_toman)} (با شارژِ بعدی خودکار کسر می‌شود)")
     return "\n".join(lines)
 
 
@@ -3094,7 +3135,7 @@ SCHEDULE_CANCEL_BUTTON = "🗑 لغوِ این ارسال"
 
 def schedule_saved_text(when_label: str, recipients: int) -> str:
     return (
-        f"✅ ثبت شد: این پیام {when_label} برایِ {recipients} مشتری در صفِ ارسال می‌نشیند.\n"
+        f"✅ ثبت شد: این پیام {when_label} برایِ {fa_number(recipients)} مشتری در صفِ ارسال می‌نشیند.\n"
         "اگر تلگرام لحظه‌ای پاسخ ندهد، خودش دوباره تلاش می‌کند و گم نمی‌شود.\n"
         "برایِ دیدن یا لغو: «⏰ ارسال‌هایِ زمان‌بندی‌شده»"
     )
@@ -3114,7 +3155,7 @@ def scheduled_list_text(rows) -> str:
 
 def stock_alert_button_label(shop_bot) -> str:
     value = getattr(shop_bot, "low_stock_alert_threshold", None)
-    return "📦 اخطارِ موجودی: خاموش" if not value else f"📦 اخطارِ موجودی: زیرِ {value} عدد"
+    return "📦 اخطارِ موجودی: خاموش" if not value else f"📦 اخطارِ موجودی: زیرِ {fa_number(value)} عدد"
 
 
 ASK_STOCK_THRESHOLD = (
@@ -3131,9 +3172,9 @@ def stock_alert_text(rows, threshold: int, limit: int) -> str:
     lines = [f"📦 موجودیِ چند کالا به {threshold} رسیده یا کمتر است:", ""]
     for product in rows[:limit]:
         remaining = (product.stock_quantity or 0) - (product.reserved_quantity or 0)
-        lines.append(f"• {product.name}: {remaining} عدد")
+        lines.append(f"• {product.name}: {fa_number(remaining)} عدد")
     if len(rows) > limit:
-        lines.append(f"… و {len(rows) - limit} کالایِ دیگر")
+        lines.append(f"… و {fa_number(len(rows) - limit)} کالایِ دیگر")
     lines.append("")
     lines.append("برایِ توقفِ این اخطار، آستانه را در «⚙️ تنظیماتِ ربات فروشگاه» خالی کن.")
     return "\n".join(lines)
@@ -3166,3 +3207,62 @@ NOTIFICATION_QUEUE_NO_ITEM = "• (نمونه‌ای برایِ نمایش نب�
 NOTIFICATION_QUEUE_RETRY_NONE = "🛑 شکست‌خورده‌ای نبود؛ همه در انتظارِ تلاشِ خودشان‌اند."
 NOTIFICATION_QUEUE_RETRY_DONE = "🔁 {count} اعلانِ شکست‌خورده دوباره در صف قرار گرفت."
 NOTIFICATION_QUEUE_RETRY_BUTTON = "🔁 تلاشِ دوباره برایِ شکست‌خورده‌ها"
+
+# =============================================================================
+# P22 · مشکلِ ۸ — دستهٔ «کاربرانِ غیرفعال» و حذفِ حسابِ فروشگاه‌دار
+# =============================================================================
+INACTIVE_BUTTON = "🧹 کاربرانِ غیرفعال"
+INACTIVE_WINDOW_BUTTON = "🕓 {days} روز"
+INACTIVE_LIST_INTRO = "🧹 {days} روز است خبری نشده — {count} حساب{scoped}"
+INACTIVE_SCOPED_NOTE = " · فقطِ دامنهٔ تو"
+INACTIVE_LIST_PAGINATION = " (صفحه‌یِ {page} از {total_pages})"
+INACTIVE_EMPTY = "🎉 با این بازه هیچ حسابِ غیرفعالی نیست."
+INACTIVE_DELETED_INTRO = "🧊 حساب‌هایِ غیرفعال‌شده — {count} مورد (برایِ بازگرداندن یا حذفِ قطعی رویشان بزن)"
+INACTIVE_DELETED_NONE = "🧊 هیچ حسابِ غیرفعال‌شده‌ای نداریم."
+INACTIVE_DELETED_LIST_BUTTON = "🧊 غیرفعال‌شده‌ها"
+INACTIVE_NO_HISTORY = "بدونِ سابقه"
+INACTIVE_DAYS_AGO = "{days} روزِ پیش"
+INACTIVE_LIST_HIDDEN = "⚠️ فقط {limit} مورد اول نشان داده می‌شود؛ {hidden} حسابِ دیگر هم در همین دسته‌اند."
+INACTIVE_PURGE_WORD = "حذفِ قطعی"
+INACTIVE_ITEM_BUTTON = "{name} · {since}"
+INACTIVE_DELETED_BADGE = "🧊 این حساب غیرفعال شده است."
+INACTIVE_LAST_SEEN_LINE = "🕓 آخرین دیدار: {when}"
+INACTIVE_SUPER_ONLY = "این کار فقط برایِ سوپرادمین است."
+INACTIVE_STALE = "این حساب در دامنهٔ تو نیست یا پیدا نشد؛ فهرست را تازه کن."
+INACTIVE_NOT_DELETED_FIRST = "🧊 حذفِ قطعی فقط رویِ حسابی ممکن است که اول غیرفعال شده باشد."
+INACTIVE_DELETE_CONFIRM = "حسابِ «{name}» غیرفعال شود؟ سفارش‌ها، کیف‌پول و ممیزی می‌مانند و هر وقت بخواهی برمی‌گردد."
+INACTIVE_RESTORE_CONFIRM = "حسابِ «{name}» به فهرست برگردد؟"
+INACTIVE_DEACTIVATED_DONE = "🧊 حسابِ «{name}» غیرفعال شد؛ از پنل، آمار و ورودِ کاربر بیرون ماند."
+INACTIVE_RESTORED_DONE = "♻️ حسابِ «{name}» برگشت."
+INACTIVE_PURGE_ASK = (
+    "⚠️ حذفِ قطعیِ دادهٔ «{name}» برگشت‌ناپذیر است. اگر مطمئنی، همین عبارت را بنویس: {word}"
+    + "\n"
+    + "برایِ بی‌عمل ماندن /cancel را بزن."
+)
+INACTIVE_PURGE_BAD_WORD = "عبارت را دقیقِ «{word}» بنویس (یا /cancel را بزن)."
+INACTIVE_PURGE_SUMMARY = "🔥 قرار است پاک شود: {items}. برایِ ادامه این عبارت را بنویس: «{tail}»"
+INACTIVE_PURGE_SHELL_KEPT = "پوستهٔ حساب و ردیف‌هایِ ممیزی می‌مانند (زنجیرهٔ هشِ ممیزی پاک‌شدنی نیست)."
+INACTIVE_PURGE_SHELL_REMOVED = "پوستهٔ حساب هم حذف شد (هیچ ردیفِ ممیزی به آن بند نبود)."
+INACTIVE_PURGE_DONE = "🔥 دادهٔ «{name}» پاک شد — {count} ردیف. {tail}"
+INACTIVE_PURGE_FAILED = "❌ حذفِ قطعی انجام نشد: {error}"
+
+
+def inactive_detail_text(
+    *, name: str, bot_username: str | None, last_seen: str, since_label: str, wallet: str, is_deleted: bool
+) -> str:
+    """کارتِ یکِ حسابِ غیرفعال: کیست، کِی آخرین بار آمده، و الان چه وضعی دارد."""
+    lines = [f"👤 {name}"]
+    if bot_username:
+        lines.append(f"🤖 رباتِ فروشگاه: @{bot_username.lstrip('@')}")
+    lines.append(f"{INACTIVE_LAST_SEEN_LINE.format(when=last_seen)} ({since_label})")
+    lines.append(f"💰 کیف‌پول: {wallet}")
+    if is_deleted:
+        lines.append(INACTIVE_DELETED_BADGE.strip())
+    return "\n".join(lines)
+
+
+def inactive_purge_summary(removed_rows: int, touched_tables: int) -> str:
+    """چکیدهٔ آنچه حذفِ قطعی می‌بُرد + یادآوریِ عبارتِ تایید (ارقامِ فارسی، مثلِ بقیهٔ پنل)."""
+    return INACTIVE_PURGE_SUMMARY.format(
+        items=f"{fa_number(removed_rows)} ردیف در {fa_number(touched_tables)} جدول", tail=INACTIVE_PURGE_WORD
+    )

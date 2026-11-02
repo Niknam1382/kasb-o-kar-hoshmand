@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bots.common.wizard_nav import page_label
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.handlers import order_ops
 from app.bots.main_bot.handlers.owner_common import require_shop_bot, require_shop_bot_cb, safe_edit
@@ -18,7 +19,7 @@ from app.database.models import Customer
 from app.services import order_payment_service, order_state, order_transition_service, orders_manage_service as oms
 from app.services.identity_service import display_user
 from app.utils.jalali import format_jalali_datetime
-from app.utils.validators import format_phone_display, format_toman
+from app.utils.validators import fa_number, format_phone_display, format_toman
 
 BTN_ORDERS_MANAGE = "🧾 مدیریتِ سفارش‌ها (جاری)"
 
@@ -43,21 +44,23 @@ _STATUS_ICON = {
 def list_text(groups_all: list, flt: str, page: int, total_pages: int, shown_count: int) -> str:
     counts = oms.status_counts(groups_all)
     action = sum(n for s, n in counts.items() if s in oms.NEEDS_ACTION)
-    lines = [f"🧾 سفارش‌هایِ جاری: {len(groups_all)} مورد — منتظرِ اقدامِ تو: {action} مورد"]
-    breakdown = [f"{_STATUS_ICON.get(s, '•')} {texts.order_status_label(s)}: {counts[s]}" for s in oms.CURRENT_STATUSES if counts.get(s)]
+    lines = [f"🧾 سفارش‌هایِ جاری: {fa_number(len(groups_all))} مورد — منتظرِ اقدامِ تو: {fa_number(action)} مورد"]
+    breakdown = [
+        f"{_STATUS_ICON.get(s, '•')} {texts.order_status_label(s)}: {fa_number(counts[s])}" for s in oms.CURRENT_STATUSES if counts.get(s)
+    ]
     if breakdown:
         lines.append("\n".join(breakdown))
     if flt == oms.FILTER_ACTION:
         lines.append("\n🔎 فیلتر: فقط منتظرِ اقدام")
     if total_pages > 1:
-        lines.append(f"\nصفحه‌یِ {page} از {total_pages}")
+        lines.append(f"\n{page_label(page - 1, total_pages)}")
     lines.append("\nبرایِ مدیریتِ هر سفارش رویش بزن 👇")
     return "\n".join(lines)
 
 
 def _customer_names(customers: dict[int, Customer], rows: list) -> str:
     customer = customers.get(rows[0].customer_id)
-    return display_user(customer) if customer is not None else "—"
+    return display_user(customer) if customer is not None else "بی‌نام"
 
 
 def list_keyboard(groups_page: list, customers: dict[int, Customer], flt: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
@@ -89,7 +92,7 @@ async def _list_payload(session: AsyncSession, shop_bot, flt: str, page: int) ->
     groups_all = await oms.load_current_groups(session, shop_bot.id)
     shown = oms.apply_filter(groups_all, flt)
     if not groups_all:
-        return EMPTY_ALL, None
+        return EMPTY_ALL, keyboards.empty_screen_keyboard()
     page_groups, page, total_pages = oms.paginate(shown, page)
     customer_ids = {rows[0].customer_id for rows in page_groups}
     customers = {cid: await session.get(Customer, cid) for cid in customer_ids}

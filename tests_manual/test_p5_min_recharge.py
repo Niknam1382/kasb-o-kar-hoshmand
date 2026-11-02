@@ -126,7 +126,7 @@ async def test_admin_can_change_the_minimum_and_service_follows(main_dp) -> None
     async with session_scope() as session:
         labels = dict(main_texts.admin_settings_button_labels(await get_admin_settings(session)))
     assert "min_topup_amount_toman" in labels, list(labels)
-    assert "50,000" in labels["min_topup_amount_toman"], labels["min_topup_amount_toman"]
+    assert "۵۰٬۰۰۰" in labels["min_topup_amount_toman"], labels["min_topup_amount_toman"]
 
     await main_dp.feed_update(main_bot, make_callback_update(1, data="admin_setting_edit:min_topup_amount_toman", user_id=ADMIN_TG_ID))
     assert session_obj.sent_messages[-1]["text"] == main_texts.ADMIN_ASK_MIN_TOPUP_AMOUNT
@@ -203,7 +203,7 @@ async def test_ui_follows_the_configured_minimum(main_dp) -> None:
     n += 1
     await main_dp.feed_update(main_bot, make_callback_update(n, data="topup_amount:custom", user_id=OWNER_TG_ID))
     prompt = session_obj.sent_messages[-1]["text"]
-    assert "200,000" in prompt and "10,000" not in prompt, prompt
+    assert "۲۰۰٬۰۰۰" in prompt and "۱۰٬۰۰۰" not in prompt, prompt
     n += 1
     await main_dp.feed_update(main_bot, make_message_update(n, text="40000", user_id=OWNER_TG_ID))
     assert session_obj.sent_messages[-1]["text"] == main_texts.invalid_topup_amount(200_000), session_obj.sent_messages[-1]

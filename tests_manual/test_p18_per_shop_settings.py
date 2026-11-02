@@ -298,7 +298,7 @@ async def test_owner_settings_screen_and_menu(main_dp) -> None:
     assert "sp_prefs_open" in _datas(owner.last_markup), _datas(owner.last_markup)
     await owner.tap("sp_prefs_open")
     assert "⏱ مهلت‌ها و حافظه" in owner.last_edit_text
-    assert "رزروِ مبلغِ پرداخت: 60 دقیقه (پیش‌فرضِ سراسری)" in owner.last_edit_text, owner.last_edit_text
+    assert "رزروِ مبلغِ پرداخت: ۶۰ دقیقه (پیش‌فرضِ سراسری)" in owner.last_edit_text, owner.last_edit_text
     data = _datas(owner.last_edit_markup)
     assert data[-1] == "sp_prefs_back", data
     assert data[:-1] == [f"sp_pref:{pref.key}" for pref in prefs.ALL_PREFS], data
@@ -308,10 +308,10 @@ async def test_owner_settings_screen_and_menu(main_dp) -> None:
     assert owner.last_toast["text"] == main_texts.SHOP_PREFS_STALE
 
     await owner.tap("sp_pref:order_reservation_minutes")
-    assert "بازه‌یِ مجاز: 1 تا 10080 دقیقه" in owner.last_edit_text
+    assert "بازه‌یِ مجاز: ۱ تا ۱۰۰۸۰ دقیقه" in owner.last_edit_text
     await owner.tap("sp_pref_set:order_reservation_minutes:15")
     assert (await stored()).order_reservation_minutes == 15
-    assert "مقدارِ خودت: 15 دقیقه" in owner.last_edit_text
+    assert "مقدارِ خودت: ۱۵ دقیقه" in owner.last_edit_text
 
     # دابل‌تپ ⇒ همان مقدار
     await owner.tap("sp_pref_set:order_reservation_minutes:15")
@@ -343,7 +343,7 @@ async def test_owner_settings_screen_and_menu(main_dp) -> None:
     assert "sp_pref_reset:order_reservation_minutes" not in _datas(owner.last_edit_markup), "دکمه‌یِ reset فقط وقتی تنظیم شده"
 
     await owner.tap("sp_pref_back")
-    assert "رزروِ موجودیِ سفارش: 60 دقیقه (پیش‌فرضِ سراسری)" in owner.last_edit_text
+    assert "رزروِ موجودیِ سفارش: ۶۰ دقیقه (پیش‌فرضِ سراسری)" in owner.last_edit_text
     await owner.tap("sp_prefs_back")
     assert "مدتِ تجمیعِ پیام‌ها" in owner.last_edit_text
 
@@ -377,7 +377,7 @@ async def test_consultation_sees_only_meaningful_prefs(main_dp) -> None:
     await owner.tap("sp_pref:conversation_retention_days")
     await owner.tap("sp_pref_set:conversation_retention_days:0")
     assert (await _shop_bot(shop_bot_id)).conversation_retention_days == 0
-    assert "اثرِ فعلی: 0 روز" in owner.last_edit_text
+    assert "اثرِ فعلی: ۰ روز" in owner.last_edit_text
     print("✅ test_consultation_sees_only_meaningful_prefs PASSED")
 
 

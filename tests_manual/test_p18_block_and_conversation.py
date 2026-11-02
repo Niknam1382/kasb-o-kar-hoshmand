@@ -211,18 +211,18 @@ async def test_owner_conversation_view(main_dp) -> None:
 
     await owner.tap(f"crm_conv:{customer_id}:0")
     assert "💬 گفتگو با علی" in owner.last_edit_text
-    assert "در مجموع 24 پیام" in owner.last_edit_text
+    assert "در مجموع ۲۴ پیام" in owner.last_edit_text
     assert "👤 مشتری" in owner.last_edit_text and "🤖 ربات" in owner.last_edit_text
     assert f"crm_conv:{customer_id}:1" in _datas(owner.last_edit_markup), "صفحه‌یِ بعد"
     assert f"crm_card:{customer_id}" in _datas(owner.last_edit_markup)
 
     await owner.tap(f"crm_conv:{customer_id}:1")
-    assert "صفحه‌یِ 2 از 3" in owner.last_edit_text
+    assert "صفحه‌یِ ۲ از ۳" in owner.last_edit_text
     assert f"crm_conv:{customer_id}:0" in _datas(owner.last_edit_markup), "صفحه‌یِ قبل"
 
     # صفحه‌یِ خارجِ بازه snap می‌شود (نه خطا)
     await owner.tap(f"crm_conv:{customer_id}:99")
-    assert "صفحه‌یِ 3 از 3" in owner.last_edit_text
+    assert "صفحه‌یِ ۳ از ۳" in owner.last_edit_text
 
     # کلیدهایِ دستکاری‌شده ⇒ پیامِ مودبانه، نه خطا
     for bad in (f"crm_conv:{customer_id}:abc", "crm_conv:abc:0", f"crm_conv:{customer_id}", "crm_conv:", "crm_conv:1:2:3"):

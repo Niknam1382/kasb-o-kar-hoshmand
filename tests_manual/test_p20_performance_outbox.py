@@ -50,6 +50,7 @@ from app.services import (
     wallet_service,
 )
 from app.services.admin_settings_service import get_admin_settings  # noqa: E402
+from app.utils.validators import fa_text  # noqa: E402
 
 OWNER_TG_ID = 999_731
 SHOP_BOT_TG_ID = 999_732
@@ -338,7 +339,7 @@ async def test_admin_notification_queue_panel_and_retry(main_dp) -> None:
     ), "وقتی شکستی هست باید راهِ اقدام هم باشد"
 
     await main_dp.feed_update(admin_bot, make_callback_update(3, data="admin_notification_retry", user_id=ADMIN_TG_ID))
-    assert admin_bot.session.sent_messages[-1]["text"] == texts.NOTIFICATION_QUEUE_RETRY_DONE.format(count=1)
+    assert admin_bot.session.sent_messages[-1]["text"] == fa_text(texts.NOTIFICATION_QUEUE_RETRY_DONE, count=1)
     async with session_scope() as session:
         row = (await session.execute(select(Notification))).scalars().one()
         assert row.status == notification_service.PENDING and row.attempts == 0, (row.status, row.attempts)

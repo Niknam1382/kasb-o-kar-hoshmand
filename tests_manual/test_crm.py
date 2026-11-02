@@ -290,18 +290,18 @@ async def test_overview_segment_screens_card_and_pagination(main_dp) -> None:
     loyal_members = crm_service.partition(stats)["loyal"]
     assert [m.telegram_id for m in loyal_members] == [TG["loyal"], TG["boundary_loyal"]]
     listing = texts.crm_segment_text("loyal", loyal_members, 2, 0, 1, crm_service.PAGE_SIZE)
-    assert "مشتریِ وفادار (@loyal_user)" in listing and "وفادارِ مرزی" in listing and "300,000 تومان" in listing
+    assert "مشتریِ وفادار (@loyal_user)" in listing and "وفادارِ مرزی" in listing and "۳۰۰٬۰۰۰ تومان" in listing
     assert listing.index("مشتریِ وفادار") < listing.index("وفادارِ مرزی")
 
     # کارتِ مشتری
     for expected in (
         "👤 مشتریِ وفادار (@loyal_user)",
         "بخش: 💎 وفادار",
-        "🧾 سفارشِ موفق: 3 — 💰 خریدِ خالص: 300,000 تومان",
+        "🧾 سفارشِ موفق: 3 — 💰 خریدِ خالص: ۳۰۰٬۰۰۰ تومان",
         "🏷 برچسب‌ها: —",
         "📝 یادداشت: —",
         "آخرین سفارش‌ها:",
-        "✅ تاییدشده — سفارش — 100,000 تومان",
+        "✅ تاییدشده — سفارش — ۱۰۰٬۰۰۰ تومان",
     ):
         assert expected in card_text, f"کارت باید «{expected}» رو داشته باشه:\n{card_text}"
     loyal_id = ids["loyal"]
@@ -460,7 +460,9 @@ async def test_empty_shop_overview_and_segments(main_dp) -> None:
     owner = Chat(main_dp, OWNER_TG_ID)
 
     await owner.say("👥 مشتری‌ها")
-    assert owner.last_text == texts.CRM_EMPTY and owner.last_markup is None
+    assert owner.last_text == texts.CRM_EMPTY
+    # P22 (لایهٔ ناوبری): صفحهٔ خالی دیگر بی‌دکمه نیست — «بازگشت به پنل» هست تا کاربر گیر نماند
+    assert any("بازگشت به پنل" in btn.text for row in owner.last_markup.inline_keyboard for btn in row), owner.last_markup
     await owner.tap("crm_seg:loyal:0")
     assert owner.last_toast["text"] == texts.CRM_SEGMENT_EMPTY and owner.last_toast["show_alert"]
     await owner.tap("crm_bcast:loyal")

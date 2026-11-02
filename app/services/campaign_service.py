@@ -203,7 +203,10 @@ async def get_owned(session: AsyncSession, campaign_id: int, shop_bot_id: int) -
     return result.scalar_one_or_none()
 
 
-async def list_for_shop(session: AsyncSession, shop_bot_id: int, limit: int = 20) -> list[Campaign]:
+LIST_LIMIT = 20  # سقفِ فهرستِ رویِ صفحه؛ هندلر وقتی پر باشد «نمایشِ ناقص» را می‌گوید
+
+
+async def list_for_shop(session: AsyncSession, shop_bot_id: int, limit: int = LIST_LIMIT) -> list[Campaign]:
     result = await session.execute(
         select(Campaign).where(Campaign.shop_bot_id == shop_bot_id).order_by(Campaign.id.desc()).limit(limit)
     )

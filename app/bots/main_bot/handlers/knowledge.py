@@ -44,7 +44,7 @@ async def _gaps_payload(session: AsyncSession, shop_bot: ShopBot, page: int):
     admin_settings = await get_admin_settings(session)
     note = "" if admin_settings.knowledge_gap_enabled else f"\n\n{texts.GAPS_DETECTION_OFF_NOTE}"
     if total == 0:
-        return texts.GAPS_EMPTY + note, None
+        return texts.GAPS_EMPTY + note, keyboards.empty_screen_keyboard()
     return texts.gaps_page_text(gaps, total, page, page_size) + note, keyboards.gaps_list_keyboard(gaps, page, total, page_size)
 
 

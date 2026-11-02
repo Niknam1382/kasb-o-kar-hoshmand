@@ -339,7 +339,7 @@ async def test_edit_applies_changes_and_skips_normal_chat(main_bot) -> None:
     edited = await _apply(bot)
     assert await _cart_contents(shop.shop_bot_id) == {"برنج": 1, "چای": 1}
     assert edited is not None and "کم شد" in edited, "تأییدیه باید بگه چی عوض شد"
-    assert "250,000" in edited, "سبدِ به‌روز (۱×برنج + ۱×چای = ۲۵۰٬۰۰۰) باید نشون داده بشه"
+    assert "۲۵۰٬۰۰۰" in edited, "سبدِ به‌روز (۱×برنج + ۱×چای = ۲۵۰٬۰۰۰) باید نشون داده بشه"
     assert "cart_checkout_start" in _callback_datas(bot.session.edited_texts[-1]["reply_markup"])
     assert len(main_bot.session.sent_messages) == 0, "فروشگاه‌دار نباید چیزی ببینه"
 
@@ -487,7 +487,7 @@ async def test_partial_validity_applies_only_valid_operations(main_bot) -> None:
     assert await _cart_contents(shop.shop_bot_id) == {"برنج": 2, "چای": 1}, "تا تایید چیزی عوض نمی‌شه"
     text = _sent(bot)[0]["text"]
     assert "حذف بشه" in text
-    assert "1 مورد" in text and "متوجه نشدم" in text, "به مشتری گفته بشه یه موردش فهمیده نشد"
+    assert "۱ مورد" in text and "متوجه نشدم" in text, "به مشتری گفته بشه یه موردش فهمیده نشد"
     edited = await _apply(bot)
     assert await _cart_contents(shop.shop_bot_id) == {"برنج": 2}, "عملیاتِ معتبر با تایید اعمال می‌شه"
     assert "حذف شد" in (edited or "")
@@ -512,7 +512,7 @@ async def test_stock_limits_are_reported_honestly(main_bot) -> None:
     assert await _cart_contents(shop.shop_bot_id) == {"برنج": 4}, "تا تایید چیزی عوض نمی‌شه"
     text = await _apply(bot) or ""
     assert await _cart_contents(shop.shop_bot_id) == {"برنج": 5}, "برنج فقط تا سقفِ موجودی (۵) بالا می‌ره و کیک اصلاً اضافه نمی‌شه"
-    assert "فقط 1 عدد موجود بود" in text, "باید صادقانه بگه فقط ۱ عدد اضافه شد"
+    assert "فقط ۱ عدد موجود بود" in text, "باید صادقانه بگه فقط ۱ عدد اضافه شد"
     assert "موجودی نداره" in text, "باید بگه کیک موجودی نداره"
 
     print("✅ test_stock_limits_are_reported_honestly PASSED")
@@ -620,7 +620,7 @@ async def test_checkout_refuses_stale_preview_after_cart_edit(shop_dp, main_bot)
     for product_id in (shop.rice, shop.tea):
         await shop_dp.feed_update(bot, make_callback_update(_uid(), data=f"cart_add:{product_id}", user_id=CUSTOMER_TG_ID))
     await _checkout_to_preview(shop_dp, bot)  # W5/C3: چک‌اوتِ مرحله‌ایِ جدید
-    assert "250,000" in _sent(bot)[-1]["text"], "پیش‌نمایشِ نهایی باید نشون داده شده باشه"
+    assert "۲۵۰٬۰۰۰" in _sent(bot)[-1]["text"], "پیش‌نمایشِ نهایی باید نشون داده شده باشه"
 
     # مشتری بعد از دیدنِ پیش‌نمایش، با یه پیامِ متنی سبد رو عوض می‌کنه
     _set_ai(_FakeAi(cart_json=_edit_json({"action": "remove", "product_id": shop.tea, "quantity": None})))

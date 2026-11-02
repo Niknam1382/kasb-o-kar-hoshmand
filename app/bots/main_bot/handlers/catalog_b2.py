@@ -370,8 +370,8 @@ async def cb_ship_toggle(callback: CallbackQuery, session: AsyncSession) -> None
     if method is None:
         await callback.answer(texts.SHIP_STALE, show_alert=True)
         return
-    await shipping_service.toggle_active(session, method)
-    await callback.answer()
+    now_active = await shipping_service.toggle_active(session, method)
+    await callback.answer(texts.switch_toast(f"ارسالِ «{method.name}»", now_active))
     await _render_shipping(callback, session, shop_bot)
 
 

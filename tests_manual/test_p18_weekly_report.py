@@ -214,7 +214,7 @@ async def test_owner_report_schedule_panel(main_dp) -> None:
             return (await session.execute(select(ShopBot).where(ShopBot.id == shop_bot_id))).scalar_one()
 
     await owner.say("⚙️ تنظیماتِ ربات فروشگاه")
-    assert "گزارشِ دوره‌ای: شنبه ساعتِ 09:00" in owner.last_text, owner.last_text
+    assert "گزارشِ دوره‌ای: شنبه ساعتِ ۰۹:۰۰" in owner.last_text, owner.last_text
     await owner.tap("rp_open")
     assert "روزِ هفته: شنبه" in owner.edits[-1]["text"] and "وضعیت: 🟢 روشن" in owner.edits[-1]["text"]
 
@@ -225,7 +225,7 @@ async def test_owner_report_schedule_panel(main_dp) -> None:
 
     await owner.tap("rp_hour:18")
     assert (await stored()).weekly_report_hour == 18
-    assert "ساعت: 18:00 (به وقتِ تهران)" in owner.edits[-1]["text"]
+    assert "ساعت: ۱۸:۰۰ (به وقتِ تهران)" in owner.edits[-1]["text"]
 
     # کلیدهایِ دستکاری‌شده/نامعتبر رد می‌شوند و چیزی را خراب نمی‌کنند
     for bad in ("rp_day:9", "rp_day:-1", "rp_day:abc", "rp_hour:24", "rp_hour:x"):
@@ -243,7 +243,7 @@ async def test_owner_report_schedule_panel(main_dp) -> None:
     assert (await stored()).weekly_report_hour == 18
     await owner.say("۲۱")
     assert (await stored()).weekly_report_hour == 21
-    assert "ساعت: 21:00 (به وقتِ تهران)" in owner.last_text
+    assert "ساعت: ۲۱:۰۰ (به وقتِ تهران)" in owner.last_text
 
     # دابل‌تپ روی خاموش/روشن: دو بار ⇒ همان وضعیتِ اول
     await owner.tap("rp_toggle")

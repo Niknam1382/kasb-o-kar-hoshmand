@@ -93,7 +93,7 @@ async def test_operator_sees_only_scoped_owners(main_dp) -> None:
     await operator.say("👥 مدیریت فروشگاه‌دارها")
     listing = operator.last_text
     assert main_texts.ADMIN_SHOP_OWNERS_EMPTY not in listing, listing
-    assert "1" in listing, "فهرست باید فقط فروشگاهِ داخلِ دامنه را بشمارد"
+    assert "۱" in listing, "فهرست باید فقط فروشگاهِ داخلِ دامنه را بشمارد"
 
     # داخلِ دامنه ⇒ باز می‌شود
     await operator.tap(f"admin_owner_view:{owner_a_id}")
@@ -135,7 +135,7 @@ async def test_scope_editor_lists_unknown_ids(main_dp) -> None:
     await admin.tap(f"admin_role_scope:{role_id}")
     await admin.say(f"{OWNER_A_TG_ID},7777777")
     saved = admin.last_text
-    assert "دامنه ذخیره شد" in saved and "1 فروشگاه" in saved, saved
+    assert "دامنه ذخیره شد" in saved and "۱ فروشگاه" in saved, saved
     assert "7777777" in saved, "شناسهٔ ناشناخته باید گزارش شود، نه بی‌صدا رد"
     print("✅ test_scope_editor_lists_unknown_ids PASSED")
 

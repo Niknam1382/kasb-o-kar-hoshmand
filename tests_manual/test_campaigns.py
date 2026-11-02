@@ -134,7 +134,7 @@ async def test_pure_logic_code_discount_distribution_and_jalali() -> None:
     assert jalali.gregorian_to_jalali(2025, 3, 20) == (1403, 12, 30)
     assert jalali.gregorian_to_jalali(2026, 10, 2) == (1405, 7, 10)
     moment = datetime.datetime(2026, 10, 2, 14, 5, tzinfo=datetime.timezone.utc)
-    assert jalali.format_jalali_datetime(moment) == "10 مهر 1405، ساعت 17:35", "ساعتِ تهران = UTC+03:30"
+    assert jalali.format_jalali_datetime(moment) == "۱۰ مهر ۱۴۰۵، ساعت ۱۷:۳۵", "ساعتِ تهران = UTC+03:30"
 
     print("✅ test_pure_logic_code_discount_distribution_and_jalali PASSED")
 

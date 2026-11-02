@@ -8,7 +8,6 @@ from app.services.knowledge_service import (
     PROMPT_LEARNED_LIMIT,
     truncate_text,
 )
-from app.utils.validators import format_toman
 
 DEFAULT_SALES_INSTRUCTIONS = "تو یک دستیار فروش مودب، صبور و کمک‌کننده‌ای. با مشتری‌ها محترمانه و روشن صحبت کن."
 DEFAULT_CONSULTATION_INSTRUCTIONS = (
@@ -29,7 +28,9 @@ def _one_line(text: str | None, max_len: int) -> str:
 
 
 def _product_line(product: Product) -> str:
-    line = f"- {product.name} ({format_toman(product.price_toman)})"
+    # پرامپتِ AI (نه متنِ کاربر): رقم اینجا عمداً لاتین است تا خروجیِ مدل و تستِ
+    # «بایت‌به‌بایت مثلِ قبل» دست‌نخورده بماند (نمایشِ فارسی مربوط به پیام‌هایِ پنل و ربات است).
+    line = f"- {product.name} ({product.price_toman:,} تومان)"
     if product.description:
         line += f": {product.description}"
     if product.stock_quantity is not None:

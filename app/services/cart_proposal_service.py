@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import CartAiProposal
 from app.services import cart_edit_service
 from app.services.cart_edit_service import CartOperation
+from app.utils.validators import fa_number
 
 PROPOSAL_TTL_MINUTES = 10
 
@@ -60,9 +61,9 @@ def describe_op(operation: CartOperation, product_name: str) -> str:
     name = f"«{product_name}»"
     qty = operation.quantity or 1
     if operation.action == "add":
-        return f"➕ {name}: {qty} عدد اضافه بشه"
+        return f"➕ {name}: {fa_number(qty)} عدد اضافه بشه"
     if operation.action == "decrease":
-        return f"➖ {name}: {qty} عدد کم بشه"
+        return f"➖ {name}: {fa_number(qty)} عدد کم بشه"
     if operation.action == "set":
         return f"🔢 {name}: تعداد بشه {qty}"
     return f"🗑 {name}: از سبد حذف بشه"

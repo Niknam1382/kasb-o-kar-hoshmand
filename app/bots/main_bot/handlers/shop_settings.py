@@ -15,7 +15,7 @@ from app.services.admin_settings_service import get_admin_settings  # noqa: E402
 from app.bots.main_bot.handlers.owner_common import parse_suffix_int, require_shop_bot, require_shop_bot_cb, safe_edit
 from app.bots.main_bot.states import ShopSettingsStates
 from app.services import bot_branding_service, shop_bot_service
-from app.utils.validators import normalize_telegram_username, to_e164_iran
+from app.utils.validators import fa_text, normalize_telegram_username, to_e164_iran
 
 router = Router(name="shop_settings")
 
@@ -121,8 +121,9 @@ async def report_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
-    await shop_bot_service.set_report_schedule(session, shop_bot, enabled=not shop_bot.weekly_report_enabled)
-    await callback.answer()
+    now_enabled = not shop_bot.weekly_report_enabled
+    await shop_bot_service.set_report_schedule(session, shop_bot, enabled=now_enabled)
+    await callback.answer(texts.switch_toast("گزارشِ دوره‌ای", now_enabled))
     text, keyboard = _report_screen(shop_bot)
     await safe_edit(callback, text, keyboard)
 
@@ -274,7 +275,7 @@ async def stock_threshold_entered(message: Message, session: AsyncSession, state
         saved = texts.STOCK_THRESHOLD_OFF
     elif raw.isdecimal() and 1 <= int(raw) <= 1000:
         shop_bot.low_stock_alert_threshold = int(raw)
-        saved = texts.STOCK_THRESHOLD_SAVED.format(value=int(raw))
+        saved = fa_text(texts.STOCK_THRESHOLD_SAVED, value=int(raw))
     else:
         await message.answer(texts.STOCK_THRESHOLD_INVALID)
         return
@@ -369,7 +370,7 @@ async def support_toggle(callback: CallbackQuery, session: AsyncSession) -> None
         return
     shop_bot.support_enabled = turning_on
     await session.flush()
-    await callback.answer()
+    await callback.answer(texts.switch_toast("پشتیبانیِ مستقیم", turning_on))
     text, keyboard = _support_screen(shop_bot)
     await safe_edit(callback, text, keyboard)
 

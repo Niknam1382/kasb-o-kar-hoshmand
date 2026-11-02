@@ -58,7 +58,7 @@ from app.services import (
 from app.services.admin_settings_service import get_admin_settings
 from app.utils import csv_export
 from app.utils.jalali import format_jalali_datetime
-from app.utils.validators import format_toman, normalize_telegram_username, parse_signed_toman_amount, to_e164_iran
+from app.utils.validators import fa_text, format_toman, normalize_telegram_username, parse_signed_toman_amount, to_e164_iran
 
 logger = logging.getLogger(__name__)
 
@@ -394,7 +394,7 @@ async def cb_toggle_sms(callback: CallbackQuery, session: AsyncSession) -> None:
     admin_settings.sms_enabled = not admin_settings.sms_enabled
     await session.flush()
     sent = await otp_service.sent_count_within(session)
-    await callback.answer(texts.SMS_SENT_VOLUME_LINE.format(days=otp_service.COST_WINDOW_DAYS, count=sent))
+    await callback.answer(fa_text(texts.SMS_SENT_VOLUME_LINE, days=otp_service.COST_WINDOW_DAYS, count=sent))
     if admin_settings.sms_enabled and not (admin_settings.sms_api_key or "").strip():
         await callback.message.answer(texts.SMS_ENABLED_WITHOUT_KEY)
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
@@ -412,9 +412,9 @@ async def cb_branding_sync(callback: CallbackQuery, session: AsyncSession, bot_m
     if not counts["total"]:
         await callback.message.answer(texts.BRANDING_SAVED_NO_BOTS)
         return
-    await callback.message.answer(texts.BRANDING_SYNC_RESULT.format(**counts))
+    await callback.message.answer(fa_text(texts.BRANDING_SYNC_RESULT, **counts))
     if counts["error"]:
-        await callback.message.answer(texts.BRANDING_SYNC_FAILED.format(error=counts["error"]))
+        await callback.message.answer(fa_text(texts.BRANDING_SYNC_FAILED, error=counts["error"]))
 
 
 @super_router.callback_query(F.data == "admin_branding_report")
@@ -424,10 +424,10 @@ async def cb_branding_report(callback: CallbackQuery, session: AsyncSession) -> 
     admin_settings = await get_admin_settings(session)
     rows = await bot_branding_service.tamper_report(session)
     if not rows:
-        await callback.message.answer(texts.BRANDING_REPORT_EMPTY.format(minutes=bot_branding_service.interval_of(admin_settings)))
+        await callback.message.answer(fa_text(texts.BRANDING_REPORT_EMPTY, minutes=bot_branding_service.interval_of(admin_settings)))
         return
     items = [
-        texts.BRANDING_REPORT_ITEM.format(
+        fa_text(texts.BRANDING_REPORT_ITEM, 
             username=row["bot_username"] or f"رباتِ #{row['shop_bot_id']}",
             count=row["tamper_count"],
             checked=format_jalali_datetime(row["checked_at"]) if row["checked_at"] else texts.BRANDING_REPORT_NEVER,
@@ -435,7 +435,7 @@ async def cb_branding_report(callback: CallbackQuery, session: AsyncSession) -> 
         for row in rows
     ]
     await callback.message.answer(
-        texts.BRANDING_REPORT_TITLE.format(minutes=bot_branding_service.interval_of(admin_settings)) + "\n".join(items)
+        fa_text(texts.BRANDING_REPORT_TITLE, minutes=bot_branding_service.interval_of(admin_settings)) + "\n".join(items)
     )
 
 
@@ -444,7 +444,7 @@ async def cb_toggle_zarinpal(callback: CallbackQuery, session: AsyncSession) -> 
     admin_settings = await get_admin_settings(session)
     admin_settings.zarinpal_enabled = not admin_settings.zarinpal_enabled
     await session.flush()
-    await callback.answer("زرین‌پال " + ("فعال شد ✅" if admin_settings.zarinpal_enabled else "پنهان شد 🙈"))
+    await callback.answer(texts.switch_toast("زرین‌پال از فروشگاه‌دارها", admin_settings.zarinpal_enabled))
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -453,7 +453,7 @@ async def cb_toggle_bale_pay(callback: CallbackQuery, session: AsyncSession) -> 
     admin_settings = await get_admin_settings(session)
     admin_settings.bale_pay_enabled = not admin_settings.bale_pay_enabled
     await session.flush()
-    await callback.answer("بله‌پی " + ("فعال شد ✅" if admin_settings.bale_pay_enabled else "پنهان شد 🙈"))
+    await callback.answer(texts.switch_toast("بله‌پی از فروشگاه‌دارها", admin_settings.bale_pay_enabled))
     if admin_settings.bale_pay_enabled and not admin_settings.bale_provider_token:
         # A1: توکنِ درگاهِ سراسری فقط پشتیبان است؛ بدونِ آن هر فروشگاه باید توکنِ درگاهِ خودش را داشته باشد.
         await callback.message.answer(texts.BALE_ENABLED_WITHOUT_GLOBAL_PROVIDER)
@@ -482,7 +482,7 @@ async def cb_toggle_registrations(callback: CallbackQuery, session: AsyncSession
         details=f"allow_new_registrations -> {admin_settings.allow_new_registrations}",
     )
     await session.flush()
-    await callback.answer("ثبت‌نامِ کاربرانِ جدید " + ("باز شد ✅" if admin_settings.allow_new_registrations else "بسته شد ⛔️"))
+    await callback.answer(texts.switch_toast("ثبت‌نامِ کاربرانِ جدید", admin_settings.allow_new_registrations))
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -497,7 +497,7 @@ async def cb_toggle_topups(callback: CallbackQuery, session: AsyncSession) -> No
         details=f"allow_wallet_topups -> {admin_settings.allow_wallet_topups}",
     )
     await session.flush()
-    await callback.answer("شارژِ کیف‌پول " + ("فعال شد ✅" if admin_settings.allow_wallet_topups else "غیرفعال شد ⛔️"))
+    await callback.answer(texts.switch_toast("شارژِ کیف‌پول", admin_settings.allow_wallet_topups))
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -515,7 +515,7 @@ async def cb_toggle_commission(callback: CallbackQuery, session: AsyncSession) -
     )
     await session.flush()
     await callback.answer(
-        texts.COMMISSION_TOGGLED_ON.format(percent=admin_settings.commission_percent)
+        fa_text(texts.COMMISSION_TOGGLED_ON, percent=admin_settings.commission_percent)
         if admin_settings.commission_enabled
         else texts.COMMISSION_TOGGLED_OFF
     )
@@ -554,7 +554,7 @@ async def cb_toggle_bale_shop_bots(callback: CallbackQuery, session: AsyncSessio
             await bot_manager.unregister_bale(shop_bot_id)
 
     await callback.answer(
-        texts.BALE_SHOP_BOTS_REVEALED.format(count=connected) if now_enabled else texts.BALE_SHOP_BOTS_HIDDEN
+        fa_text(texts.BALE_SHOP_BOTS_REVEALED, count=connected) if now_enabled else texts.BALE_SHOP_BOTS_HIDDEN
     )
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
@@ -570,7 +570,8 @@ async def cb_toggle_maintenance(callback: CallbackQuery, session: AsyncSession) 
         details=f"maintenance_mode -> {admin_settings.maintenance_mode}",
     )
     await session.flush()
-    await callback.answer("حالتِ تعمیر " + ("فعال شد 🚧 — همه‌ی ربات‌ها موقتاً پاسخ نمی‌دن" if admin_settings.maintenance_mode else "غیرفعال شد ✅"))
+    extra = " — همه‌یِ ربات‌ها موقتاً پاسخ نمی‌دن" if admin_settings.maintenance_mode else ""
+    await callback.answer(texts.switch_toast("حالتِ تعمیر", admin_settings.maintenance_mode) + extra)
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -585,7 +586,7 @@ async def cb_toggle_nightly_report(callback: CallbackQuery, session: AsyncSessio
         details=f"nightly_report_enabled -> {admin_settings.nightly_report_enabled}",
     )
     await session.flush()
-    await callback.answer("گزارشِ شبانه " + ("روشن شد 🌙" if admin_settings.nightly_report_enabled else "خاموش شد 🙈"))
+    await callback.answer(texts.switch_toast("گزارشِ شبانه", admin_settings.nightly_report_enabled))
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -600,7 +601,7 @@ async def cb_toggle_knowledge_gap(callback: CallbackQuery, session: AsyncSession
         details=f"knowledge_gap_enabled -> {admin_settings.knowledge_gap_enabled}",
     )
     await session.flush()
-    await callback.answer("تشخیصِ سوال‌هایِ بی‌جواب " + ("روشن شد 🧩" if admin_settings.knowledge_gap_enabled else "خاموش شد 🙈"))
+    await callback.answer(texts.switch_toast("تشخیصِ سوال‌هایِ بی‌جواب", admin_settings.knowledge_gap_enabled))
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -619,8 +620,8 @@ async def cb_pricing_discounts(callback: CallbackQuery, session: AsyncSession) -
 @super_router.callback_query(F.data.startswith("admin_discount_toggle:"))
 async def cb_discount_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
     code_id = int(callback.data.split(":")[1])
-    await discount_service.toggle_code_active(session, code_id)
-    await callback.answer()
+    code = await discount_service.toggle_code_active(session, code_id)
+    await callback.answer(texts.switch_toast(f"کدِ تخفیفِ «{code.code}»" if code else "کدِ تخفیف", bool(code and code.is_active)))
     await _render_discounts_list(callback.message, session)
 
 
@@ -880,15 +881,15 @@ async def cb_commission_debt(callback: CallbackQuery, session: AsyncSession) -> 
         await callback.message.answer(texts.COMMISSION_DEBT_EMPTY)
         return
     items = [
-        texts.COMMISSION_DEBT_ITEM.format(
+        fa_text(texts.COMMISSION_DEBT_ITEM, 
             owner=row["owner_label"],
             toman=format_toman(row["amount_toman"]),
-            note=row["note"] or "—",
+            note=row["note"] or "بدونِ یادداشت",
         )
         for row in await commission_receivable_service.open_report(session)
     ]
     await callback.message.answer(
-        texts.COMMISSION_DEBT_REPORT.format(
+        fa_text(texts.COMMISSION_DEBT_REPORT, 
             count=totals["open_count"],
             toman=format_toman(totals["open_toman"]),
             settled_count=totals["settled_count"],
@@ -903,12 +904,12 @@ async def cb_notification_queue(callback: CallbackQuery, session: AsyncSession) 
     await callback.answer()
     counts = await notification_service.stats(session)
     if not counts["pending"] and not counts["failed"]:
-        await callback.message.answer(texts.NOTIFICATION_QUEUE_ALL_CLEAR.format(sent=counts["sent"]))
+        await callback.message.answer(fa_text(texts.NOTIFICATION_QUEUE_ALL_CLEAR, sent=counts["sent"]))
         return
     detail = ""
     if counts["failed"]:
         items = [
-            texts.NOTIFICATION_QUEUE_ITEM.format(
+            fa_text(texts.NOTIFICATION_QUEUE_ITEM, 
                 label=row.label or "بی‌برچسب",
                 error=(row.last_error or "بدونِ دلیلِ ثبت‌شده")[:90],
                 attempts=row.attempts,
@@ -916,13 +917,13 @@ async def cb_notification_queue(callback: CallbackQuery, session: AsyncSession) 
             for row in await notification_service.recent_failed(session)
         ]
         when = await notification_service.next_attempt_time(session)
-        detail = texts.NOTIFICATION_QUEUE_DETAIL.format(
+        detail = fa_text(texts.NOTIFICATION_QUEUE_DETAIL, 
             when=format_jalali_datetime(when) if when else "—",
             items="\n".join(items) or texts.NOTIFICATION_QUEUE_NO_ITEM,
         )
     markup = keyboards.notification_queue_retry_keyboard() if counts["failed"] else None
     await callback.message.answer(
-        texts.NOTIFICATION_QUEUE_REPORT.format(
+        fa_text(texts.NOTIFICATION_QUEUE_REPORT, 
             pending=counts["pending"],
             failed=counts["failed"],
             sent=counts["sent"],
@@ -939,7 +940,7 @@ async def cb_notification_retry(callback: CallbackQuery, session: AsyncSession) 
     reset = await notification_service.retry_failed(session)
     await callback.answer()
     await callback.message.answer(
-        texts.NOTIFICATION_QUEUE_RETRY_DONE.format(count=reset) if reset else texts.NOTIFICATION_QUEUE_RETRY_NONE
+        fa_text(texts.NOTIFICATION_QUEUE_RETRY_DONE, count=reset) if reset else texts.NOTIFICATION_QUEUE_RETRY_NONE
     )
 
 
@@ -1118,12 +1119,12 @@ async def setting_value_entered(
         counts = await bot_branding_service.sync_all(session, bot_manager, bot, force=True)
         if counts["total"]:
             await message.answer(
-                texts.BRANDING_SAVED_WITH_BOTS.format(count=counts["shops"])
+                fa_text(texts.BRANDING_SAVED_WITH_BOTS, count=counts["shops"])
                 + "\n"
-                + texts.BRANDING_SYNC_RESULT.format(**counts)
+                + fa_text(texts.BRANDING_SYNC_RESULT, **counts)
             )
             if counts["error"]:
-                await message.answer(texts.BRANDING_SYNC_FAILED.format(error=counts["error"]))
+                await message.answer(fa_text(texts.BRANDING_SYNC_FAILED, error=counts["error"]))
         else:
             await message.answer(texts.BRANDING_SAVED_NO_BOTS)
         await _refresh_settings_menu(message, session, _setting_group(field))
@@ -1368,7 +1369,7 @@ async def owner_gift_amount_entered(message: Message, state: FSMContext, session
         # همان سقفِ هدیهٔ گروهی (K1). قبلاً این مسیر تک‌نفره هیچ حدی نداشت ⇒ یک اشتباهِ تایپی
         # می‌توانست اعتبارِ نامحدود بسازد در حالی که نسخهٔ گروهی محدود بود.
         await message.answer(
-            texts.ADMIN_GIFT_OUT_OF_RANGE.format(
+            fa_text(texts.ADMIN_GIFT_OUT_OF_RANGE, 
                 min=format_toman(credit_batch_service.GIFT_MIN_TOMAN), max=format_toman(credit_batch_service.GIFT_MAX_TOMAN)
             )
         )
@@ -1864,7 +1865,7 @@ async def cb_audit_csv(callback: CallbackQuery, state: FSMContext, session: Asyn
     await callback.answer()
     await callback.message.answer_document(
         BufferedInputFile(content, filename="audit-log.csv"),
-        caption=texts.AUDIT_CSV_READY.format(count=len(rows)),
+        caption=fa_text(texts.AUDIT_CSV_READY, count=len(rows)),
     )
 
 
@@ -2016,7 +2017,7 @@ async def admin_role_scope_entered(message: Message, state: FSMContext, session:
             details=f"دامنهٔ ادمینِ عملیاتی {role.telegram_id} ⇒ همهٔ فروشگاه‌ها",
         )
         await state.clear()
-        await message.answer(texts.ROLE_SCOPE_SAVED.format(detail=texts.ROLE_SCOPE_UNLIMITED_LABEL))
+        await message.answer(fa_text(texts.ROLE_SCOPE_SAVED, detail=texts.ROLE_SCOPE_UNLIMITED_LABEL))
         return
     if raw in {"هیچ", "هیچکس", "none"}:
         # P21-F: «بستنِ کاملِ دسترسی» باید راهِ صریح داشته باشد، وگرنه دامنهٔ تهی با
@@ -2027,7 +2028,7 @@ async def admin_role_scope_entered(message: Message, state: FSMContext, session:
             details=f"دامنهٔ ادمینِ عملیاتی {role.telegram_id} ⇒ هیچِ فروشگاه",
         )
         await state.clear()
-        await message.answer(texts.ROLE_SCOPE_SAVED.format(detail=texts.ROLE_SCOPE_EMPTY_LABEL))
+        await message.answer(fa_text(texts.ROLE_SCOPE_SAVED, detail=texts.ROLE_SCOPE_EMPTY_LABEL))
         return
 
     wanted = {int(part) for part in re.split(r"[,\s]+", raw) if part.strip().lstrip("+").isdigit()}
@@ -2048,8 +2049,8 @@ async def admin_role_scope_entered(message: Message, state: FSMContext, session:
     )
     await state.clear()
     await message.answer(
-        texts.ROLE_SCOPE_SAVED.format(detail=texts.ROLE_SCOPE_COUNT_LABEL.format(count=len(known_ids)))
-        + (texts.ROLE_SCOPE_UNKNOWN_IDS.format(ids="، ".join(str(pk) for pk in unknown)) if unknown else "")
+        fa_text(texts.ROLE_SCOPE_SAVED, detail=fa_text(texts.ROLE_SCOPE_COUNT_LABEL, count=len(known_ids)))
+        + (fa_text(texts.ROLE_SCOPE_UNKNOWN_IDS, ids="، ".join(str(pk) for pk in unknown)) if unknown else "")
     )
 
 

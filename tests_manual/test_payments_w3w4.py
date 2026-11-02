@@ -181,7 +181,7 @@ async def test_card_flow_approve(shop_dp, main_dp, bot_manager, main_bot) -> Non
 
     await env.cust_cb(f"pm_card:{g}")
     text = env.shop_bot.session.edited_texts[-1]["text"]
-    assert "4111 1111 1111 1111" in text and "250,000" in text and "علی رضایی" in text
+    assert "4111 1111 1111 1111" in text and "۲۵۰٬۰۰۰" in text and "علی رضایی" in text
     payments = await _payments()
     assert len(payments) == 1 and payments[0].method == "card" and payments[0].status == "initiated" and payments[0].amount_toman == 250_000
     assert 3400 < _seconds_left((await env.rows())[0]) < 3700

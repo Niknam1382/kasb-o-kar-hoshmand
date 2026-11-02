@@ -298,7 +298,7 @@ async def test_cost_calculator_shows_monthly_estimate(main_dp, main_bot) -> None
     # نرخِ ۱۰۰ تومن به‌ازای هر ۱۰۰۰ توکن: round(800*100/1000) = ۸۰ تومن
     # هزینه‌ی ماهانه: ۶۰ × ۳۰ × ۸۰ = ۱۴۴٬۰۰۰ تومن
     last_message = main_session_obj.sent_messages[-1]
-    assert "144,000" in last_message["text"], f"باید هزینه‌ی تقریبیِ ۱۴۴٬۰۰۰ تومنی نشون بده: {last_message['text']}"
+    assert "۱۴۴٬۰۰۰" in last_message["text"], f"باید هزینه‌ی تقریبیِ ۱۴۴٬۰۰۰ تومنی نشون بده: {last_message['text']}"
 
     print("✅ test_cost_calculator_shows_monthly_estimate PASSED")
 

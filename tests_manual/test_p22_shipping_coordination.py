@@ -94,7 +94,7 @@ async def test_coordination_is_asked_and_recorded(shop_dp, main_bot) -> None:
     await shopper.tap("ck_skip")  # توضیح
     preview = shopper.last_text
     assert "هماهنگی ارسال با فروشگاه" in preview, preview
-    assert "250,000" not in preview and "200,000" in preview, "هزینه‌ای اضافه نشده؛ جمع = مبلغِ کالا"
+    assert "۲۵۰٬۰۰۰" not in preview and "۲۰۰٬۰۰۰" in preview, "هزینه‌ای اضافه نشده؛ جمع = مبلغِ کالا"
 
     await shopper.tap("cart_checkout_confirm")
     orders = await _orders(shop_bot_id)
@@ -116,8 +116,8 @@ async def test_shipping_fee_is_added_to_the_total(shop_dp, main_bot) -> None:
     await shopper.tap(f"cart_add:{product_id}")
     await run_checkout(shopper.tap, shopper.say, ship_method_id=method_id, postal=None, note=None)
     preview = shopper.last_text
-    assert "40,000" in preview, preview
-    assert "240,000" in preview, f"جمعِ کل باید ۲۰۰٬۰۰۰ + ۴۰٬۰۰۰ باشد: {preview}"
+    assert "۴۰٬۰۰۰" in preview, preview
+    assert "۲۴۰٬۰۰۰" in preview, f"جمعِ کل باید ۲۰۰٬۰۰۰ + ۴۰٬۰۰۰ باشد: {preview}"
 
     await shopper.tap("cart_checkout_confirm")
     orders = await _orders(shop_bot_id)

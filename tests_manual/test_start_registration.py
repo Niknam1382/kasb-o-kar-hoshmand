@@ -82,7 +82,7 @@ async def test_phone_normalization_variants(main_dp) -> None:
     # فرمتِ بین‌المللی با +98
     await main_dp.feed_update(main_bot, make_message_update(13, text="+989121234567", user_id=uid))
 
-    assert not any("نامعتبر" in m["text"] for m in session_obj.sent_messages[-1:]), "شماره‌ی +98 باید معتبر تشخیص داده بشه"
+    assert not any("نامعتبر" in m["text"] for m in session_obj.sent_messages[-1:]), "شماره‌ی +۹۸ باید معتبر تشخیص داده بشه"
 
     await main_dp.feed_update(main_bot, make_message_update(14, text="sara@example.com", user_id=uid))
     await main_dp.feed_update(main_bot, make_callback_update(111, data="reg_confirm", user_id=uid))

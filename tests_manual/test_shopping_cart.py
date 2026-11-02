@@ -67,7 +67,7 @@ async def _seed_shop_with_products() -> tuple[int, int, int]:
 
 async def _customer_id(session, shop_bot_id: int) -> int:
     """آیدیِ واقعیِ مشتریِ تستی (اگه هنوز نیست می‌سازه) — سبد یه کلیدِ خارجی به
-    جدولِ customers داره، پس customer_id=1ِ هاردکد فقط وقتی کار می‌کنه که
+    جدولِ customers داره، پس customer_id=۱ِ هاردکد فقط وقتی کار می‌کنه که
     مشتری از قبل ساخته شده باشه."""
     result = await session.execute(
         select(Customer).where(Customer.shop_bot_id == shop_bot_id, Customer.telegram_id == CUSTOMER_TG_ID)
@@ -190,7 +190,7 @@ async def test_full_cart_flow_creates_grouped_orders_and_notifies_owner(shop_dp,
     await _step("tap", "ck_skip", 13, 11, "ثبت بشه؟")  # پیش‌نمایشِ نهایی send می‌شه
     confirm_text = sent.sent_messages[-1]["text"]
     assert "علی رضایی" in confirm_text and "+989120000000" in confirm_text and "خیابونِ آزادی" in confirm_text
-    assert "برنج" in confirm_text and "چای" in confirm_text and "250,000" in confirm_text  # جمعِ کل: ۲۰۰٬۰۰۰ + ۵۰٬۰۰۰
+    assert "برنج" in confirm_text and "چای" in confirm_text and "۲۵۰٬۰۰۰" in confirm_text  # جمعِ کل: ۲۰۰٬۰۰۰ + ۵۰٬۰۰۰
 
     await shop_dp.feed_update(shop_bot_instance, make_callback_update(14, data="cart_checkout_confirm", user_id=CUSTOMER_TG_ID))
     assert len(sent.sent_messages) == 11, "تاییدِ نهایی edit_text ـه، شمارش نباید عوض بشه"
@@ -210,7 +210,7 @@ async def test_full_cart_flow_creates_grouped_orders_and_notifies_owner(shop_dp,
 
     assert len(main_bot.session.sent_messages) == 1, "باید دقیقاً یه اطلاع‌رسانیِ ترکیبی به فروشگاه‌دار بره"
     owner_text = main_bot.session.sent_messages[0]["text"]
-    assert "برنج" in owner_text and "چای" in owner_text and "250,000" in owner_text
+    assert "برنج" in owner_text and "چای" in owner_text and "۲۵۰٬۰۰۰" in owner_text
     assert "+989120000000" in owner_text and "تهران" in owner_text and "علی رضایی" in owner_text
 
     print("✅ test_full_cart_flow_creates_grouped_orders_and_notifies_owner PASSED")

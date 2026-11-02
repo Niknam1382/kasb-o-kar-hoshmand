@@ -7,7 +7,10 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
+from app.bots.common.wizard_nav import page_label
 from app.bots.main_bot import texts
+from app.utils.text_limits import clip
+from app.utils.validators import fa_grouped, fa_number
 
 PAGE_SIZE = 10
 
@@ -29,7 +32,7 @@ def _pagination_row(page: int, total_pages: int, callback_prefix: str) -> list[I
     row = []
     if page > 0:
         row.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"{callback_prefix}:{page - 1}"))
-    row.append(InlineKeyboardButton(text=f"صفحه‌ی {page + 1} از {total_pages}", callback_data="noop"))
+    row.append(InlineKeyboardButton(text=page_label(page, total_pages), callback_data="noop"))
     if page < total_pages - 1:
         row.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"{callback_prefix}:{page + 1}"))
     return row
@@ -190,7 +193,7 @@ def tenant_mode_ask_keyboard(target: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=label, callback_data=f"tenant_mode_ask:{target}")],
-            [InlineKeyboardButton(text="↩️ انصراف", callback_data="pf_back")],
+            [InlineKeyboardButton(text="⬅️ انصراف", callback_data="pf_back")],
         ]
     )
 
@@ -199,7 +202,7 @@ def tenant_mode_confirm_keyboard(target: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ بله، تغییر بده", callback_data=f"set_tenant_mode:{target}")],
-            [InlineKeyboardButton(text="↩️ نه", callback_data="pf_back")],
+            [InlineKeyboardButton(text="⬅️ نه", callback_data="pf_back")],
         ]
     )
 
@@ -244,7 +247,7 @@ def product_detail_keyboard(product_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✏️ ویرایش", callback_data=f"product_edit:{product_id}"), InlineKeyboardButton(text="🗑 حذف", callback_data=f"product_delete:{product_id}")],
-            [InlineKeyboardButton(text="🔙 بازگشت به فهرست", callback_data="product_list")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="product_list")],
         ]
     )
 
@@ -308,15 +311,15 @@ def dg_cancel_keyboard() -> InlineKeyboardMarkup:
 def shipping_list_keyboard(methods) -> InlineKeyboardMarkup:
     rows = []
     for method in methods:
-        toggle = "⏸ غیرفعال" if method.is_active else "▶️ فعال"
+        toggle = "✅" if method.is_active else "⏸"  # نشانِ وضعیتِ فعلی؛ با زدنش عوض می‌شود
         rows.append(
             [
-                InlineKeyboardButton(text=f"{toggle}: {method.name}"[:60], callback_data=f"ship_toggle:{method.id}"),
+                InlineKeyboardButton(text=clip(f"{toggle} · {method.name}", 26), callback_data=f"ship_toggle:{method.id}"),
                 InlineKeyboardButton(text="🗑", callback_data=f"ship_del:{method.id}"),
             ]
         )
     rows.append([InlineKeyboardButton(text="➕ افزودنِ روشِ ارسال", callback_data="ship_add")])
-    rows.append([InlineKeyboardButton(text="🔙 بازگشت به فهرستِ محصولات", callback_data="product_list")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به فهرستِ محصولات", callback_data="product_list")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -371,7 +374,7 @@ def open_topup_payments_keyboard(payments) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=f"📎 رسیدِ پرداختِ {payment.id}", callback_data=f"topup_pay_resume:{payment.id}")]
         for payment in payments
     ]
-    rows.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="wallet_status")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="wallet_status")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -490,7 +493,7 @@ def audit_filter_keyboard(group: str | None, window: str | None) -> InlineKeyboa
 def scheduled_cancel_keyboard(rows) -> InlineKeyboardMarkup:
     """لغوِ هر ارسالِ زمان‌بندی‌شده با عددِ خودش (بدونِ فاش‌کردنِ شناسهٔ داخلی در متن)."""
     buttons = [[InlineKeyboardButton(text=f"🗑 لغوِ ارسالِ شمارهٔ {row.id}", callback_data=f"sched_cancel:{row.id}")] for row in rows]
-    buttons.append([InlineKeyboardButton(text="🔙 بازگشت به پنل", callback_data="main_menu")])
+    buttons.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -514,6 +517,7 @@ def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
         KeyboardButton(text="📊 آمار سراسری"),
         KeyboardButton(text="📣 پیام همگانی"),
         KeyboardButton(text="👥 مدیریت فروشگاه‌دارها"),
+        KeyboardButton(text="🧹 کاربرانِ غیرفعال"),  # P22 · مشکلِ ۸
         KeyboardButton(text="🛡 نگهبانِ محتوا"),
         KeyboardButton(text="⏱ اعتبار و زمان"),  # W5 · K1–K4
         KeyboardButton(text="📜 گزارشِ ممیزی"),
@@ -563,10 +567,10 @@ def admin_discounts_list_keyboard(codes) -> InlineKeyboardMarkup:
     rows = []
     for c in codes:
         status = "✅" if c.is_active else "❌"
-        value_label = f"{float(c.value):g}٪" if c.type.value == "percent" else f"{int(c.value)} تومان"
+        value_label = f"{fa_number(f"{float(c.value):g}")}٪" if c.type.value == "percent" else f"{fa_grouped(int(c.value))} تومان"
         rows.append([InlineKeyboardButton(text=f"{status} {c.code} ({value_label})", callback_data=f"admin_discount_toggle:{c.id}")])
     rows.append([InlineKeyboardButton(text="➕ افزودن کد جدید", callback_data="admin_discount_add")])
-    rows.append([InlineKeyboardButton(text="🔙 بازگشت", callback_data="admin_pricing_menu")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="admin_pricing_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -578,6 +582,20 @@ def discount_type_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def switch_short_label(enabled: bool) -> str:
+    """جفتِ استانداردِ سوییچ وقتی موضوع در متنِ همان صفحه نوشته شده است."""
+    return "⏸ خاموش‌کردن" if enabled else "✅ روشن‌کردن"
+
+
+def switch_label(subject: str, enabled: bool) -> str:
+    """برچسبِ یکتایِ همهٔ سوییچ‌ها: «⏸ خاموش‌کردنِ …» وقتی روشن است، «✅ روشن‌کردنِ …» وقتی خاموش.
+
+    تا پیشِ این یکِ مفهوم در این پنل پنج جور نوشته می‌شد («غیرفعال», «غیرفعال کن»,
+    «غیرفعال‌کردن», «توقف», «معلق») و دو طرفِ یکِ جفت فعلِ مخالف نداشتند
+    («پنهان‌کردنِ» ↔ «رونماییِ») — فروشگاه‌دار مجبور بود حدس بزند هر دکمه چه می‌کند."""
+    return f"⏸ خاموش‌کردنِ {subject}" if enabled else f"✅ روشن‌کردنِ {subject}"
+
+
 def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
     """صفحه‌یِ اصلیِ تنظیمات: فقط کلیدهایِ روشن/خاموشِ پلتفرم + دسته‌ها.
 
@@ -585,22 +603,16 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
     ویرایش می‌شود (`admin_settings_group_keyboard`) و این صفحه فقط سوییچ‌هایِ کلِ پلتفرم را نشان می‌دهد."""
     from app.bots.main_bot import texts
 
-    zarinpal_label = "🙈 پنهان‌کردنِ زرین‌پال از فروشگاه‌دارها" if admin_settings.zarinpal_enabled else "👁 نمایشِ دوباره‌ی زرین‌پال"
-    bale_pay_label = "🙈 پنهان‌کردنِ بله‌پی از فروشگاه‌دارها" if admin_settings.bale_pay_enabled else "👁 فعال‌کردنِ بله‌پی"
-    bale_bots_label = (
-        "🙈 پنهان‌کردنِ رباتِ بله‌یِ فروشگاه‌ها" if admin_settings.bale_shop_bots_enabled else "🟢 رونماییِ رباتِ بله‌یِ فروشگاه‌ها"
-    )
-    sms_label = "📩 خاموش‌کردنِ پیامکِ احراز" if admin_settings.sms_enabled else "📩 روشن‌کردنِ پیامکِ احراز"
-    registrations_label = "⛔️ بستنِ ثبت‌نامِ کاربرانِ جدید" if admin_settings.allow_new_registrations else "✅ بازکردنِ ثبت‌نامِ کاربرانِ جدید"
-    topups_label = "⛔️ غیرفعال‌کردنِ شارژِ کیف‌پول" if admin_settings.allow_wallet_topups else "✅ فعال‌کردنِ شارژِ کیف‌پول"
-    maintenance_label = "🚧 فعال‌کردنِ حالتِ تعمیر (کلِ پلتفرم)" if not admin_settings.maintenance_mode else "✅ خروج از حالتِ تعمیر"
-    nightly_report_label = "🙈 خاموش‌کردنِ گزارشِ شبانه" if admin_settings.nightly_report_enabled else "🌙 روشن‌کردنِ گزارشِ شبانه"
-    knowledge_gap_label = (
-        "🧩 خاموش‌کردنِ تشخیصِ سوال‌هایِ بی‌جواب"
-        if admin_settings.knowledge_gap_enabled
-        else "🧩 روشن‌کردنِ تشخیصِ سوال‌هایِ بی‌جواب"
-    )
-    commission_label = "🧾 خاموش‌کردنِ کمیسیونِ سفارش" if admin_settings.commission_enabled else "🧾 روشن‌کردنِ کمیسیونِ سفارش"
+    zarinpal_label = switch_label("زرین‌پال از فروشگاه‌دارها", admin_settings.zarinpal_enabled)
+    bale_pay_label = switch_label("بله‌پی از فروشگاه‌دارها", admin_settings.bale_pay_enabled)
+    bale_bots_label = switch_label("رباتِ بله‌یِ فروشگاه‌ها", admin_settings.bale_shop_bots_enabled)
+    sms_label = switch_label("پیامکِ احراز", admin_settings.sms_enabled)
+    registrations_label = switch_label("ثبت‌نامِ کاربرانِ جدید", admin_settings.allow_new_registrations)
+    topups_label = switch_label("شارژِ کیف‌پول", admin_settings.allow_wallet_topups)
+    maintenance_label = switch_label("حالتِ تعمیر (کلِ پلتفرم)", admin_settings.maintenance_mode)
+    nightly_report_label = switch_label("گزارشِ شبانه", admin_settings.nightly_report_enabled)
+    knowledge_gap_label = switch_label("تشخیصِ سوال‌هایِ بی‌جواب", admin_settings.knowledge_gap_enabled)
+    commission_label = switch_label("کمیسیونِ سفارش", admin_settings.commission_enabled)
     rows = [
         [InlineKeyboardButton(text=maintenance_label, callback_data="admin_toggle_maintenance")],
         [InlineKeyboardButton(text=registrations_label, callback_data="admin_toggle_registrations")],
@@ -645,7 +657,7 @@ def admin_settings_group_keyboard(group: str, admin_settings) -> InlineKeyboardM
         rows.append([InlineKeyboardButton(text="📮 صفِ اعلان‌هایِ ارسال‌نشده", callback_data="admin_notification_queue")])
     if group == "payments":
         rows.append([InlineKeyboardButton(text="🧾 طلبِ کمیسیونِ فروشگاه‌ها", callback_data="admin_commission_debt")])
-    rows.append([InlineKeyboardButton(text="🔙 بازگشت به فهرستِ تنظیمات", callback_data="admin_settings_menu")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به فهرستِ تنظیمات", callback_data="admin_settings_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -682,7 +694,7 @@ def admin_owner_detail_keyboard(owner_id: int, shop_bot) -> InlineKeyboardMarkup
             rows.append([InlineKeyboardButton(text="✅ فعال‌سازی دوباره", callback_data=f"admin_owner_unsuspend:{owner_id}")])
     rows.append([InlineKeyboardButton(text="🎁 اعطای اعتبارِ هدیه", callback_data=f"admin_owner_gift:{owner_id}")])
     rows.append([InlineKeyboardButton(text="🧾 استرداد/اصلاحِ کیف‌پول", callback_data=f"admin_owner_wallet_correction:{owner_id}")])
-    rows.append([InlineKeyboardButton(text="🔙 بازگشت به فهرست", callback_data="admin_owners_list")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="admin_owners_list")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -734,12 +746,12 @@ def moderation_rule_action_keyboard() -> InlineKeyboardMarkup:
 
 
 def moderation_rule_detail_keyboard(rule_id: int, is_active: bool) -> InlineKeyboardMarkup:
-    toggle_label = "⏸ غیرفعال‌کردن" if is_active else "▶️ فعال‌کردن"
+    toggle_label = switch_short_label(is_active)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=toggle_label, callback_data=f"mod_rule_toggle:{rule_id}")],
             [InlineKeyboardButton(text="🗑 حذف", callback_data=f"mod_rule_delete:{rule_id}")],
-            [InlineKeyboardButton(text="🔙 بازگشت به فهرست", callback_data="mod_rules_list")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="mod_rules_list")],
         ]
     )
 
@@ -762,7 +774,7 @@ def ai_pool_entry_detail_keyboard(entry_id: int, is_active: bool) -> InlineKeybo
             [InlineKeyboardButton(text=toggle_label, callback_data=f"ai_pool_toggle:{entry_id}")],
             [InlineKeyboardButton(text="🧵 مدل‌هایِ پشتیبانِ همین کلید", callback_data=f"ai_pool_models:{entry_id}")],
             [InlineKeyboardButton(text="🗑 حذف", callback_data=f"ai_pool_delete:{entry_id}")],
-            [InlineKeyboardButton(text="🔙 بازگشت به فهرست", callback_data="ai_pool_list")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="ai_pool_list")],
         ]
     )
 
@@ -779,7 +791,7 @@ def admin_role_detail_keyboard(role_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=texts.ADMIN_ROLE_SCOPE_BUTTON, callback_data=f"admin_role_scope:{role_id}")],
             [InlineKeyboardButton(text="🗑 حذفِ این ادمین", callback_data=f"admin_role_revoke:{role_id}")],
-            [InlineKeyboardButton(text="🔙 بازگشت به فهرست", callback_data="admin_role_list")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="admin_role_list")],
         ]
     )
 
@@ -795,7 +807,7 @@ def campaigns_list_keyboard(items_with_status) -> InlineKeyboardMarkup:
     rows = []
     for campaign, status in items_with_status:
         type_value = campaign.discount_type.value if hasattr(campaign.discount_type, "value") else campaign.discount_type
-        short = f"{campaign.discount_value}%" if type_value == "percent" else f"{campaign.discount_value:,}"
+        short = f"{fa_number(campaign.discount_value)}٪" if type_value == "percent" else fa_grouped(campaign.discount_value)
         label = f"{_CAMPAIGN_STATUS_EMOJI.get(status, '')} {campaign.name[:30]} · {short}"
         rows.append([InlineKeyboardButton(text=label, callback_data=f"campaign_view:{campaign.id}")])
     rows.append([InlineKeyboardButton(text="➕ ساختِ کمپینِ جدید", callback_data="campaign_new")])
@@ -811,7 +823,7 @@ def campaign_detail_keyboard(campaign, status: str) -> InlineKeyboardMarkup:
     if status == "active":
         rows.append([InlineKeyboardButton(text="📣 اعلام به مشتری‌ها", callback_data=f"campaign_announce:{campaign.id}")])
     rows.append([InlineKeyboardButton(text="🗑 حذف", callback_data=f"campaign_delete:{campaign.id}")])
-    rows.append([InlineKeyboardButton(text="↩️ برگشت به فهرست", callback_data="campaign_list")])
+    rows.append([InlineKeyboardButton(text="⬅️ برگشت به فهرست", callback_data="campaign_list")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -877,6 +889,11 @@ def campaign_confirm_keyboard() -> InlineKeyboardMarkup:
 # =============================================================================
 # فازِ ۴-الف/ب — سوال‌هایِ بی‌جواب و پرسش‌وپاسخ‌هایِ تاییدشده
 # =============================================================================
+def empty_screen_keyboard(back_cb: str = "main_menu", back_label: str = "⬅️ بازگشت به پنل") -> InlineKeyboardMarkup:
+    """صفحهٔ خالی نباید بی‌دکمه بماند: کاربر میانِ راه گیر می‌کند و باید خودش /start بزند."""
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=back_label, callback_data=back_cb)]])
+
+
 def _page_count(total: int, page_size: int) -> int:
     return max(1, (total + page_size - 1) // page_size)
 
@@ -921,13 +938,13 @@ def learned_list_keyboard(items, page: int, total: int, page_size: int) -> Inlin
 
 
 def learned_detail_keyboard(item) -> InlineKeyboardMarkup:
-    toggle_label = "⏸ غیرفعال کن" if item.is_active else "▶️ فعال کن"
+    toggle_label = switch_short_label(item.is_active)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✏️ ویرایشِ جواب", callback_data=f"learned_edit:{item.id}")],
             [InlineKeyboardButton(text=toggle_label, callback_data=f"learned_toggle:{item.id}")],
             [InlineKeyboardButton(text="🗑 حذف", callback_data=f"learned_delete:{item.id}")],
-            [InlineKeyboardButton(text="↩️ برگشت به فهرست", callback_data="learned_list:0")],
+            [InlineKeyboardButton(text="⬅️ برگشت به فهرست", callback_data="learned_list:0")],
         ]
     )
 
@@ -937,7 +954,7 @@ def learned_delete_confirm_keyboard(item_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="🗑 بله، حذف کن", callback_data=f"learned_delete_yes:{item_id}"),
-                InlineKeyboardButton(text="↩️ نه، برگرد", callback_data=f"learned_view:{item_id}"),
+                InlineKeyboardButton(text="⬅️ نه، برگرد", callback_data=f"learned_view:{item_id}"),
             ]
         ]
     )
@@ -994,7 +1011,7 @@ def crm_segment_keyboard(segment_key: str, members, page: int, total_pages: int,
     if nav:
         rows.append(nav)
     rows.append([InlineKeyboardButton(text="📣 پیام به این بخش", callback_data=f"crm_bcast:{segment_key}")])
-    rows.append([InlineKeyboardButton(text="↩️ بخش‌ها", callback_data="crm_home")])
+    rows.append([InlineKeyboardButton(text="⬅️ بخش‌ها", callback_data="crm_home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1016,7 +1033,7 @@ def crm_card_keyboard(customer_id: int, segment_key: str, is_blocked: bool = Fal
                 block_row,
             ],
             [InlineKeyboardButton(text="🧠 خلاصه‌یِ هوشمند", callback_data=f"crm_sum:{customer_id}")],
-            [InlineKeyboardButton(text="↩️ برگشت به فهرست", callback_data=f"crm_seg:{segment_key}:0")],
+            [InlineKeyboardButton(text="⬅️ برگشت به فهرست", callback_data=f"crm_seg:{segment_key}:0")],
         ]
     )
 
@@ -1027,7 +1044,7 @@ def crm_conversation_keyboard(customer_id: int, page: int, total_pages: int) -> 
     nav = _pagination_row(page, total_pages, f"crm_conv:{customer_id}")
     if nav:  # تک‌صفحه ⇒ `_pagination_row` خالی برمی‌گرداند و تلگرام ردیفِ خالی را قبول نمی‌کند
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="↩️ برگشت به مشتری", callback_data=f"crm_card:{customer_id}")])
+    rows.append([InlineKeyboardButton(text="⬅️ برگشت به مشتری", callback_data=f"crm_card:{customer_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1042,14 +1059,14 @@ def crm_summary_confirm_keyboard(customer_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ بله، بساز", callback_data=f"crm_sum_go:{customer_id}"),
-                InlineKeyboardButton(text="↩️ برگشت", callback_data=f"crm_card:{customer_id}"),
+                InlineKeyboardButton(text="⬅️ برگشت", callback_data=f"crm_card:{customer_id}"),
             ]
         ]
     )
 
 
 def crm_back_to_card_keyboard(customer_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ برگشت به مشتری", callback_data=f"crm_card:{customer_id}")]])
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ برگشت به مشتری", callback_data=f"crm_card:{customer_id}")]])
 
 
 # =============================================================================
@@ -1146,12 +1163,13 @@ def checkout_steps_keyboard(steps) -> InlineKeyboardMarkup:
     rows = []
     for key in checkout_config_service.STEP_KEYS:
         enabled = steps[key].enabled
+        # «✅ نامِ تحویل‌گیرنده» نه «⛔️ خاموش‌کردن · نامِ تحویل‌گیرنده»: دومی در ردیفِ دونفره
+        # بریده می‌شد و صفحه‌یِ پر مصرفِ فروشگاه‌دار را بی‌نظم می‌کرد (P22 · لایهٔ برچسب‌ها).
+        mark = texts.CHECKOUT_STEP_MARK_ON if enabled else texts.CHECKOUT_STEP_MARK_OFF
+        name = texts.CHECKOUT_STEP_LABELS[key].split(" ", 1)[-1]
         rows.append(
             [
-                InlineKeyboardButton(
-                    text=(texts.CHECKOUT_STEP_ON if enabled else texts.CHECKOUT_STEP_OFF) + " · " + texts.CHECKOUT_STEP_LABELS[key],
-                    callback_data=f"cs_toggle:{key}",
-                ),
+                InlineKeyboardButton(text=f"{mark} {name}", callback_data=f"cs_toggle:{key}"),
                 InlineKeyboardButton(text=texts.CHECKOUT_STEP_QUESTION_BUTTON, callback_data=f"cs_ask:{key}"),
             ]
         )
@@ -1214,7 +1232,7 @@ def bale_shop_bot_keyboard(shop_bot) -> InlineKeyboardMarkup:
     has_token = bool(shop_bot.bale_encrypted_token)
     actions = []
     if has_token:
-        toggle = "⏸ خاموش‌کردنِ اتصالِ بله" if shop_bot.bale_bot_enabled else "✅ روشن‌کردنِ اتصالِ بله"
+        toggle = switch_label("اتصالِ بله", shop_bot.bale_bot_enabled)
         actions.append(InlineKeyboardButton(text=toggle, callback_data="bale_off" if shop_bot.bale_bot_enabled else "bale_on"))
     actions.append(InlineKeyboardButton(text="🔑 توکنِ تازه" if has_token else "🔑 ثبتِ توکن ربات بله", callback_data="bale_edit"))
     if has_token:
@@ -1243,24 +1261,24 @@ def shop_report_keyboard(shop_bot) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="⛔️ خاموش‌کردن" if shop_bot.weekly_report_enabled else "✅ روشن‌کردن", callback_data="rp_toggle")],
+            [InlineKeyboardButton(text=switch_label("گزارشِ دوره‌ای", shop_bot.weekly_report_enabled), callback_data="rp_toggle")],
             hour_row,
             [InlineKeyboardButton(text="✍️ ساعتِ دلخواه (۰ تا ۲۳)", callback_data="rp_hour_custom")],
             day_rows[:4],
             day_rows[4:],
-            [InlineKeyboardButton(text="↩️ برگشت", callback_data="rp_back")],
+            [InlineKeyboardButton(text="⬅️ برگشت", callback_data="rp_back")],
         ]
     )
 
 
 def shop_support_keyboard(shop_bot) -> InlineKeyboardMarkup:
-    toggle = "⛔️ خاموش‌کردن" if shop_bot.support_enabled else "✅ فعال‌کردن"
+    toggle = switch_label("پشتیبانیِ مستقیم", shop_bot.support_enabled)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=toggle, callback_data="sp_toggle")],
             [InlineKeyboardButton(text="✏️ یوزرنیم", callback_data="sp_edit:username"), InlineKeyboardButton(text="✏️ تلفن", callback_data="sp_edit:phone")],
             [InlineKeyboardButton(text="✏️ متن", callback_data="sp_edit:text")],
-            [InlineKeyboardButton(text="↩️ برگشت", callback_data="sp_back")],
+            [InlineKeyboardButton(text="⬅️ برگشت", callback_data="sp_back")],
         ]
     )
 
@@ -1349,3 +1367,77 @@ def payments_menu_keyboard(row, shop_bot) -> InlineKeyboardMarkup:
 def payments_entry_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚙️ روش‌هایِ پرداختِ مشتری", callback_data="pays_menu")]])
 
+
+
+# =============================================================================
+# P22 · مشکلِ ۸ — دستهٔ «کاربرانِ غیرفعال» و حذفِ حسابِ فروشگاه‌دار
+# =============================================================================
+def inactive_windows_keyboard(days: int, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """پنجرهٔ بازه (۷/۳۰/۹۰ روز) + صفحه‌گردانی + بازگشت به پنل."""
+    from app.services.owner_activity_service import INACTIVE_WINDOWS
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=("✅ " if window == days else "") + f"🕓 {fa_number(window)} روز",
+                callback_data=f"inact_win:{window}",
+            )
+            for window in INACTIVE_WINDOWS
+        ]
+    ]
+    rows.append([InlineKeyboardButton(text=texts.INACTIVE_DELETED_LIST_BUTTON, callback_data="inact_deleted")])
+    nav = _pagination_row(page, total_pages, "inact_page")
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def inactive_list_keyboard(items, days: int, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """هر حساب یکِ دکمه: «نام · ۳۴ روزِ پیش». ردیفِ بازه‌ها پایین می‌آید تا فهرست جا بگیرد."""
+    from app.services.owner_activity_service import INACTIVE_WINDOWS
+    rows = grid(
+        [
+            InlineKeyboardButton(text=f"{name} · {since}", callback_data=f"inact_view:{owner_id}")
+            for owner_id, name, since in items
+        ],
+        per_row=2,
+        max_label=26,
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=("✅ " if window == days else "") + f"🕓 {fa_number(window)} روز",
+                callback_data=f"inact_win:{window}",
+            )
+            for window in INACTIVE_WINDOWS
+        ]
+    )
+    nav = _pagination_row(page, total_pages, "inact_page")
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def inactive_detail_keyboard(owner_id: int, page: int, *, is_deleted: bool, is_super: bool) -> InlineKeyboardMarkup:
+    rows = []
+    if is_super:
+        if is_deleted:
+            rows.append(
+                [
+                    InlineKeyboardButton(text="♻️ بازگرداندنِ حساب", callback_data=f"inact_restore:{owner_id}"),
+                    InlineKeyboardButton(text="🔥 حذفِ قطعیِ داده", callback_data=f"inact_purge:{owner_id}"),
+                ]
+            )
+        else:
+            rows.append([InlineKeyboardButton(text="🧊 غیرفعال‌کردنِ حساب", callback_data=f"inact_deactivate:{owner_id}")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data=f"inact_back:{page}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def inactive_deactivate_confirm_keyboard(owner_id: int) -> InlineKeyboardMarkup:
+    return yes_no_keyboard(f"inact_deactivate_yes:{owner_id}", f"inact_view:{owner_id}")
+
+
+def inactive_restore_confirm_keyboard(owner_id: int) -> InlineKeyboardMarkup:
+    return yes_no_keyboard(f"inact_restore_yes:{owner_id}", f"inact_view:{owner_id}")

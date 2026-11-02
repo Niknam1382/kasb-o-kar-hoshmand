@@ -11,9 +11,37 @@ NAME_MIN_LENGTH = 2
 NAME_MAX_LENGTH = 30
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+# P22 (لایهٔ «ارقام فارسی»): نمایشِ یکتا با ارقامِ فارسی و جداکنندهٔ هزارگانِ فارسی.
+# ورودیِ کاربر همیشه با `_DIGIT_TABLE` به لاتین برمی‌گردد، پس پارسرها هرگز ارقامِ فارسی نمی‌بینند
+# و این تغییرِ نمایش هیچ جایی را نمی‌شکند. فایل‌هایِ اکسل عمداً عددِ خام می‌گیرند (نه این رشته)
+# تا فیلتر و جمعِ ستون در اکسل کار کند.
+_TO_PERSIAN_DIGITS = str.maketrans("0123456789,", "۰۱۲۳۴۵۶۷۸۹٬")
+
+
+def fa_number(value: object) -> str:
+    """عدد (یا رشته‌یِ عددی) را با ارقامِ فارسی می‌نویسد: 1200000 ⇒ ۱٬۲۰۰٬۰۰۰."""
+    return str(value).translate(_TO_PERSIAN_DIGITS)
+
+
+def fa_percent(value: object, decimals: int = 0) -> str:
+    """درصدِ فارسی: 92.34 ⇒ «۹۲٫۳٪» ( ممیزِ فارسی، نه نقطهٔ لاتین)."""
+    text = f"{float(value):.{decimals}f}".replace(".", "٫") if decimals else str(int(float(value)))
+    return f"{fa_number(text)}٪"
+
+
+def fa_text(template: str, **values) -> str:
+    """الگو را پر می‌کند و هر مقدارِ عددی را با ارقامِ فارسی می‌نویسد (متن‌ها و شناسه‌هایِ
+    رشته‌ای دست‌نخورده می‌مانند، پس «۱۲۳۴۵۶۷۸۹۰» در متنِ کپی‌شدنی خراب نمی‌شود)."""
+    return template.format(**{key: (fa_number(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else value) for key, value in values.items()})
+
+
+def fa_grouped(amount: int) -> str:
+    """یکِ عدد را با جداکنندهٔ هزارگانِ فارسی می‌نویسد (برایِ شمارش‌ها، بدونِ واحد)."""
+    return fa_number(f"{int(amount):,}")
+
 
 def format_toman(amount: int) -> str:
-    return f"{amount:,} تومان"
+    return f"{fa_grouped(amount)} تومان"
 
 
 def is_valid_email(email: str) -> bool:
@@ -95,7 +123,9 @@ def split_last_word(full_name: str) -> tuple[str, str]:
     return " ".join(parts[:-1]), parts[-1]
 
 
-_PRICE_CLEAN_RE = re.compile(r"[,\u060C\s]")
+# P22: پنل حالا «۷۵۰٬۰۰۰ تومان» نشان می‌دهد؛ اگر کاربر همان را کپی و پیست کند، جداکنندهٔ
+# هزارگانِ فارسی (٬) و ممیزِ فارسی (٫) هم مثلِ ویرگولِ لاتین نادیده گرفته می‌شوند.
+_PRICE_CLEAN_RE = re.compile(r"[,\u060C\u066B\u066C\s]")
 
 
 def parse_price_toman(raw_text: str) -> int | None:

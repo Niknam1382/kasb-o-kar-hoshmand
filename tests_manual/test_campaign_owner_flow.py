@@ -137,7 +137,7 @@ async def test_wizard_creates_percent_campaign_with_code(main_dp) -> None:
     assert owner.last_text == texts.CAMPAIGN_ASK_PERCENT
     await owner.say("۱۰")
     assert owner.last_text == texts.CAMPAIGN_ASK_MAX_DISCOUNT
-    await owner.say("50,000")
+    await owner.say("۵۰٬۰۰۰")
     assert owner.last_text == texts.CAMPAIGN_ASK_CODE_CHOICE
 
     await owner.tap("campaign_code_choice:code")
@@ -154,7 +154,7 @@ async def test_wizard_creates_percent_campaign_with_code(main_dp) -> None:
     await owner.tap("campaign_percustomer:2")
 
     summary = owner.last_text
-    for expected in ("MEHR10", "10 درصد", "50,000", "200,000", "جشنواره‌ی مهر", "100 بار", "2 بار"):
+    for expected in ("MEHR10", "۱۰ درصد", "۵۰٬۰۰۰", "۲۰۰٬۰۰۰", "جشنواره‌ی مهر", "۱۰۰ بار", "۲ بار"):
         assert expected in summary, f"خلاصه باید «{expected}» رو داشته باشه:\n{summary}"
     assert _callbacks(owner.last_markup) == ["campaign_create_confirm", "campaign_create_cancel"]
     assert await _campaigns_in_db() == [], "تا «تایید» نزده، چیزی ساخته نمی‌شه"
@@ -338,7 +338,7 @@ async def test_list_view_toggle_delete_and_ended(main_dp) -> None:
         used = await campaign_service.get_owned(session, used_id, shop_bot_id)
         detail_text, detail_markup = await campaign_handlers._detail_payload(session, used)
         assert "استفاده‌شده" in detail_text and "USED" in detail_text and "🟢 فعال" in detail_text
-        assert "استفاده‌شده: 1 بار" in detail_text and "20,000" in detail_text, detail_text
+        assert "استفاده‌شده: ۱ بار" in detail_text and "۲۰٬۰۰۰" in detail_text, detail_text
         assert f"campaign_toggle:{used_id}" in _callbacks(detail_markup) and f"campaign_delete:{used_id}" in _callbacks(detail_markup)
         ended = await campaign_service.get_owned(session, ended_id, shop_bot_id)
         ended_text, ended_markup = await campaign_handlers._detail_payload(session, ended)
@@ -406,7 +406,7 @@ async def test_announce_sends_default_text_through_shop_bot(main_dp, bot_manager
     async with session_scope() as session:
         campaign = await campaign_service.get_owned(session, campaign_id, shop_bot_id)
         announcement = texts.campaign_announcement_text(campaign)
-    for expected in ("جشنواره‌ی مهر", "MEHR10", "15 درصد", "40,000", "کد تخفیف دارم"):
+    for expected in ("جشنواره‌ی مهر", "MEHR10", "۱۵ درصد", "۴۰٬۰۰۰", "کد تخفیف دارم"):
         assert expected in announcement, f"متنِ اعلام باید «{expected}» رو داشته باشه:\n{announcement}"
 
     await owner.tap(f"campaign_announce:{campaign_id}")

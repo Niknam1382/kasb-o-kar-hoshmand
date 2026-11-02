@@ -236,7 +236,7 @@ def test_digest_wallet_line_and_consult_titles() -> None:
 
     rows = [type("P", (), {"name": "کیف", "stock_quantity": 1, "reserved_quantity": 0})()]
     alert = main_texts.stock_alert_text(rows, 3, 8)
-    assert "کیف: 1 عدد" in alert, alert
+    assert "کیف: ۱ عدد" in alert, alert
 
     consultation = shop_texts.my_orders_list_text(
         [[type("O", (), {"status": "pending", "summary": "مشاورهٔ چرم", "product_id": None})()]],

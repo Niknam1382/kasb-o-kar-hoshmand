@@ -137,7 +137,7 @@ def test_owner_list_label_formats_pure() -> None:
     assert len(label(long_owner, active_bot)) <= texts.OWNER_LABEL_MAX_LEN and label(long_owner, active_bot).endswith("…")
 
     intro = texts.admin_shop_owners_intro(23, 1, 3)
-    assert "23 نفر" in intro and "صفحه‌یِ 2 از 3" in intro and "✅" in intro and "⛔️" in intro
+    assert "۲۳ نفر" in intro and "صفحه‌یِ ۲ از ۳" in intro and "✅" in intro and "⛔️" in intro
 
     print("✅ test_owner_list_label_formats_pure PASSED")
 
@@ -288,7 +288,7 @@ async def test_owner_settings_screen_for_batch_window(main_dp) -> None:
             return (await session.execute(select(ShopBot.message_batch_seconds).where(ShopBot.id == bot_id))).scalar_one()
 
     await owner.say("⚙️ تنظیماتِ ربات فروشگاه")
-    assert "8 ثانیه (پیش‌فرضِ سیستم)" in owner.last_text
+    assert "۸ ثانیه (پیش‌فرضِ سیستم)" in owner.last_text
     # P18 · A2: «✏️ بیوگرافیِ ربات» (br_open) به این صفحه اضافه شده است.
     # P21-D: «📦 اخطارِ موجودی» (bs_stock) هم همین‌جا نشسته است.
     assert callbacks(owner.last_markup) == [
@@ -298,7 +298,7 @@ async def test_owner_settings_screen_for_batch_window(main_dp) -> None:
 
     await owner.tap("bs_batch:15")
     assert await stored() == 15 and owner.last_toast["text"] == texts.BATCH_SECONDS_SAVED
-    assert "مدتِ تجمیعِ پیام‌ها: 15 ثانیه" in owner.last_edit_text
+    assert "مدتِ تجمیعِ پیام‌ها: ۱۵ ثانیه" in owner.last_edit_text
     labels = [button.text for row in owner.last_edit_markup.inline_keyboard for button in row]
     assert "✅ 💰 ۱۵ ثانیه" in labels and "⚡ ۳ ثانیه" in labels, "مقدارِ فعلی علامت می‌خوره"
 
@@ -311,7 +311,7 @@ async def test_owner_settings_screen_for_batch_window(main_dp) -> None:
     assert await stored() == 15, "ورودیِ نامعتبر چیزی رو عوض نمی‌کنه"
     await owner.say("۲۰")
     assert await stored() == 20
-    assert owner.sent[-2]["text"] == texts.BATCH_SECONDS_SAVED and "20 ثانیه" in owner.last_text
+    assert owner.sent[-2]["text"] == texts.BATCH_SECONDS_SAVED and "۲۰ ثانیه" in owner.last_text
 
     await owner.tap("bs_batch_reset")
     assert await stored() is None and owner.last_toast["text"] == texts.BATCH_SECONDS_RESET

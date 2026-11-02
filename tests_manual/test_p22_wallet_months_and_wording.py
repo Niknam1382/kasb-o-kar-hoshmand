@@ -51,12 +51,12 @@ def test_expiry_reminder_points_to_the_real_button() -> None:
     assert "شارژِ تازه" not in message, "چنان دکمه‌ای در پنل نیست؛ کاربر را به مسیرِ واقعی بفرست"
     assert "💰 شارژ کیف‌پول" in message, message
     assert "💰 کیف‌پول" in message, message
-    assert "75,000" in message or "۷۵" in message, "مبلغِ بسته‌ای که می‌سوزد باید در پیام باشد"
-    assert "30 روزِ دیگه" in message, message
+    assert "۷۵٬۰۰۰" in message or "۷۵" in message, "مبلغِ بسته‌ای که می‌سوزد باید در پیام باشد"
+    assert "۳۰ روزِ دیگه" in message, message
 
     assert main_texts.wallet_expiry_reminder(1, 5_000).startswith("⏳") and "فردا" in main_texts.wallet_expiry_reminder(1, 5_000)
-    assert "0 روزِ دیگه" not in main_texts.wallet_expiry_reminder(0, 5_000), "«امروز» نباید «۰ روزِ دیگه» شود"
-    assert "7 روزِ دیگه" in main_texts.wallet_expiry_reminder(7, 5_000)
+    assert "۰ روزِ دیگه" not in main_texts.wallet_expiry_reminder(0, 5_000), "«امروز» نباید «۰ روزِ دیگه» شود"
+    assert "۷ روزِ دیگه" in main_texts.wallet_expiry_reminder(7, 5_000)
     print("✅ test_expiry_reminder_points_to_the_real_button PASSED")
 
 

@@ -23,7 +23,7 @@ from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.states import CampaignWizardStates, CustomerBroadcastStates
 from app.database.models import Campaign, CampaignDiscountType, ShopBot
 from app.services import campaign_service, customer_service, shop_bot_service, shop_owner_service
-from app.utils.validators import parse_price_toman
+from app.utils.validators import fa_text, parse_price_toman
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,10 @@ async def _list_payload(session: AsyncSession, shop_bot: ShopBot):
         return texts.CAMPAIGNS_EMPTY, keyboards.campaigns_list_keyboard([])
     now = _now()
     items = [(c, campaign_service.campaign_status(c, now)) for c in campaigns]
-    return texts.CAMPAIGNS_LIST_INTRO, keyboards.campaigns_list_keyboard(items)
+    intro = texts.CAMPAIGNS_LIST_INTRO
+    if len(campaigns) >= campaign_service.LIST_LIMIT:
+        intro += "\n" + fa_text(texts.CAMPAIGNS_LIST_TRUNCATED, limit=campaign_service.LIST_LIMIT)
+    return intro, keyboards.campaigns_list_keyboard(items)
 
 
 async def _detail_payload(session: AsyncSession, campaign: Campaign):

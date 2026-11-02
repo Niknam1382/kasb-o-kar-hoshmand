@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from app.utils.validators import fa_number
+
 PROPOSAL_INTRO = "می‌خوای این تغییرها رو توی سبدت انجام بدم؟"
 PROPOSAL_FOOTER = "⏱ این پیشنهاد تا ۱۰ دقیقه معتبره."
 PROPOSAL_REJECTED = "باشه، سبدت دست‌نخورده موند 🙂"
@@ -16,7 +18,7 @@ PROPOSAL_GONE = "این پیشنهاد دیگه وجود نداره."
 def proposal_text(lines: list[str], rejected_count: int = 0) -> str:
     parts = [PROPOSAL_INTRO, ""] + lines
     if rejected_count:
-        parts.append(f"\n⚠️ {rejected_count} مورد از درخواستت رو متوجه نشدم؛ اگه لازمه دوباره و واضح‌تر بگو.")
+        parts.append(f"\n⚠️ {fa_number(rejected_count)} مورد از درخواستت رو متوجه نشدم؛ اگه لازمه دوباره و واضح‌تر بگو.")
     parts.append(f"\n{PROPOSAL_FOOTER}")
     return "\n".join(parts)
 
