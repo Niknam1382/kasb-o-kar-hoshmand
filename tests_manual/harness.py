@@ -6,6 +6,7 @@ from typing import Any
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.base import BaseSession
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import TelegramMethod
 from aiogram.methods.base import TelegramType
 from aiogram.types import (
@@ -62,6 +63,10 @@ class FakeSession(BaseSession):
         self.edited_texts: list[dict[str, Any]] = []  # EditMessageText ها (فازِ ۴: برایِ بررسیِ متنِ edit_text)
         self.answered_callbacks: list[dict[str, Any]] = []
         self.deleted_messages: list[dict[str, Any]] = []
+        # P27: شبیه‌سازیِ «query is too old» — تلگرام اگر پاسخِ کالبک دیر برسد همین خطا را می‌دهد
+        # و در لاگِ زندهٔ همین پروژه هم دیده شد؛ فقط تست‌هایی روشنش می‌کنند.
+        self.fail_answer_callbacks: bool = False
+        self.edited_captions: list[dict[str, Any]] = []  # EditMessageCaption ها (رسیدِ عکس/فایلی)
         self.chat_member_status: dict[tuple[str, int], str] = {}
         self.chat_info: dict[str, Chat] = {}
         self.bot_identities: dict[str, User] = {}
@@ -139,6 +144,9 @@ class FakeSession(BaseSession):
             return self._build_message(method.chat_id, text=method.text, reply_markup=getattr(method, "reply_markup", None))
 
         if name == "EditMessageCaption":
+            self.edited_captions.append(
+                {"chat_id": method.chat_id, "caption": getattr(method, "caption", None), "reply_markup": getattr(method, "reply_markup", None)}
+            )
             return self._build_message(
                 method.chat_id, caption=getattr(method, "caption", None), reply_markup=getattr(method, "reply_markup", None)
             )
@@ -157,6 +165,9 @@ class FakeSession(BaseSession):
             self.answered_callbacks.append(
                 {"callback_query_id": method.callback_query_id, "text": getattr(method, "text", None), "show_alert": getattr(method, "show_alert", None)}
             )
+            if self.fail_answer_callbacks:
+                # همان خطایِ واقعیِ تلگرام در لاگِ زنده (P27) — برایِ تستِ این‌که هندلر نباید به آن بمیرد.
+                raise TelegramBadRequest(method="answerCallbackQuery", message="Bad Request: query is too old and response timeout expired or query ID is invalid")
             return True
 
         if name == "GetFile":

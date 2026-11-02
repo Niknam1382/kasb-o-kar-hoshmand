@@ -122,6 +122,8 @@ TEST_FILES = [
     "test_p24_dead_buttons_and_scope.py",
     "test_p25_bale_link_and_discounts.py",
     "test_p26_bale_handoff_and_ux.py",
+    "test_p27_invoice_persian_layout.py",
+    "test_p27_receipt_one_click.py",
 ]
 
 
