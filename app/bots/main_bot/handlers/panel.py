@@ -6,7 +6,7 @@ import secrets
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy import func, select
@@ -36,7 +36,6 @@ from app.services import (
     ai_service,
     bale_bot_service,
     bale_credentials_service,
-    bale_service,
     bot_branding_service,
     channel_knowledge_service,
     customer_service,
@@ -893,33 +892,15 @@ async def cb_payment_method_bale(callback: CallbackQuery, state: FSMContext, ses
         return
 
     purpose = PaymentPurpose(data.get("purpose", PaymentPurpose.WALLET_TOPUP.value))
-    description = "شارژ کیف‌پول کسب‌وکار هوشمند" if purpose == PaymentPurpose.WALLET_TOPUP else "خرید اشتراک کسب‌وکار هوشمند"
     invoice_payload = f"payment-{owner.id}-{secrets.token_hex(8)}"
-    # مبلغ‌های داخلیِ ما همیشه تومانن؛ بله‌پی طبقِ فایلِ ارائه‌شده ریال می‌خواد (۱ تومان = ۱۰ ریال).
-    amount_rial = bale_service.toman_to_rial(data["final_amount"])
-    try:
-        invoice_result = await bale_service.create_invoice_link(
-            bale_credentials_service.bot_token(),
-            admin_settings.bale_provider_token,
-            title="شارژ کیف‌پول" if purpose == PaymentPurpose.WALLET_TOPUP else "خرید اشتراک",
-            description=description,
-            payload=invoice_payload,
-            amount_rial=amount_rial,
-        )
-    except bale_service.BaleError:
-        logger.exception("درخواستِ ساختِ لینکِ بله‌پی ناموفق بود.")
-        await callback.answer()
-        await callback.message.answer(texts.BALE_PAY_ERROR)
-        return
-
-    # P23: بله از این سرویس «invoice_id=…» برمی‌گرداند نه آدرس (MEASURED از payment_event_logs).
-    # P25: قالبِ قابلِ‌استفادهٔ پنل نباشد، پیش‌فرضِ مستندِ بله (https://bale.ai/pay/{invoice_id})
-    # کار می‌کند؛ None فقط وقتی می‌رسد که خودِ پاسخِ بله قابلِ مصرف نباشد.
-    pay_url = bale_service.resolve_payment_link(invoice_result, admin_settings.bale_pay_link_template)
+    # P26: بله هیچ آدرسِ پرداختی ندارد (`ble.ir/pay/…` و `bale.ai/pay/<id>` ⇒ ۴۰۴) و خروجیِ
+    # createInvoiceLink فقط شناسهٔ مینی‌اپ است. لینکِ درست = چتِ رباتِ پرداخت در اپِ بله با
+    # `?start=<payload>`؛ صورتحسابِ بومی را خودِ بله در همان چت می‌فرستد (پاسخِ /start در
+    # app/main.py) و مبلغ هم از ردیفِ پرداخت خوانده می‌شود — یکِ منبعِ حقیقت.
+    pay_url = bale_credentials_service.pay_link_for(invoice_payload)
     if pay_url is None:
-        logger.warning("پاسخِ createInvoiceLink به لینک تبدیل نشد (پاسخِ غیرمنتظره از بله): %r", invoice_result[:60])
         await callback.answer()
-        await callback.message.answer(texts.BALE_LINK_UNRESOLVED)
+        await callback.message.answer(texts.BALE_PAY_BOT_NOT_CONNECTED)
         return
 
     payment = await payment_service.create_bale_payment(
@@ -930,13 +911,15 @@ async def cb_payment_method_bale(callback: CallbackQuery, state: FSMContext, ses
     await state.clear()
     await callback.answer()
     try:
-        await callback.message.answer(texts.BALE_PAY_REDIRECT_TEXT, reply_markup=keyboards.bale_pay_keyboard(pay_url))
+        await callback.message.answer(
+            texts.bale_pay_handoff_text(payment.final_amount), reply_markup=keyboards.bale_pay_keyboard(pay_url)
+        )
     except TelegramAPIError:
         # MEASURED (P25): با آدرسِ نامعتبر، تلگرام اینجا می‌ترکید و ردیفِ پرداخت هم با هندلر
         # rollback می‌شد؛ این‌جا صریحاً باطلش می‌کنیم تا «پرداختِ بازِ» بی‌صاحب نماند.
         logger.exception("ارسالِ لینکِ پرداختِ بله ناموفق بود (payment=%s)", payment.id)
         await payment_service.reject_payment(session, payment, None, reason="لینکِ پرداخت ارسال نشد (ردِ سمتِ ربات)")
-        await callback.message.answer(texts.BALE_LINK_UNRESOLVED)
+        await callback.message.answer(texts.BALE_PAY_LINK_SEND_FAILED)
 
 
 # =============================================================================
@@ -1113,8 +1096,12 @@ async def customer_broadcast_confirmed(callback: CallbackQuery, state: FSMContex
     )
 
 
-@router.callback_query(CustomerBroadcastStates.waiting_confirmation, F.data == "customer_broadcast_cancel")
+@router.callback_query(
+    StateFilter(CustomerBroadcastStates.waiting_confirmation, CustomerBroadcastStates.waiting_when),
+    F.data == "customer_broadcast_cancel",
+)
 async def customer_broadcast_cancelled(callback: CallbackQuery, state: FSMContext) -> None:
+    # P26: دکمهٔ «❌ لغو» حالا در صفحهٔ «کی ارسال شود؟» هم هست؛ بی‌این، همان حالتِ بی‌جواب می‌ماند.
     await state.clear()
     await callback.answer()
     await callback.message.edit_text(texts.CUSTOMER_BROADCAST_CANCELLED)
@@ -1127,15 +1114,44 @@ async def customer_broadcast_cancelled(callback: CallbackQuery, state: FSMContex
 async def customer_broadcast_schedule_ask_when(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(CustomerBroadcastStates.waiting_when)
     await callback.answer()
-    await callback.message.answer(texts.ASK_SCHEDULE_WHEN)
+    await callback.message.answer(texts.ASK_SCHEDULE_WHEN, reply_markup=keyboards.schedule_when_keyboard())
+
+
+# P26: «راحت‌ترش کن» — به‌جایِ نوشتنِ ساعت، پنج گزینهٔ آماده. هر کد به همان رشته‌ای نگاشت
+# می‌شود که `parse_when` می‌فهمد، پس یکِ منطقِ زمانی داریم نه دو تا.
+SCHEDULE_PRESETS = {
+    "1h": "+1h",
+    "3h": "+3h",
+    "tonight": "21:00",
+    "tom10": "فردا 10:00",
+    "tom18": "فردا 18:00",
+}
+
+
+@router.callback_query(CustomerBroadcastStates.waiting_when, F.data.startswith("sched_when:"))
+async def customer_broadcast_schedule_preset(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    code = callback.data.split(":", 1)[1]
+    await callback.answer()
+    if code == "custom":
+        await callback.message.answer(texts.ASK_SCHEDULE_WHEN_CUSTOM)
+        return
+    raw = SCHEDULE_PRESETS.get(code)
+    if raw is None:
+        await callback.message.answer(texts.SCHEDULE_INVALID_WHEN)
+        return
+    await _store_scheduled_broadcast(callback.message, state, session, raw)
 
 
 @router.message(CustomerBroadcastStates.waiting_when, F.text)
 async def customer_broadcast_schedule_time_entered(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    await _store_scheduled_broadcast(message, state, session, (message.text or "").strip())
+
+
+async def _store_scheduled_broadcast(message: Message, state: FSMContext, session: AsyncSession, raw: str) -> None:
+    """یکِ مسیر برایِ هر دو ورودیِ زمانِ ارسال (دکمه و نوشتنِ آزاد)."""
     owner = await _current_owner(message, session)
     shop_bot = await shop_bot_service.get_by_owner(session, owner)
     data = await state.get_data()
-    raw = message.text.strip()
     if raw in {"خالی", "لغو", "-"}:
         await state.clear()
         await message.answer(texts.SCHEDULE_CANCELLED)

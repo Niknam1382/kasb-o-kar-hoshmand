@@ -4,13 +4,18 @@
 
 ۱) **توکنِ رباتِ بله** (`bale_bot_token`) — سراسری؛ همان چیزی که رباتِ بله با آن کار می‌کند
    (getUpdates / setWebhook / createInvoiceLink / inquireTransaction). اولویت: پنل ← `.env`.
-۲) **توکنِ درگاه (provider_token)** — مجوزِ ساختِ لینکِ پرداخت. اولویت: فروشگاه ← پنلِ ادمین (پشتیبان).
+۲) **توکنِ درگاه (provider_token)** — تعیین می‌کند پول در کیف‌پولِ چه کسی می‌نشیند.
+   اولویت: فروشگاه ← پنلِ ادمین (پشتیبانِ سراسری).
 ۳) **رازِ وب‌هوک** — فقط در `BALE_UPDATES_MODE=webhook` لازم است و **خودکار** ساخته می‌شود؛
    هرگز از ادمین پرسیده نمی‌شود (در `polling` که پیش‌فرض است اصلاً لازم نیست).
-۴) **قالبِ لینکِ پرداخت** (`bale_pay_link_template` · P23) — اختیاری. بله از `createInvoiceLink`
-   شناسه («invoice_id=…») برمی‌گرداند نه آدرس، و از P25 شکلِ رسمیِ آدرس در پیش‌فرضِ داخلی
-   (`bale_service.DEFAULT_PAY_LINK_TEMPLATE` از سندِ docs.bale.ai) ساخته می‌شود؛ این ستون فقط برایِ
-   override است (مثلاً اگر بله بعداً درگاهِ میزبانِ خودش را عوض کند).
+۴) **نامِ کاربریِ رباتِ پرداخت** — از `getMe` خوانده و کش می‌شود (هیچ‌وقت از ادمین پرسیده نمی‌شود).
+   لینکِ پرداختِ بله از همین ساخته می‌شود: `https://ble.ir/<username>?start=<payload>`.
+   این همیشه رباتِ پلتفرم است، نه رباتِ بله‌یِ خودِ فروشگاه — آن ربات فقط پیام می‌فرستد و
+   آپدیت‌هایش را نمی‌خوانیم، پس `/start`ِ لینک هرگز به ما نمی‌رسید (`pay_link_username`).
+   از P26 دیگر ستونی به‌نامِ «قالبِ لینک» مصرف نمی‌شود: بله هیچ آدرسِ پرداختی ندارد
+   (`ble.ir/pay/…` و `bale.ai/pay/<id>` هر دو ۴۰۴ — MEASURED) و خروجیِ `createInvoiceLink` فقط
+   شناسهٔ مینی‌اپ است. ستونِ `bale_pay_link_template` در دیتابیس می‌ماند (قاعدهٔ «حذفِ ستون نه»)
+   ولی هیچ کدی آن را نمی‌خواند و در پنل هم نیست.
 
 هیچ مقدارِ خامی در این ماژول لاگ یا برگردانده نمی‌شود؛ نمایش فقط ماسک‌شده (در `texts`).
 ملاکِ `shop_status` *تنها* معیاری است که هم «نمایشِ دکمه به مشتری» و هم «شروعِ پرداخت» از آن
@@ -34,18 +39,57 @@ logger = logging.getLogger(__name__)
 # علت‌هایِ ناقص‌بودنِ پیکربندی (کدِ داخلی؛ متنِ کاربرپسند در texts.bale_missing_hint)
 MISSING_BOT_TOKEN = "bot_token"
 MISSING_PROVIDER_TOKEN = "provider_token"
+MISSING_PAY_BOT_USERNAME = "pay_bot_username"
 ADMIN_DISABLED = "admin_disabled"
 SHOP_DISABLED = "shop_disabled"
 
 # کشِ درون‌حافظه‌ایِ *فقط* مقدارِ پنل؛ مقدارِ .env همیشه زنده خوانده می‌شود تا تغییرِ پنل
 # بدونِ ری‌استارت اثر کند و تست‌هایی که settings را جایگزین می‌کنند نشکنند.
 _panel_bot_token: str = ""
+_panel_bot_username: str = ""
 _auto_webhook_secret: str = ""
 
 
 def bot_token() -> str:
     """توکنِ رباتِ بله: پنلِ ادمین ← `.env`. خالی ⇒ بله‌پی غیرفعال."""
     return _panel_bot_token or (settings.bale_bot_token or "")
+
+
+def bot_username() -> str:
+    """نامِ کاربریِ رباتِ پرداخت (از `getMe`); خالی ⇒ لینکی نساز و صادقانه بگو."""
+    return _panel_bot_username
+
+
+def remember_pay_bot_username(username: str) -> None:
+    """کشِ نامِ رباتِ پرداخت را می‌گذارد. در حالتِ عادی `refresh()` از `getMe` می‌خواندش؛ این
+    نقطه‌یِ ورودِ تست‌ها است (تست نباید به شبکهٔ واقعیِ بله بزند)."""
+    global _panel_bot_username
+    _panel_bot_username = (username or "").strip().lstrip("@")
+
+
+def pay_link_username() -> str:
+    """نامِ رباتی که لینکِ پرداخت به چتش می‌رود — همیشه رباتِ پرداختِ پلتفرم.
+
+    چرا رباتِ بله‌یِ خودِ فروشگاه نه؟ چون آن ربات فقط برایِ فرستادنِ پیام است: در `bot_manager` و
+    `app/main.py` فقط توکنِ پلتفرم `set_webhook`/`getUpdates` می‌شود، پس `/start`ِ لینکِ
+    پرداخت در چتِ رباتِ فروشگاه هیچ‌وقت به ما نمی‌رسید و لینک مرده می‌شد. جابه‌جاییِ پول
+    به نامِ کاربری وابسته نیست، به `provider_token` وابسته است (همین را صفحهٔ پنل هم می‌گوید).
+    """
+    return _panel_bot_username
+
+
+def pay_link_available() -> bool:
+    """P26 (قاعدهٔ B11): دکمه فقط وقتی ساخته می‌شود که لینکِ پرداخت هم ساخته‌شدنی باشد."""
+    from app.services import bale_service  # لازیم؛ چرخه‌یِ import را می‌شکند
+
+    return bale_service.pay_chat_link(pay_link_username(), "payment-0-0") is not None
+
+
+def pay_link_for(payload: str) -> str | None:
+    """لینکِ «برو به پرداختِ بله» برایِ این پرداخت. None ⇒ چیزی نساز و پیامِ صادقانه بده."""
+    from app.services import bale_service  # لازیم؛ چرخه‌یِ import را می‌شکند
+
+    return bale_service.pay_chat_link(pay_link_username(), payload)
 
 
 MAX_TOKEN_LENGTH = 512
@@ -65,17 +109,36 @@ def webhook_secret() -> str:
 
 def reset_cache() -> None:
     """پاک‌کردنِ کش (تست / تغییرِ کلیدِ رمزنگاری)."""
-    global _panel_bot_token, _auto_webhook_secret
+    global _panel_bot_token, _panel_bot_username, _auto_webhook_secret
     _panel_bot_token = ""
+    _panel_bot_username = ""
     _auto_webhook_secret = ""
 
 
 async def refresh(session: AsyncSession) -> str:
     """کش را از `AdminSettings` تازه می‌کند. در startup، در هر گردشِ حلقه‌یِ getUpdates و بلافاصله
-    بعدِ ذخیره‌یِ توکن در پنل صدا زده می‌شود ⇒ تغییر بدونِ ری‌استارت اعمال می‌گردد."""
-    global _panel_bot_token, _auto_webhook_secret
+    بعدِ ذخیره‌یِ توکن در پنل صدا زده می‌شود ⇒ تغییر بدونِ ری‌استارت اعمال می‌گردد.
+
+    نامِ کاربریِ ربات (برایِ لینکِ پرداخت) فقط یک‌بار در هر توکن از `getMe` خوانده می‌شود — این
+    تابع هر ~۲۵ ثانیه هم صدا زده می‌شود و نباید هر بار درخواستِ شبکه بزند.
+    """
+    global _panel_bot_token, _panel_bot_username, _auto_webhook_secret
     row = await get_admin_settings(session)
-    _panel_bot_token = (row.bale_bot_token or "").strip()
+    token = (row.bale_bot_token or "").strip()
+    if token != _panel_bot_token:
+        _panel_bot_token = token
+        _panel_bot_username = ""
+    effective = bot_token()
+    if effective and not _panel_bot_username:
+        from app.services import bale_service  # لازیم؛ چرخه‌یِ import را می‌شکند
+
+        try:
+            identity = await bale_service.get_me(effective)
+            _panel_bot_username = (identity.get("username") or "").strip().lstrip("@")
+            if not _panel_bot_username:
+                logger.warning("بله در getMe نامِ کاربریِ رباتِ پرداخت را برنگرداند؛ لینکِ پرداخت ساخته نمی‌شود.")
+        except bale_service.BaleError:
+            logger.warning("خواندنِ getMe رباتِ پرداخت ناموفق بود؛ لینکِ پرداخت تا تلاشِ بعدی ساخته نمی‌شود.", exc_info=True)
     secret = (row.bale_webhook_secret_auto or "").strip()
     if not secret and settings.bale_updates_mode == "webhook" and not (settings.bale_webhook_secret or "").strip():
         # A1(ج): سکرتِ وب‌هوک هرگز پرسیده نمی‌شود — خودکار ساخته و ذخیره می‌کنیم و در پنل نشان می‌دهیم.
@@ -128,6 +191,9 @@ async def shop_status(
     provider = await provider_token(session, shop_bot)
     if not provider:
         missing.append(MISSING_PROVIDER_TOKEN)
+    if not pay_link_available():
+        # B11/P26: دکمه‌ای که لینکش ساخته نمی‌شود، همان «دکمهٔ مرده»یِ گزارش‌شده است.
+        missing.append(MISSING_PAY_BOT_USERNAME)
     return ShopBaleStatus(token, provider, tuple(missing))
 
 
@@ -143,8 +209,8 @@ async def methods(
 def platform_status(session_row) -> tuple[bool, list[str]]:
     """مسیرِ سراسری (شارژِ کیف‌پولِ فروشگاه‌دار به پلتفرم): توکنِ ربات + کلیدِ ادمین + توکنِ درگاهِ ادمین.
 
-    قالبِ لینک دیگر جزوِ پیش‌نیازها نیست: از P25 پیش‌فرضِ مستندِ بله وجود دارد و اگر ادمین
-    مقدارِ ناقصی ذخیره کرده باشد، `resolve_payment_link` همان را نادیده می‌گیرد.
+    پیش‌نیازِ چهارم نامِ کاربریِ همان ربات است (`MISSING_PAY_BOT_USERNAME`): لینکِ پرداخت
+    به شکلِ `ble.ir/<username>` ساخته می‌شود و بدونِ آن دکمه‌ای ساخته نمی‌شود — قاعدهٔ B11.
     """
     missing: list[str] = []
     if not bot_token():
@@ -153,4 +219,6 @@ def platform_status(session_row) -> tuple[bool, list[str]]:
         missing.append(ADMIN_DISABLED)
     if not (getattr(session_row, "bale_provider_token", None) or ""):
         missing.append(MISSING_PROVIDER_TOKEN)
+    if not pay_link_available():
+        missing.append(MISSING_PAY_BOT_USERNAME)
     return (not missing, missing)

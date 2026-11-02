@@ -259,10 +259,12 @@ def receipt_keyboard(key: str) -> InlineKeyboardMarkup:
     )
 
 
-def online_pay_keyboard(pay_url: str, key: str) -> InlineKeyboardMarkup:
+def online_pay_keyboard(pay_url: str, key: str, *, bale: bool = False) -> InlineKeyboardMarkup:
+    """دکمهٔ اول دو مقصد دارد: در بله «صفحه» نیست، چتِ رباتِ پرداخت است (P26)؛ در زرین‌پال واقعاً یکِ صفحه."""
+    label = "🔵 باز کردنِ پرداخت در اپِ بله" if bale else "💳 رفتن به صفحه‌یِ پرداخت"
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💳 رفتن به صفحه‌یِ پرداخت", url=pay_url)],
+            [InlineKeyboardButton(text=label, url=pay_url)],
             [InlineKeyboardButton(text="⬅️ روشِ دیگه", callback_data=f"pm_menu:{key}")],
             [InlineKeyboardButton(text="❌ لغوِ سفارش", callback_data=f"myord_cancel:{key}")],
         ]

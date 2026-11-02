@@ -26,7 +26,6 @@ from app.database.models import Customer, OrderConsultation, OrderStatus, Tenant
 from app.config import settings
 from app.services import (
     bale_credentials_service,
-    bale_service,
     order_payment_service,
     order_state,
     order_transition_service,
@@ -196,26 +195,13 @@ async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot)
         return
     total = order_transition_service.group_total_toman(rows)
     payload = f"cartgroup-{key}-{secrets.token_hex(8)}"
-    try:
-        invoice_result = await bale_service.create_invoice_link(
-            status.bot_token,
-            status.provider_token,
-            title="پرداختِ سفارش",
-            description=f"سفارش {texts.order_code(rows)}",
-            payload=payload,
-            amount_rial=bale_service.toman_to_rial(total),
-        )
-    except bale_service.BaleError:
-        logger.exception("ساختِ لینکِ بله‌پی برایِ گروهِ %s ناموفق بود.", key)
-        await callback.answer(texts.PAY_ONLINE_LINK_FAILED, show_alert=True)
-        return
-
-    # P23: خروجیِ بله شناسه است («invoice_id=…») نه آدرس. P25: از قالبِ پنلِ ادمین و در نبودِ
-    # آن از پیش‌فرضِ مستندِ بله (https://bale.ai/pay/{invoice_id}) ساخته می‌شود.
-    admin_row = await get_admin_settings(session)
-    pay_url = bale_service.resolve_payment_link(invoice_result, admin_row.bale_pay_link_template)
+    # P26: لینکِ پرداخت = چتِ **رباتِ پرداختِ پلتفرم** با `?start=<payload>`. صورتحسابِ بومیِ بله
+    # در آن چت فرستاده می‌شود و درگاهِ خودِ فروشگاه پول را به کیف‌پولِ او می‌ریزد؛ دیگر
+    # `createInvoiceLink` نمی‌خوانیم، چون خروجی‌اش فقط شناسهٔ مینی‌اپ است و آدرسِ پرداختی
+    # وجود ندارد (MEASURED: `ble.ir/pay/…` ⇒ ۴۰۴).
+    pay_url = bale_credentials_service.pay_link_for(payload)
     if pay_url is None:
-        logger.error("پاسخِ createInvoiceLink به لینکِ قابل‌کلیک تبدیل نشد (گروه %s): %r", key, invoice_result[:60])
+        logger.warning("رباتِ پرداختِ پلتفرم نامِ کاربریِ قابلِ استفاده ندارد (گروه %s) ⇒ لینکی ساخته نمی‌شود.", key)
         await callback.answer(texts.PAY_ONLINE_LINK_FAILED, show_alert=True)
         return
     payment, expires = await order_payment_service.start_payment(session, rows, payment_settings_service.METHOD_BALE, settings_row)
@@ -223,10 +209,13 @@ async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot)
     await session.commit()
     await callback.answer()
     try:
-        await _edit(callback, texts.online_pay_offer("bale", total, format_jalali_datetime(to_tehran(expires))), keyboards.online_pay_keyboard(pay_url, key))
+        await _edit(
+            callback,
+            texts.online_pay_offer("bale", total, format_jalali_datetime(to_tehran(expires))),
+            keyboards.online_pay_keyboard(pay_url, key, bale=True),
+        )
     except TelegramAPIError:
-        # MEASURED (P25): آدرسِ نامعتبرِ دکمه («https://YOUR_BALE_PAYMENT_BASE_URL?…») این هندلر را
-        # می‌کشت؛ پرداختِ بی‌صاحب را باطل می‌کنیم و سفارش برایِ تلاشِ دوباره می‌ماند.
+        # MEASURED (P25): آدرسِ نامعتبرِ دکمه این هندلر را می‌کشت و پرداختِ بی‌صاحب می‌گذاشت.
         logger.exception("ارسالِ لینکِ بله‌پی به مشتری ناموفق بود (payment=%s)", payment.id)
         await order_payment_service.mark_link_failed(session, payment, reason="لینکِ پرداخت ارسال نشد (ردِ سمتِ ربات)")
         await session.commit()

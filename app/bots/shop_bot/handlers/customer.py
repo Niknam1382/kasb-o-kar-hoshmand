@@ -126,7 +126,11 @@ async def customer_start(message: Message, session: AsyncSession, state: FSMCont
             last_name=message.from_user.last_name,
             platform=platform_service.of_event(message),
         )
-    welcome = texts.SHOP_WELCOME_CONSULTATION if _is_consultation(shop_bot) else texts.SHOP_WELCOME
+    welcome = (
+        texts.shop_welcome_consultation(bool(shop_bot and shop_bot.support_enabled))
+        if _is_consultation(shop_bot)
+        else texts.SHOP_WELCOME
+    )
     await message.answer(welcome, reply_markup=_menu_keyboard(shop_bot))
 
 

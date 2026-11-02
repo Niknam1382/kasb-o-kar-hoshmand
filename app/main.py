@@ -23,7 +23,7 @@ from app.bots.shop_bot.router import build_shop_router
 from app.config import RunMode, settings
 from app import observability
 from app.services import http_guard
-from app.database.models import OrderPayment, PaymentPurpose, PaymentStatus
+from app.database.models import OrderPayment, PaymentPurpose, PaymentStatus, ShopBot
 from app.database.session import session_scope
 from app.services import (
     admin_alert_service,
@@ -595,7 +595,7 @@ async def _process_bale_update(request: Request) -> Response:
 
 
 async def _dispatch_bale_update(data: dict) -> None:
-    """مسیرِ مشترکِ webhook و getUpdates (B6): pre_checkout و successful_payment؛ بقیه نادیده."""
+    """مسیرِ مشترکِ webhook و getUpdates (B6): pre_checkout، successful_payment و P26 `/start`."""
     if not isinstance(data, dict):
         return
     pre_checkout = data.get("pre_checkout_query")
@@ -607,13 +607,126 @@ async def _dispatch_bale_update(data: dict) -> None:
         await _handle_bale_pre_checkout(pre_checkout)
         return
 
-    successful_payment = (data.get("message") or {}).get("successful_payment")
-    if successful_payment:
+    message = data.get("message")
+    if isinstance(message, dict) and isinstance(message.get("successful_payment"), dict):
+        successful_payment = message["successful_payment"]
         await payment_event_service.log_event(
             "bale", "in", "successful_payment", reference=successful_payment.get("telegram_payment_charge_id"),
             raw=successful_payment, group_ref=successful_payment.get("invoice_payload"),
         )
         await _handle_bale_successful_payment(successful_payment)
+        return
+
+    if isinstance(message, dict):
+        text = (message.get("text") or "").strip()
+        if text.startswith("/start"):
+            await _handle_bale_payment_handoff(message, text)
+
+
+async def _handle_bale_payment_handoff(message: dict, text: str) -> None:
+    """P26: کاربر لینکِ `https://ble.ir/<ربات>?start=<payload>` را باز کرده است.
+
+    بله هیچ آدرسِ پرداختی ندارد (MEASURED: `ble.ir/pay/…` ⇒ ۴۰۴) و خروجیِ `createInvoiceLink`
+    فقط شناسهٔ مینی‌اپ است؛ پس این‌جا صورتحسابِ **بومیِ** بله را با `sendInvoice` به همان چت
+    می‌فرستیم: کاربر دکمهٔ «پرداخت» خودِ بله را می‌بیند، `pre_checkout_query` (که هندلرش همین
+    فایل است) جواب می‌گیرد و بعدِ موفقیت، همان `invoice_payload` مسیرِ شارژِ کیف‌پول/سفارش را
+    پیدا می‌کند. `payload` خودش رمزِ غیرقابل‌حدس است (nonce) و هیچ هویتِ دیگری لازم نیست.
+    """
+    parts = text.split(" ", 1)
+    payload = parts[1].strip() if len(parts) == 2 else ""
+    chat_id = ((message.get("chat") or {}).get("id")) or ((message.get("from") or {}).get("id"))
+    token = bale_credentials_service.bot_token()
+    if not token or not isinstance(chat_id, int):
+        return
+    if not payload:
+        # کسی که خودش /start می‌زند (نه از لینکِ پرداخت) نباید با سکوت روبه‌رو شود:
+        # از P26 این ربات درِ پرداخت است و کاربر حق دارد بداند اینجا کجاست.
+        try:
+            await bale_service.send_text(token, chat_id, main_texts.BALE_PAY_BOT_IDLE)
+        except bale_service.BaleError:
+            logger.exception("خوشامدِ رباتِ پرداخت (chat %s) ناموفق بود.", chat_id)
+        return
+    await payment_event_service.log_event("bale", "in", "start_handoff", reference=payload[:128], raw={"text": text, "chat_id": chat_id})
+
+    title = description = ""
+    amount_toman: int | None = None
+    provider_token: str | None = None
+    note = ""
+
+    async with session_scope() as session:
+        admin_settings = await get_admin_settings(session)
+        if payload.startswith("payment-"):
+            payment = await payment_service.get_by_bale_payload(session, payload)
+            if payment is not None and payment.status == PaymentStatus.PENDING:
+                amount_toman = int(payment.final_amount)
+                title = "اشتراکِ سرویس" if payment.purpose == PaymentPurpose.SUBSCRIPTION else "شارژِ کیف‌پول"
+                description = f"{title} — کسب‌وکار هوشمند"
+                provider_token = (admin_settings.bale_provider_token or "").strip()
+            elif payment is not None:
+                note = main_texts.BALE_PAY_ALREADY_SETTLED
+            else:
+                note = main_texts.BALE_PAY_LINK_UNKNOWN
+        elif payload.startswith(("cartgroup-", "order-")):
+            shop_bot = None
+            found = False
+            settled = False
+            if payload.startswith("cartgroup-"):
+                group_payment = await order_payment_service.get_by_provider_ref(
+                    session, payload, payment_settings_service.METHOD_BALE
+                )
+                if group_payment is not None:
+                    found = True
+                    if group_payment.status in (
+                        order_payment_service.P_INITIATED,
+                        order_payment_service.P_EXPIRED,
+                    ):
+                        rows = await order_payment_service.group_rows(session, group_payment.shop_bot_id, group_payment.group_id)
+                        amount_toman = order_transition_service.group_total_toman(rows)
+                        shop_bot = await session.get(ShopBot, group_payment.shop_bot_id)
+                    else:
+                        settled = True
+            else:
+                order = await order_service.get_by_bale_payload(session, payload)
+                if order is not None:
+                    found = True
+                    if order.bale_paid_at is None:
+                        amount_toman = int(order.total_toman or 0)
+                        shop_bot = await session.get(ShopBot, order.shop_bot_id)
+                    else:
+                        settled = True
+            if amount_toman:
+                title = "پرداختِ سفارش"
+                description = "سفارش از فروشگاه کسب‌وکار هوشمند"
+                provider_token = await bale_credentials_service.provider_token(session, shop_bot)
+            elif settled:
+                note = main_texts.BALE_PAY_ALREADY_SETTLED
+            elif found:
+                # ردیف هست ولی مبلغی برایِ گرفتن نمی‌ماند (تسویه/انقضایِ مهلتِ پرداخت).
+                note = "این سفارش دیگر مهلتِ پرداخت ندارد؛ از پنلِ فروشگاه دوباره «پرداخت» را بزن."
+            else:
+                note = main_texts.BALE_PAY_LINK_UNKNOWN
+        else:
+            note = "این لینک برایِ پرداخت نیست."
+
+    if not amount_toman or not provider_token:
+        if note:
+            try:
+                await bale_service.send_text(token, chat_id, note)
+            except bale_service.BaleError:
+                logger.exception("پاسخِ لینکِ پرداخت (chat %s) ناموفق بود.", chat_id)
+        return
+
+    try:
+        await bale_service.send_invoice(
+            token, chat_id, provider_token, title=title, description=description,
+            payload=payload, amount_rial=bale_service.toman_to_rial(amount_toman),
+        )
+    except bale_service.BaleError:
+        logger.exception("فرستادنِ صورتحسابِ بله برایِ %s ناموفق بود.", payload[:40])
+        try:
+            await bale_service.send_text(token, chat_id, main_texts.BALE_PAY_ERROR)
+        except bale_service.BaleError:
+            logger.exception("پاسخِ خطایِ صورتحساب هم ناموفق بود (chat %s).", chat_id)
 
 
 async def _start_bale_updates_polling(stop_event: asyncio.Event) -> asyncio.Task | None:

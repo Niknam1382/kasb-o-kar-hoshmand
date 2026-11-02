@@ -14,7 +14,19 @@ BTN_SUPPORT = "📞 ارتباط با پشتیبانی"
 BTN_MY_ORDERS = "📦 سفارش‌هایِ من"
 CUSTOMER_MENU_BUTTONS = {BTN_PRODUCTS, BTN_CART, BTN_SERVICES, BTN_SUPPORT, BTN_MY_ORDERS}
 
-SHOP_WELCOME_CONSULTATION = "سلام! خوش اومدی 👋 هر سوالی داری بپرس؛ برایِ دیدنِ خدمات و بسته‌ها از دکمه‌یِ «🗂 خدمات و بسته‌ها» استفاده کن."
+SHOP_WELCOME_CONSULTATION = (
+    "سلام! خوش اومدی 👋 اینجا همه‌چیز با نوشتنِ سوال پیش می‌ره؛ هر چیزی درباره‌یِ کارهایی که انجام "
+    "می‌دیم، شرایط، زمانِ مراجع یا هزینه‌ها بپرس. من از متن‌ها و اطلاعاتی که خودِ مجموعه ثبت کرده "
+    "جواب می‌دم و هر جا لازم باشد تو را به آدمِ پشتِ میز می‌رسانم."
+)
+
+
+def shop_welcome_consultation(support_enabled: bool = False) -> str:
+    """P26: در مودِ مشاوره‌ای هیچ دکمه‌ای در منو نیست (P25 دو دکمهٔ بی‌محتوا را برداشت)، پس
+    خوشامد هم نباید به دکمه‌ای اشاره کند؛ فقط اگر پشتیبانی روشن باشد همان یک دکمه را معرفی می‌کند."""
+    if not support_enabled:
+        return SHOP_WELCOME_CONSULTATION
+    return f"{SHOP_WELCOME_CONSULTATION}\n\nاگر خواستی با خودِ مجموعه صحبت کنی، دکمهٔ «📞 ارتباط با پشتیبانی» پایینِ صفحه است."
 MENU_REPLY = "منوی فروشگاه 👇"
 STALE_BUTTON_REPLY = "این دکمه مالِ نسخه‌یِ قبلیِ منو بود. منویِ تازه رو برات فرستادم 👇"
 SERVICES_EMPTY = "این کسب‌وکار فعلاً خدمات یا بسته‌ای ثبت نکرده. سوالت رو همین‌جا بپرس."
@@ -483,7 +495,12 @@ def payment_expired_message(code: str) -> str:
 def online_pay_offer(method: str, total_toman: int, expires_text: str) -> str:
     from app.utils.validators import format_toman
 
-    extra = "\nبرایِ پرداختِ بله‌پی باید حسابِ «بله» داشته باشی؛ لینک داخلِ بله باز می‌شه." if method == "bale" else ""
+    extra = (
+        "\nبله برایِ پرداخت آدرسِ وبی ندارد: لینک، چتِ رباتِ پرداخت را در اپِ بله باز می‌کند و "
+        "صورتحساب را خودِ بله همان‌جا نشان می‌دهد (با کیف‌پولِ بله پرداخت می‌شود)."
+        if method == "bale"
+        else ""
+    )
     return (
         f"💳 پرداختِ آنلاین ({PAY_METHOD_LABELS.get(method, method)})\n"
         f"مبلغ: {format_toman(total_toman)}\n"

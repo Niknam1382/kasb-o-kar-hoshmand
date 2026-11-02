@@ -2,34 +2,36 @@ from __future__ import annotations
 
 import asyncio
 import re
-from urllib.parse import urlsplit
+from urllib.parse import quote
 
 import aiohttp
 
 from app.config import settings
 
 # =============================================================================
-# نکته‌ی مهم درباره‌ی این فایل — وضعیتِ راستی‌آزماییِ Bale Pay (به‌روز: P25، ۲۰۲۶-۱۱-۰۲)
+# نکته‌ی مهم درباره‌ی این فایل — وضعیتِ راستی‌آزماییِ Bale Pay (به‌روز: P26، ۲۰۲۶-۱۱-۰۲)
 #
 # API بله بر پایه‌ی همان طرحِ Telegram Bot API است (chat_id، sendInvoice،
-# pre_checkout_query، successful_payment، inquireTransaction). درباره‌ی
-# createInvoiceLink سه شاهدِ مستقل داریم:
-# ۱) MEASURED در این محیط: پاسخ `result: "invoice_id=M6dm…"` است، یعنی بله خودِ
-#    آدرسِ کامل را برنمی‌گرداند. «currency» را هم نمی‌فرستیم و پاسخ ok بوده، پس آن
+# pre_checkout_query، successful_payment، inquireTransaction). درباره‌ی «لینکِ پرداخت»
+# سه شاهدِ مستقل داریم:
+# ۱) MEASURED در این محیط: پاسخِ `createInvoiceLink` رشتهٔ `invoice_id=M6dm…` است،
+#    یعنی بله آدرسی برنمی‌گرداند. «currency» را هم نمی‌فرستیم و پاسخ ok بوده، پس آن
 #    فیلد در این API لزومی ندارد (برخلافِ متنِ داکیومنت).
-# ۲) سندِ «دستورالعملِ نهاییِ درگاهِ پرداختِ بله‌پی» که کاربر از docs.bale.ai
-#    استخراج کرده: خروجی آدرسی به‌شکلِ `https://bale.ai/pay/<id>` است. این دو با هم
-#    سازگارند، پس DEFAULT_PAY_LINK_TEMPLATE پیش‌فرضِ داخلی شده و دیگر لازم نیست
-#    ادمین چیزی را دستی کپی کند (قبلاً اگر متنِ نمونه‌ی داکیومنت را می‌چسباند،
-#    تلگرام آدرس را رد می‌کرد و دکمه می‌مرد).
+# ۲) MEASURED با پروبِ زنده (P26): `https://bale.ai/pay/<id>` ⇒ ۴۰۴،
+#    `https://ble.ir/pay/abc` ⇒ ۴۰۴، ولی `https://ble.ir/<username>` ⇒ ۲۰۰ و
+#    `?start=<payload>` هم در HTML همان صفحه می‌نشیند. یعنی آدرسِ پرداختی وجود ندارد؛
+#    چیزی که وجود دارد چتِ ربات است. همان سندِ بله، همان `invoice_id` را «شناسهٔ
+#    مینی‌اپ» می‌داند که با `openInvoice(invoiceParams)` مصرف می‌شود — و مینی‌اپ
+#    میزبانیِ HTTPSِ خودمان را می‌خواست، که نداریم و لازم نیست.
 # ۳) جریانِ چتی (sendInvoice + answerPreCheckoutQuery + inquireTransaction) که در
 #    app/main.py هندل می‌شود؛ طبقِ همان سند پاسخِ pre_checkout باید حداکثر ظرف ۱۰
 #    ثانیه برسد (اولویتِ پردازش در bale_updates_service).
 #
-# با این حال زنجیره‌ی کاملِ «لینک → پرداخت در اپ بله → شارژِ کیف‌پول» هنوز با یکِ
-# تراکنشِ واقعیِ کوچک تایید نشده (NOT RUN — هزینه‌ی واقعیِ پولِ خودت). هر دو مصرفِ
-# این فایل (پرداختِ فروشگاه‌دار به پلتفرم و پرداختِ مشتری به فروشگاه) رویِ همین
-# پایه‌اند؛ اگر بله شکلِ لینک را عوض کرد، فقط همین فایل و ستونِ «قالبِ لینک» کافی است.
+# پس لینکِ پرداخت = `pay_chat_link()` (چتِ رباتِ پرداخت با start param) و صورتحساب
+# با `send_invoice()` در همان چت فرستاده می‌شود. `create_invoice_link` فقط در
+# «🧪 آزمایشِ بله‌پی» مانده تا اثباتِ کارکردنِ توکنِ درگاه حفظ شود.
+# با این حال زنجیره‌ی کاملِ «لینک → چت → صورتحساب → پرداختِ واقعی → شارژ» هنوز با یکِ
+# تراکنشِ واقعیِ کوچک تایید نشده (NOT RUN — هزینه‌ی واقعیِ پولِ خودت).
 # =============================================================================
 
 SUCCESS_TRANSACTION_STATUSES = {"succeed", "successful", "success", "paid", "ok"}
@@ -151,7 +153,9 @@ async def create_invoice_link(
     amount_rial: int,
 ) -> str:
     """
-    یه لینکِ پرداخت می‌سازه که کاربر می‌تونه توی مرورگر یا اپِ بله بازش کنه — نیازی به chat_idِ از قبل نیست.
+    شناسهٔ پرداخت برایِ **مینی‌اپ** می‌سازد (سندِ رسمی: «برای استفاده در مینی‌اپ‌ها») — این آدرسِ
+    قابل‌کلیک در مرورگر **نیست** و از P26 دیگر به‌عنوانِ لینکِ پرداخت مصرف می‌شود؛ مصرفِ فعلی‌اش
+    فقط «🧪 آزمایشِ بله‌پی» است (اثباتِ این‌که توکنِ درگاه کار می‌کند).
     amount_rial باید به ریال باشه (نه تومان؛ از toman_to_rial استفاده کن). B2: فیلدِ currency نداریم (بله فقط ریال می‌شناسه)،
     طولِ title (≤۳۲) و description (≤۲۵۵) می‌بُره و payload بیشتر از ۱۲۸ بایت رو صراحتاً رد می‌کنه (بریدنش تطبیقِ پرداخت رو خراب می‌کرد).
     """
@@ -174,101 +178,73 @@ async def create_invoice_link(
     return result
 
 
-INVOICE_ID_FIELD = "invoice_id"
-PLACEHOLDER_ID = "{invoice_id}"
-PLACEHOLDER_PARAMS = "{invoice_params}"
-# از «دستورالعملِ نهاییِ درگاهِ پرداختِ بله‌پی» (سندِ رسمیِ docs.bale.ai که کاربر داد): خروجیِ
-# createInvoiceLink یکِ آدرسِ `https://bale.ai/pay/<id>` است. در این محیط اندازه گرفته شد که بله
-# خودِ این را به‌شکلِ `invoice_id=<id>` برمی‌گرداند، پس همین قالبِ رسمی به‌عنوانِ پیش‌فرضِ داخلی
-# استفاده می‌شود و «قالبِ لینک» در پنل فقط برایِ override است (بدونِ آن دکمه می‌مرد).
-DEFAULT_PAY_LINK_TEMPLATE = "https://bale.ai/pay/{invoice_id}"
+async def send_invoice(
+    bot_token: str,
+    chat_id: int,
+    provider_token: str,
+    title: str,
+    description: str,
+    payload: str,
+    amount_rial: int,
+) -> None:
+    """P26: صورتحسابِ **بومیِ** بله را در یکِ چت می‌فرستد — همین است که دکمهٔ «پرداخت» را با
+    کیف‌پولِ بله باز می‌کند و بعد `pre_checkout_query` و `successful_payment` را برایِ همین
+    ربات می‌فرستد (که در `app/main.py` هندل می‌شوند).
 
-# میزبانِ واقعی: برچسب‌هایِ کوچکِ الف/رقم/خط‌تیره، جداشده با نقطه، بدونِ زیرخط و بدونِ حرفِ بزرگ.
-# دقیقاً همین قانون، مقدارِ نمونهٔ داکیومنت‌ها (`YOUR_BALE_PAYMENT_BASE_URL`) را رد می‌کند — تلگرام
-# چنین آدرسی را «Wrong HTTP URL» می‌زند و هندلرِ پرداخت بعد ازِ ساختِ invoice می‌ترکد (MEASURED).
-_HOSTNAME_RE = re.compile(
-    r"^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
-)
-
-
-
-def parse_invoice_result(result: str) -> tuple[str | None, str, str]:
-    """به دو شکل برمی‌گردد: یا آدرسِ کامل، یا `کلید=مقدار`. خروجی: (url|None, شناسه, رشتهٔ خام).
-
-    MEASURED از `payment_event_logs`ِ همین محیط: بله «invoice_id=M6dm…» می‌دهد، نه URL.
-    چیزی که نه آدرس است نه `کلید=مقدار` ⇒ (None, "", "")؛ یعنی قابلِ مصرف نیست. جایِ خالی را در
-    قالب نمی‌چشانیم، وگرنه لینکِ نصفه دقیقاً همان «دکمهٔ مرده» را برمی‌گرداند.
+    برخلافِ `createInvoiceLink` این مسیر در مستنداتِ رسمیِ بله کامل آمده و به مرورگر/میزبانی
+    نیاز ندارد؛ تنها پیش‌نیازش این است که فرستنده‌یِ پرداخت با این ربات در اپِ بله گفتگو کرده
+    باشد — همان کاری که `pay_chat_link()` با یکِ لمس انجام می‌دهد.
     """
-    text = (result or "").strip()
-    if text.startswith("http://") or text.startswith("https://"):
-        return text, "", text
-    key, sep, value = text.partition("=")
-    if sep and key.strip() and value.strip():
-        return None, value.strip(), text
-    return None, "", ""
+    clean_title = (title or "").strip()[:32] or "پرداخت"
+    clean_description = (description or "").strip()[:255] or clean_title
+    if not payload or len(payload.encode("utf-8")) > 128:
+        raise BaleError("payload باید بینِ ۱ تا ۱۲۸ بایت باشه.")
+    if int(amount_rial) <= 0:
+        raise BaleError("مبلغِ پرداخت باید مثبت باشه.")
+    if not str(chat_id).strip():
+        raise BaleError("برایِ sendInvoice نشانیِ چت لازم است.")
+    await _call(
+        bot_token,
+        "sendInvoice",
+        {
+            "chat_id": int(chat_id),
+            "title": clean_title,
+            "description": clean_description,
+            "payload": payload,
+            "provider_token": provider_token,
+            "prices": [{"label": clean_title, "amount": int(amount_rial)}],
+        },
+    )
 
 
-def valid_link_template(raw: str | None) -> bool:
-    """قالبِ لینک باید آدرسِ http(s) باشد و یکی از جای‌نگهدارها را داشته باشد (اگر خالی است، پاک‌کردن حساب می‌شود)."""
-    text = (raw or "").strip()
-    if not text:
-        return True
-    if len(text) > 256 or any(ch.isspace() for ch in text):
-        return False
-    if not (text.startswith("http://") or text.startswith("https://")):
-        return False
-    return PLACEHOLDER_ID in text or PLACEHOLDER_PARAMS in text
+# P26 — پروبِ زنده در همین محیط (پاسخ‌های HTTP واقعی):
+#   https://ble.ir/smartbusinessbot                   ⇒ 200 (صفحهٔ همان ربات در اپ/وبِ بله)
+#   https://ble.ir/smartbusinessbot?start=pay-TEST    ⇒ 200 و پارامتر به کلاینت می‌رسد
+#   https://ble.ir/nonexistentbotxyz123               ⇒ 404 (پس مسیرها سنجیده می‌شوند)
+#   https://ble.ir/pay/abc · https://bale.ai/pay/<id> ⇒ 404 — هیچ آدرسِ پرداختی وجود ندارد
+# مستنداتِ مینی‌اپ هم می‌گوید خروجیِ createInvoiceLink فقط با `openInvoice(invoiceParams)` داخلِ
+# مینی‌اپ مصرف می‌شود. پس «لینکِ پرداخت» یعنی لینکِ چتِ ربات با یکِ start param، و صورتحساب را
+# خودِ بله در همان چت نشان می‌دهد (`send_invoice` در این فایل).
+BLE_BOT_LINK_BASE = "https://ble.ir"
+_BOT_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{4,31}$")
 
 
-def usable_link_template(raw: str | None) -> bool:
-    """«قالبِ قابلِ استفاده» = سینتکسِ درست + میزبانِ واقعی؛ خالی یعنی «استفاده نکن».
+def pay_chat_link(bot_username: str | None, payload: str | None) -> str | None:
+    """لینکی که در تلگرام هم باز می‌شود و کاربر را در اپِ بله به چتِ رباتِ پرداخت می‌برد.
 
-    قالبِ سینتکس‌درستِ میزبانِ جعلی لینکی می‌سازد که تلگرام آن را «Wrong HTTP URL» رد می‌کند و آن
-    شکست بعدِ ساختِ invoice و در میانهٔ ارسالِ پیام می‌افتد ⇒ دکمهٔ مرده + پرداختِ rollback‌شده
-    (MEASURED در لاگِ همین محیط با `https://YOUR_BALE_PAYMENT_BASE_URL?…`).
+    `payload` همان رشته‌ای است که داخلِ صورتحساب می‌نشیند (`payment-…` / `cartgroup-…` / `order-…`)،
+    پس `/start` همان کلیدِ lookupِ مسیرِ پرداخت است و جدولِ واسطِ دیگری لازم نیست. None یعنی
+    «لینکی نساز» (ربات username ندارد)؛ فراخوانِ بالاتر پیامِ صادقانه می‌دهد، نه لینکِ مرده.
     """
-    text = (raw or "").strip()
-    if not text or not valid_link_template(text):
-        return False
-    return bool(_HOSTNAME_RE.match(urlsplit(text).hostname or ""))
-
-
-def payment_link_source(template: str | None) -> str | None:
-    """لینک از کجا ساخته می‌شود: `panel` (قالبِ ادمین) / `default` (پیش‌فرضِ مستندِ بله) / `None`."""
-    if usable_link_template(template):
-        return "panel"
-    return "default"
-
-
-def _build_link(pattern: str, invoice_id: str, raw: str) -> str | None:
-    if PLACEHOLDER_ID in pattern:
-        if not invoice_id:
-            return None
-    elif PLACEHOLDER_PARAMS not in pattern:
+    name = (bot_username or "").strip().lstrip("@")
+    if not name or not payload or not _BOT_USERNAME_RE.match(name):
         return None
-    # `.replace` به‌جای `.format` تا هیچ علامتِ دیگرِ آدرس (مثلِ `{}` در query) نترکد.
-    built = pattern.replace(PLACEHOLDER_ID, invoice_id).replace(PLACEHOLDER_PARAMS, raw)
-    return built if built.startswith(("http://", "https://")) else None
+    return f"{BLE_BOT_LINK_BASE}/{name}?start={quote(payload, safe='-._')}"
 
 
-def resolve_payment_link(result: str, template: str | None = None) -> str | None:
-    """یا همان URLِ برگشتیِ بله، یا ساختنِ آدرس با قالبِ ادمین و در نبودِ آن با پیش‌فرضِ مستندِ بله.
-
-    لینکِ بی‌اعتبار یا نصفه هرگز برنمی‌گردد (None ⇒ بالاترینِ فراخوان پیامِ صادقانه می‌دهد) و
-    قالبِ نامعتبرِ پنل (مثلِ متنِ نمونهٔ `YOUR_BALE_PAYMENT_BASE_URL`) با پیش‌فرض عوض می‌شود.
-    """
-    url, invoice_id, raw = parse_invoice_result(result)
-    if url:
-        return url
-    if not raw:
-        return None
-    for pattern in ((template or "").strip(), DEFAULT_PAY_LINK_TEMPLATE):
-        if not pattern or not usable_link_template(pattern):
-            continue
-        built = _build_link(pattern, invoice_id, raw)
-        if built:
-            return built
-    return None
+async def send_text(bot_token: str, chat_id: int, text: str) -> None:
+    """یکِ پیامِ متنی ساده (برایِ پاسخِ `/start`ِ لینکِ پرداخت وقتی چیزی پیدا نشد)."""
+    await _call(bot_token, "sendMessage", {"chat_id": int(chat_id), "text": (text or "")[:4000]})
 
 
 async def answer_pre_checkout_query(

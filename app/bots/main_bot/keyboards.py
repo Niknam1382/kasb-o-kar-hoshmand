@@ -425,7 +425,7 @@ def zarinpal_pay_keyboard(pay_url: str) -> InlineKeyboardMarkup:
 
 
 def bale_pay_keyboard(pay_url: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔗 رفتن به بله‌پی", url=pay_url)]])
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔵 باز کردنِ پرداخت در اپِ بله", url=pay_url)]])
 
 
 def admin_payment_approval_keyboard(payment_id: int) -> InlineKeyboardMarkup:
@@ -514,6 +514,20 @@ def scheduled_empty_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")],
         ]
     )
+
+
+def schedule_when_keyboard() -> InlineKeyboardMarkup:
+    """P26: «کی ارسال شود؟» با پنج گزینهٔ آماده — نوشتنِ ساعت فقط یکِ انتخاب است، نه شرط."""
+    buttons = [
+        InlineKeyboardButton(text="+۱ ساعت", callback_data="sched_when:1h"),
+        InlineKeyboardButton(text="+۳ ساعت", callback_data="sched_when:3h"),
+        InlineKeyboardButton(text="امشب ۲۱:۰۰", callback_data="sched_when:tonight"),
+        InlineKeyboardButton(text="فردا ۱۰:۰۰", callback_data="sched_when:tom10"),
+        InlineKeyboardButton(text="فردا ۱۸:۰۰", callback_data="sched_when:tom18"),
+        InlineKeyboardButton(text="✍️ ساعتِ دلخواه", callback_data="sched_when:custom"),
+        InlineKeyboardButton(text="❌ لغو", callback_data="customer_broadcast_cancel"),
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=20))
 
 
 def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
