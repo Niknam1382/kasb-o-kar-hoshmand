@@ -48,7 +48,7 @@ from app.bots.shop_bot import texts as shop_texts  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.database.models import Campaign, CampaignDiscountType, Customer, OrderConsultation, OrderStatus, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
-from app.services import bale_service, campaign_service, excel_export_service, product_service, stats_service  # noqa: E402
+from app.services import bale_credentials_service, bale_service, campaign_service, excel_export_service, product_service, stats_service  # noqa: E402
 from app.services.admin_settings_service import update_setting  # noqa: E402
 from openpyxl import load_workbook  # noqa: E402
 from sqlalchemy import select  # noqa: E402
@@ -544,8 +544,8 @@ async def test_bale_invoice_uses_discounted_amount_and_free_order_skips_payment(
     bale_service.create_invoice_link = _fake_create_invoice_link
     async with session_scope() as session:
         await update_setting(session, "bale_pay_enabled", True)
-        # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی ساخته نمی‌شود (بله فقط شناسه می‌دهد نه آدرس).
-        await update_setting(session, "bale_pay_link_template", "https://bale-gateway.test/pay?invoice_id={invoice_id}")
+        # P26: لینکِ پرداخت = چتِ رباتِ پرداخت؛ نامِ کاربری را به‌جایِ getMe می‌گذاریم (تست به شبکه نمی‌زند).
+        bale_credentials_service.remember_pay_bot_username('platform_pay_bot')
         (await session.get(ShopBot, shop_bot_id)).bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
 
     ten_percent_id = await _new_campaign(shop_bot_id, name="۱۰٪")

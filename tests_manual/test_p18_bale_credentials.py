@@ -46,16 +46,24 @@ SHOP_TOKEN = "SHOP-OWN-PROVIDER-TOKEN"
 GLOBAL_TOKEN = "GLOBAL-ADMIN-PROVIDER-TOKEN"
 ENV_BOT_TOKEN = "123456:ENV-BALE-BOT-TOKEN"
 PANEL_BOT_TOKEN = "654321:PANEL-BALE-BOT-TOKEN"
-# P25: قالبِ لینکِ پرداخت اختیاری شد (پیش‌فرضِ مستندِ بله: https://bale.ai/pay/{invoice_id})؛
-# این مقدار فقط «overrideِ ذخیره‌شده در پنل» را تست می‌کند و دیگر علتِ ناقص‌بودن نیست.
-LINK_TEMPLATE = "https://gateway.test/bale/pay?invoice_id={invoice_id}"
+# P26: لینکِ پرداخت یعنی چتِ رباتِ پرداخت (`https://ble.ir/<username>?start=<payload>`)؛ نامِ
+# کاربری در حالتِ عادی از getMe خوانده می‌شود و در تست از `remember_pay_bot_username` (بی‌شبکه).
+PLATFORM_PAY_BOT = "platform_pay_bot"
 
 _created: list[dict] = []
+_sent_invoices: list[dict] = []
 
 
 async def _fake_create_invoice_link(bot_token, provider_token, title, description, payload, amount_rial):
     _created.append({"bot_token": bot_token, "provider_token": provider_token, "payload": payload, "amount_rial": amount_rial})
-    return f"https://fake-bale.test/{payload}"
+    return f"invoice_id=fake-{payload}"
+
+
+async def _fake_send_invoice(bot_token, chat_id, provider_token, *, title, description, payload, amount_rial):
+    """جایِ `bale_service.send_invoice` — همان چیزی که P26 در مسیرِ `/start` می‌فرستد."""
+    _sent_invoices.append(
+        {"bot_token": bot_token, "chat_id": chat_id, "provider_token": provider_token, "payload": payload, "amount_rial": amount_rial}
+    )
 
 
 def _datas(markup) -> list[str]:
@@ -74,6 +82,10 @@ class _Cfg:
             self._saved[key] = getattr(settings, key)
             setattr(settings, key, value)
         creds.reset_cache()
+        # P26: لینکِ پرداخت = چتِ رباتِ بله، پس نامِ کاربری (در حالتِ عادی از getMe) لازم است.
+        # توکن که باشد، همان نامِ کاربری را می‌گذاریم تا تست به شبکه نزند؛ توکنِ خالی ⇒ کش خالی.
+        if getattr(settings, "bale_bot_token", ""):
+            creds.remember_pay_bot_username(PLATFORM_PAY_BOT)
         return self
 
     def __exit__(self, *_exc) -> None:
@@ -149,18 +161,20 @@ async def test_shop_status_reports_every_reason() -> None:
                 creds.MISSING_BOT_TOKEN,
                 creds.ADMIN_DISABLED,
                 creds.MISSING_PROVIDER_TOKEN,
+                creds.MISSING_PAY_BOT_USERNAME,
             }, status.missing
             assert not status.available
-            # فروشگاه‌دار کلیدِ خودش را خاموش کرده ⇒ علتِ چهارم هم اضافه می‌شود
+            # فروشگاه‌دار کلیدِ خودش را خاموش کرده ⇒ علتِ پنجم هم اضافه می‌شود
             row.bale_enabled = False
             status = await creds.shop_status(session, shop_bot, row)
-            assert creds.SHOP_DISABLED in status.missing and len(status.missing) == 4
+            assert creds.SHOP_DISABLED in status.missing and len(status.missing) == 5
             # پیکربندیِ کامل ⇒ هیچ علتی نیست
             row.bale_enabled = True
             shop_bot.bale_provider_token = SHOP_TOKEN
             await update_setting(session, "bale_pay_enabled", True)
-            await update_setting(session, "bale_pay_link_template", LINK_TEMPLATE)
         with _Cfg(bale_bot_token=ENV_BOT_TOKEN):
+            # P26: لینکِ پرداخت = چتِ ربات ⇒ نامِ کاربری (که در حالتِ عادی از getMe می‌آید) لازم است
+            creds.remember_pay_bot_username(PLATFORM_PAY_BOT)
             async with session_scope() as session:
                 shop_bot = await session.get(ShopBot, shop_bot_id)
                 row = await payment_settings_service.get(session, shop_bot_id)
@@ -186,6 +200,7 @@ async def _run_matrix_case(
     shop_bot_id, p1, p2 = await _seed()
     await _configure(shop_bot_id, shop_token=shop_token, global_token=global_token, admin_enabled=admin_enabled)
     _created.clear()
+    _sent_invoices.clear()
     with _Cfg(bale_bot_token=bot_token):
         shop_payments._last_owner_misconfig_alert.clear()  # محدودیتِ نرخِ هشدار بینِ تست‌ها نشت نکند
         env = _Env(shop_dp, _main_dp, bot_manager, main_bot, shop_bot_id, p1, p2)
@@ -193,7 +208,15 @@ async def _run_matrix_case(
         group = await env.checkout([p1, p2])
         shown = f"pm_bale:{group}" in await _payment_keyboard(env, group)
         await env.cust_cb(f"pm_bale:{group}")
-        worked = bool(_created)
+        # P26: «پرداختِ واقعاً ممکن» یعنی مشتری لینکِ چتِ بله را گرفت **و** `/start`ِ همان لینک
+        # صورتحساب را با توکنِ درگاهِ درست ساخت (تطبیقِ پولِ همان فروشگاه).
+        link = _last_bale_link(env)
+        worked = link is not None
+        if worked:
+            payload = link.split("start=", 1)[1]
+            await app_main._dispatch_bale_update(
+                {"update_id": 1, "message": {"chat": {"id": 777001}, "text": f"/start {payload}"}}
+            )
         alert_texts = [a.get("text") or "" for a in env.cust_alerts()]
         assert shown == worked, (
             f"دکمه‌یِ بله‌پی و پرداختِ واقعی باید هم‌ارزش باشند (shown={shown}, worked={worked}) — "
@@ -202,12 +225,26 @@ async def _run_matrix_case(
         if not worked:
             assert shop_texts.PAY_METHOD_UNAVAILABLE in alert_texts, f"مشتری باید پیامِ مودبانه ببیند: {alert_texts}"
             assert not any("provider" in t.lower() or "BALE_BOT_TOKEN" in t for t in alert_texts), "پیامِ فنی به مشتری نرسد"
-        return shown, worked, list(_created)
+        return shown, worked, list(_sent_invoices)
+
+
+def _last_bale_link(env) -> str | None:
+    """آخرین لینکِ `ble.ir` که به مشتری نشان داده شده (از edit_text یا answer)."""
+    session_obj = env.shop_bot.session
+    for record in reversed(list(session_obj.edited_texts) + list(session_obj.sent_messages)):
+        markup = record.get("reply_markup")
+        for row in getattr(markup, "inline_keyboard", []) or []:
+            for btn in row:
+                url = getattr(btn, "url", None)
+                if url and url.startswith("https://ble.ir/"):
+                    return url
+    return None
 
 
 async def test_button_and_payment_never_disagree(shop_dp, main_dp, bot_manager, main_bot) -> None:
     dispatchers = (main_dp, shop_dp, bot_manager, main_bot)
     bale_service.create_invoice_link = _fake_create_invoice_link
+    bale_service.send_invoice = _fake_send_invoice
 
     # ۱) کامل با توکنِ درگاهِ فروشگاه
     shown, worked, made = await _run_matrix_case(

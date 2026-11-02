@@ -27,6 +27,7 @@ from app.database.models import OrderConsultation, OrderPayment, Product, ShopBo
 from app.database.session import session_scope  # noqa: E402
 from app.services import (  # noqa: E402
     ai_pool_service,
+    bale_credentials_service,
     bale_service,
     order_payment_service,
     order_state,
@@ -58,8 +59,8 @@ async def _configure(shop_bot_id: int, *, card: bool = False, bale: bool = False
             shop_bot = await session.get(ShopBot, shop_bot_id)
             shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
             await update_setting(session, "bale_pay_enabled", True)
-            # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی ساخته نمی‌شود (بله فقط شناسه می‌دهد نه آدرس).
-            await update_setting(session, "bale_pay_link_template", "https://bale-gateway.test/pay?invoice_id={invoice_id}")
+            # P26: ملاکِ ساختنِ لینک، نامِ کاربریِ رباتِ پرداخت است (قالبِ لینک از پنل برداشته شد).
+            bale_credentials_service.remember_pay_bot_username("platform_pay_bot")
 
 
 async def _payments() -> list[OrderPayment]:
@@ -374,20 +375,30 @@ async def test_bale_new_flow(shop_dp, main_dp, bot_manager, main_bot) -> None:
     created: list[dict] = []
 
     async def fake_create(bot_token, provider_token, title, description, payload, amount_rial):
+        return f"invoice_id={payload}"
+
+    async def fake_send_invoice(bot_token, chat_id, provider_token, *, title, description, payload, amount_rial):
         created.append({"provider_token": provider_token, "payload": payload, "amount_rial": amount_rial})
-        return f"https://fake-bale.test/{payload}"
 
     bale_service.create_invoice_link = fake_create
+    bale_service.send_invoice = fake_send_invoice
+    # P26: لینکِ پرداخت = چتِ ربات ⇒ نامِ کاربری (در حالتِ عادی از getMe) لازم است
+    bale_credentials_service.remember_pay_bot_username("platform_pay_bot")
     env = _Env(shop_dp, main_dp, bot_manager, main_bot, shop_bot_id, p1, p2)
     app_main._state["bot_manager"], app_main._state["main_bot"] = bot_manager, main_bot
     g = await env.checkout([p1, p2])
     assert f"pm_bale:{g}" in _datas(env.shop_bot.session.edited_texts[-1]["reply_markup"])
     await env.cust_cb(f"pm_bale:{g}")
-    assert len(created) == 1 and created[0]["provider_token"] == "SHOP-OWN-PROVIDER-TOKEN" and created[0]["amount_rial"] == 2_500_000
+    urls = [b.url for r in env.shop_bot.session.edited_texts[-1]["reply_markup"].inline_keyboard for b in r if b.url]
+    assert urls and urls[0].startswith("https://ble.ir/"), urls
     payment = (await _payments())[0]
     assert payment.method == "bale" and payment.provider_ref.startswith(f"cartgroup-{g}-")
-    urls = [b.url for r in env.shop_bot.session.edited_texts[-1]["reply_markup"].inline_keyboard for b in r if b.url]
-    assert urls and urls[0].startswith("https://fake-bale.test/")
+    # مشتری لینک را زده: `/start <payload>` باید صورتحساب را با درگاهِ *همان فروشگاه* بسازد
+    await app_main._dispatch_bale_update(
+        {"update_id": 3, "message": {"chat": {"id": 777007}, "text": f"/start {payment.provider_ref}"}}
+    )
+    assert len(created) == 1 and created[0]["provider_token"] == "SHOP-OWN-PROVIDER-TOKEN" and created[0]["amount_rial"] == 2_500_000
+    assert created[0]["payload"] == payment.provider_ref, "کلیدِ تطبیقِ همان payload باقی می‌ماند"
 
     # ۱) استعلام ناموفق/مبلغِ اشتباه/نامشخص ⇒ هیچ تغییری
     async def inquire_wrong_amount(bot_token, transaction_id):

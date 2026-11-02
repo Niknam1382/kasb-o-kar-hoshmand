@@ -52,7 +52,7 @@ from app.bots.shop_bot.handlers import customer as customer_handlers  # noqa: E4
 from app.config import settings  # noqa: E402
 from app.database.models import OrderStatus, OrderType, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
-from app.services import bale_service, customer_service, order_service, shop_bot_service, shop_owner_service  # noqa: E402
+from app.services import bale_credentials_service, bale_service, customer_service, order_service, shop_bot_service, shop_owner_service  # noqa: E402
 from app.services.admin_settings_service import get_admin_settings, update_setting  # noqa: E402
 
 OWNER_TG_ID = 999901
@@ -77,8 +77,8 @@ async def _seed(with_provider_token: bool) -> tuple[int, int]:
     shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
     async with session_scope() as session:
         await update_setting(session, "bale_pay_enabled", True)
-        # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی ساخته نمی‌شود (بله فقط شناسه می‌دهد نه آدرس).
-        await update_setting(session, "bale_pay_link_template", "https://bale-gateway.test/pay?invoice_id={invoice_id}")
+        # P26: لینکِ پرداخت = چتِ رباتِ پرداخت؛ نامِ کاربری را به‌جایِ getMe می‌گذاریم (تست به شبکه نمی‌زند).
+        bale_credentials_service.remember_pay_bot_username('platform_pay_bot')
         if with_provider_token:
             shop_bot = await session.get(ShopBot, shop_bot_id)
             shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"

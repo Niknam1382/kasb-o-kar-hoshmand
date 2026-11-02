@@ -37,7 +37,7 @@ from app.bots.shop_bot import texts as shop_texts  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.database.models import Customer, OrderConsultation, OrderStatus, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
-from app.services import bale_service, cart_service, order_service, product_service  # noqa: E402
+from app.services import bale_credentials_service, bale_service, cart_service, order_service, product_service  # noqa: E402
 from app.services.admin_settings_service import update_setting  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
@@ -395,7 +395,8 @@ async def test_bale_pay_offered_for_cart_when_configured(shop_dp, bot_manager) -
     async with session_scope() as session:
         await update_setting(session, "bale_pay_enabled", True)
         # P23: قالبِ لینک لازم است، وگرنه هیچ پیشنهادِ پرداختِ بله‌پی‌ای ساخته نمی‌شود.
-        await update_setting(session, "bale_pay_link_template", "https://bale-gateway.test/pay?invoice_id={invoice_id}")
+        # P26: لینکِ پرداخت = چتِ رباتِ پرداخت؛ نامِ کاربری را به‌جایِ getMe می‌گذاریم (تست به شبکه نمی‌زند).
+        bale_credentials_service.remember_pay_bot_username('platform_pay_bot')
         shop_bot = await session.get(ShopBot, shop_bot_id)
         shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
 

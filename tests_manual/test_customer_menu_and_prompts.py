@@ -169,7 +169,10 @@ async def test_customer_menu_support_stale_and_escape(shop_dp) -> None:
         await product_service.create_product(s, shop_bot_id, "جلسه‌یِ مشاوره", None, 500_000, None, None)
     await update_shop(tenant_mode=TenantMode.CONSULTATION)
     msg = await say("/start")
-    assert msg["text"] == texts.SHOP_WELCOME_CONSULTATION and _labels(msg["reply_markup"]) == [texts.BTN_SUPPORT]
+    # P26: خوشامدِ مشاوره‌ای هیچ دکمه‌ای را وعده نمی‌دهد؛ فقط «پشتیبانی» (که این‌جا روشن است)
+    assert msg["text"] == texts.shop_welcome_consultation(support_enabled=True)
+    assert _labels(msg["reply_markup"]) == [texts.BTN_SUPPORT]
+    assert "دکمه" not in texts.SHOP_WELCOME_CONSULTATION, "متنِ پایه نباید به دکمه‌ای اشاره کند"
     for stale in (texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_SERVICES, texts.BTN_MY_ORDERS):
         msg = await say(stale)
         assert msg["text"] == texts.STALE_BUTTON_REPLY and _labels(msg["reply_markup"]) == [texts.BTN_SUPPORT]

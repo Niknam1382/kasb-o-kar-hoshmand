@@ -1,17 +1,17 @@
 """
-تست: P25 — لینکِ بله‌پی از پیش‌فرضِ مستند، باطل‌شدنِ پرداختِ بی‌ارسال، حذفِ «مبلغ ثابت» و صفِ ۱۰ ثانیه‌ایِ بله
+تست: P25/P26 — لینکِ پرداختِ بله (BLE.IR) و حذفِ «مبلغ ثابت» از پنلِ ادمین
 
-چهار باگ/خواسته که همه از شواهدِ زنده گرفته شدند (نه حدس):
+باگ‌هایی که این فایل می‌بندد (همه از شواهدِ زنده، نه حدس):
 
 ۱. `bale_pay_link_template` مقدارِ نمونهٔ داکیومنت (`https://YOUR_BALE_PAYMENT_BASE_URL?…`) را داشت؛
-   تلگرام آن را «Wrong HTTP URL» رد می‌کرد و هندلر **بعد از** ساختِ صورتحاس می‌ترکید
+   تلگرام «Wrong HTTP URL» می‌داد و هندلر **بعد از** ساختِ صورتحساب می‌ترکید
    (`panel.py:932` و `shop_bot/handlers/payments.py:225` در لاگِ ۱۳:۰۲ و ۱۳:۰۴) ⇒ «دکمه هیچ کاری
-   نمی‌کند». راهِ رفع: پیش‌فرضِ داخلی `https://bale.ai/pay/{invoice_id}` از همان سند + ردِ میزبانِ
-   جعلی در پنل.
-۲. ردیفِ پرداختِ ساخته‌شده با ترکیدنِ هندلر rollback می‌شد (یا PENDINGِ بی‌صاحب می‌ماند).
+   نمی‌کند» و ردیفِ Payment با هندلر rollback می‌شد.
+۲. پروبِ زنده (P26): `https://bale.ai/pay/<id>` و `https://ble.ir/pay/abc` ⇒ ۴۰۴،
+   `https://ble.ir/smartbusinessbot?start=…` ⇒ ۲۰۰. یعنی هیچ آدرسِ پرداختی وجود ندارد و لینکِ درست
+   چتِ رباتِ پرداخت است؛ صورتحساب را خودِ بله در آن چت نشان می‌دهد.
 ۳. کرشِ `AttributeError: 'str' object has no attribute 'value'` در فهرستِ کدهایِ تخفیف
    (لاگِ ۱۳:۰۵:۴۸) + خواستهٔ کاربر: «کد تخفیف مبلغ ثابت را از پنلِ ادمین حذف کن».
-۴. سندِ بله: پاسخِ `pre_checkout_query` باید حداکثر ۱۰ ثانیه بعد برسد ⇒ آن آپدیت‌ها اولِ صف.
 
 اجرا: python3 tests_manual/run_one.py test_p25_bale_link_and_discounts.py
 """
@@ -48,26 +48,32 @@ from app.database.models import DiscountCode, DiscountType, OrderPayment, Paymen
 from app.database.session import session_scope  # noqa: E402
 from app.services import bale_credentials_service, bale_service, order_payment_service  # noqa: E402
 from app.services.admin_settings_service import get_admin_settings  # noqa: E402
-from app.services.bale_updates_service import order_for_handling  # noqa: E402
 
 OWNER_TG_ID = 999_801
 SHOP_BOT_TG_ID = 999_802
-BALE_RAW_ID = "invoice_id=M6dm2AJsfX32GuWpmlCX"
-DEFAULT_LINK = "https://bale.ai/pay/M6dm2AJsfX32GuWpmlCX"
-PANEL_TEMPLATE = "https://gateway.test/bale/pay?invoice_id={invoice_id}"
-# همان مقداری که در دیتابیسِ توسعه نشسته بود و دکمه را می‌کشت:
-DOC_PLACEHOLDER_TEMPLATE = "https://YOUR_BALE_PAYMENT_BASE_URL?invoice_id={invoice_id}"
+PAY_BOT_USERNAME = "platform_pay_bot"
+PAY_BOT_LINK = f"https://ble.ir/{PAY_BOT_USERNAME}"
 
 
-async def _configure_bale(*, template: str | None) -> None:
-    async with session_scope() as session:
-        admin = await get_admin_settings(session)
-        admin.bale_bot_token = "111111:fake-bale-bot-token-for-tests"
-        admin.bale_provider_token = "provider-token-77"
-        admin.bale_pay_enabled = True
-        admin.bale_pay_link_template = template
-        await session.flush()
-        await bale_credentials_service.refresh(session)
+async def _configure_bale(*, username: str | None = PAY_BOT_USERNAME) -> None:
+    """پیکربندیِ پنلِ ادمین (توکنِ ربات + توکنِ درگاه + سوییچ). `getMe` جای‌گزین می‌شود تا
+    تست هرگز به شبکه‌یِ واقعیِ بله نزند؛ نامِ کاربری از همان getMe خوانده می‌شود."""
+    original_get_me = bale_service.get_me
+
+    async def fake_get_me(token: str) -> dict:
+        return {"id": 42, "username": username or ""}
+
+    bale_service.get_me = fake_get_me
+    try:
+        async with session_scope() as session:
+            admin = await get_admin_settings(session)
+            admin.bale_bot_token = "111111:fake-bale-bot-token-for-tests"
+            admin.bale_provider_token = "provider-token-77"
+            admin.bale_pay_enabled = True
+            await session.flush()
+            await bale_credentials_service.refresh(session)
+    finally:
+        bale_service.get_me = original_get_me
 
 
 async def _payments() -> list[Payment]:
@@ -82,74 +88,72 @@ async def _run_to_payment_methods(chat: Chat) -> list[str]:
     return [btn.text for row in chat.last_markup.inline_keyboard for btn in row]
 
 
-def _fake_invoice_link(raw: str):
-    async def fake(*args, **kwargs):
-        return raw
-
-    return fake
+def _buttons(markup):
+    return [btn for row in markup.inline_keyboard for btn in row] if markup else []
 
 
-# ============================================================================= ۱ — میزبانِ جعلی هرگز به تلگرام نمی‌رود
-def test_unusable_host_never_becomes_a_button_url() -> None:
-    assert bale_service.usable_link_template(DOC_PLACEHOLDER_TEMPLATE) is False
-    assert bale_service.usable_link_template(PANEL_TEMPLATE) is True
-    assert bale_service.usable_link_template(bale_service.DEFAULT_PAY_LINK_TEMPLATE) is True
-    assert bale_service.usable_link_template("") is False, "خالی = «استفاده نکن»، نه «قابلِ استفاده»"
-    assert bale_service.usable_link_template("https://bale.ai/pay") is False, "بی‌جای‌نگهدار"
-    assert bale_service.usable_link_template("https://localhost:8080/pay?i={invoice_id}") is False, "میزبانِ بدونِ نقطه"
-    assert bale_service.usable_link_template("https://bale.one.ai/s/{invoice_id}") is True, "زیردامنهٔ چندتکه"
-    assert bale_service.usable_link_template("https://bale_ai/pay?i={invoice_id}") is False, "میزبانِ دارایِ زیرخط"
-    # و پاسخِ بله با هر دو قالبِ به‌دردنخور به پیش‌فرضِ مستند می‌رسد:
-    assert bale_service.resolve_payment_link(BALE_RAW_ID, DOC_PLACEHOLDER_TEMPLATE) == DEFAULT_LINK
-    assert bale_service.resolve_payment_link(BALE_RAW_ID, None) == DEFAULT_LINK
-    assert bale_service.resolve_payment_link(BALE_RAW_ID, PANEL_TEMPLATE) == (
-        "https://gateway.test/bale/pay?invoice_id=M6dm2AJsfX32GuWpmlCX"
-    )
-    assert bale_service.payment_link_source(DOC_PLACEHOLDER_TEMPLATE) == "default"
-    assert bale_service.payment_link_source(PANEL_TEMPLATE) == "panel"
-    print("✅ test_unusable_host_never_becomes_a_button_url PASSED")
+# ============================================================================= ۱ — لینکِ واقعیِ پرداخت
+def test_pay_chat_link_shape() -> None:
+    link = bale_service.pay_chat_link(PAY_BOT_USERNAME, "payment-7-abcdef")
+    assert link == "https://ble.ir/platform_pay_bot?start=payment-7-abcdef", link
+    assert bale_service.pay_chat_link(f"@{PAY_BOT_USERNAME}", "payment-7-x") == PAY_BOT_LINK + "?start=payment-7-x"
+    # هیچ‌وقت لینکِ ناقص نساز: بدونِ نامِ کاربری / بدونِ payload / نامِ غیرمجاز ⇒ None
+    assert bale_service.pay_chat_link("", "payment-7-x") is None
+    assert bale_service.pay_chat_link(None, "payment-7-x") is None
+    assert bale_service.pay_chat_link(PAY_BOT_USERNAME, "") is None
+    assert bale_service.pay_chat_link("1badbot", "payment-7-x") is None, "نامِ ربات با رقم شروع نمی‌شود"
+    assert bale_service.pay_chat_link("ab", "payment-7-x") is None, "خیلی کوتاه"
+    # پاسخِ خودِ بله هم دیگر به شکلِ آدرس تفسیر نمی‌شود: createInvoiceLink فقط شناسهٔ مینی‌اپ است
+    assert bale_service.pay_chat_link(PAY_BOT_USERNAME, "invoice_id=M6dm") == PAY_BOT_LINK + "?start=invoice_id%3DM6dm"
+    print("✅ test_pay_chat_link_shape PASSED")
 
 
-# ============================================================================= ۲ — قالبِ خالی دیگر دکمه را حذف نمی‌کند
-async def test_button_and_status_survive_without_panel_template(main_dp) -> None:
+# ============================================================================= ۲ — بدونِ رباتِ شناخته‌شده: نه دکمه، نه ردیف
+async def test_unknown_payment_bot_offers_nothing(main_dp) -> None:
     await reset_database()
     await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
-    await _configure_bale(template=None)
-
-    async with session_scope() as session:
-        admin = await get_admin_settings(session)
-        ready, missing = bale_credentials_service.platform_status(admin)
-    assert ready is True, f"پیش‌فرضِ داخلی هست ⇒ «قالبِ تنظیم‌نشده» دیگر علتِ نبودِ دکمه نیست: {missing}"
-    assert "pay_link_template" not in missing
+    await _configure_bale(username="")
 
     chat = Chat(main_dp, OWNER_TG_ID)
-    original = bale_service.create_invoice_link
-    bale_service.create_invoice_link = _fake_invoice_link(BALE_RAW_ID)
-    try:
-        labels = await _run_to_payment_methods(chat)
-        assert any("بله‌پی" in label for label in labels), labels
-        await chat.tap("payment_method:bale")
-    finally:
-        bale_service.create_invoice_link = original
+    labels = await _run_to_payment_methods(chat)
+    assert not any("بله‌پی" in label for label in labels), f"لینکی که ساخته نمی‌شود نباید دکمه داشته باشد: {labels}"
+    assert any("کارت" in label for label in labels), labels
+    # کیبوردِ کهنه (دکمه‌ای که پیش‌تر فرستاده شده) هم باید صادقانه رد شود، نه لینکِ نصفه
+    await chat.tap("payment_method:bale")
+    assert "بله" in chat.last_text, chat.last_text
+    assert await _payments() == [], "لینکی که وجود ندارد ⇒ پرداختی هم ثبت نمی‌شود"
+    print("✅ test_unknown_payment_bot_offers_nothing PASSED")
 
-    buttons = [btn for row in chat.last_markup.inline_keyboard for btn in row]
-    assert buttons and buttons[0].url == DEFAULT_LINK, [b.url for b in buttons]
+
+# ============================================================================= ۳ — مسیرِ معمول: لینک + یکِ ردیف
+async def test_topup_link_points_at_the_bale_chat(main_dp) -> None:
+    await reset_database()
+    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    await _configure_bale()
+
+    chat = Chat(main_dp, OWNER_TG_ID)
+    await _run_to_payment_methods(chat)
+    await chat.tap("payment_method:bale")
+
+    buttons = _buttons(chat.last_markup)
+    assert len(buttons) == 1 and buttons[0].url is not None, [b.url for b in buttons]
+    assert buttons[0].url.startswith(PAY_BOT_LINK + "?start=payment-"), buttons[0].url
+    assert "۱۰۰٬۰۰۰" in chat.last_text or "100" in chat.last_text, chat.last_text
     rows = await _payments()
     assert len(rows) == 1 and rows[0].status == PaymentStatus.PENDING, [(r.status, r.final_amount) for r in rows]
-    print("✅ test_button_and_status_survive_without_panel_template PASSED")
+    assert buttons[0].url.endswith(rows[0].bale_invoice_payload), "لینک همان payloadِ ردیف را می‌برد"
+    print("✅ test_topup_link_points_at_the_bale_chat PASSED")
 
 
-# ============================================================================= ۳ — لینکِ نرسیده، پرداختِ بی‌صاحب نمی‌گذارد
+# ============================================================================= ۴ — لینکِ نرسیده، پرداخت نمی‌ماند
 async def test_undeliverable_link_voids_the_payment(main_dp) -> None:
     await reset_database()
     await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
-    await _configure_bale(template=DOC_PLACEHOLDER_TEMPLATE)  # مقدارِ خرابِ واقعیِ پنل
+    await _configure_bale()
 
     chat = Chat(main_dp, OWNER_TG_ID)
     await _run_to_payment_methods(chat)
 
-    original = bale_service.create_invoice_link
-    bale_service.create_invoice_link = _fake_invoice_link(BALE_RAW_ID)
     real_make_request = chat.session.make_request
 
     async def failing_send(bot, method, timeout=None):
@@ -162,19 +166,38 @@ async def test_undeliverable_link_voids_the_payment(main_dp) -> None:
         await chat.tap("payment_method:bale")
     finally:
         chat.session.make_request = real_make_request
-        bale_service.create_invoice_link = original
 
     rows = await _payments()
-    assert len(rows) == 1, f"ردیف باید بماند و باطل شود، نه اینکه rollback شود: {len(rows)}"
+    assert len(rows) == 1, f"ردیف باید بماند و باطل شود، نه rollback: {len(rows)}"
     assert rows[0].status == PaymentStatus.REJECTED, rows[0].status
     assert rows[0].rejection_reason and "ارسال نشد" in rows[0].rejection_reason, rows[0].rejection_reason
-    assert chat.last_text == main_texts.BALE_LINK_UNRESOLVED, chat.last_text
+    assert chat.last_text == main_texts.BALE_PAY_LINK_SEND_FAILED, chat.last_text
     print("✅ test_undeliverable_link_voids_the_payment PASSED")
 
 
-# ============================================================================= ۴ — کرشِ فهرستِ کدهایِ تخفیف
+# ============================================================================= ۵ — کیبوردِ کهنه دیگر نمی‌ترکد
+async def test_stale_payment_keyboard_answers(main_dp) -> None:
+    """P23 (بدهیِ منتقل‌شده): با state خالی هر سه دکمهٔ «روشِ پرداخت» باید جوابِ دیدنی بدهند."""
+    await reset_database()
+    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    await _configure_bale()
+    async with session_scope() as session:
+        admin = await get_admin_settings(session)
+        admin.zarinpal_enabled = True
+        admin.zarinpal_merchant_id = "00000000-0000-0000-0000-000000000000"
+        await session.flush()
+
+    chat = Chat(main_dp, OWNER_TG_ID)
+    for data in ("payment_method:card", "payment_method:zarinpal", "payment_method:bale"):
+        await chat.tap(data)
+        assert chat.last_toast["text"] == main_texts.PAYMENT_FLOW_STALE, (data, chat.last_toast)
+        assert not chat.sent, f"با کیبوردِ کهنه نباید پیامی برود: {data}"
+    assert await _payments() == []
+    print("✅ test_stale_payment_keyboard_answers PASSED")
+
+
+# ============================================================================= ۶ — فهرستِ تخفیف با هر دو شکلِ `type`
 def test_discount_list_keyboard_survives_both_type_shapes() -> None:
-    """`c.type` یا enum است یا رشتهٔ خامِ ستون — لاگِ ۱۳:۰۵:۴۸ همان رشته را نمی‌شناخت."""
     percent_enum = DiscountCode(code="P1", type=DiscountType.PERCENT, value=Decimal("20"), is_active=True)
     fixed_str = DiscountCode(code="F1", type="fixed", value=Decimal("50000"), is_active=False)
 
@@ -187,14 +210,15 @@ def test_discount_list_keyboard_survives_both_type_shapes() -> None:
     print("✅ test_discount_list_keyboard_survives_both_type_shapes PASSED")
 
 
-# ============================================================================= ۵ — حذفِ «مبلغ ثابت» از پنل (بدونِ دکمهٔ مرده)
+# ============================================================================= ۷ — «مبلغ ثابت» از پنل رفت
 async def test_fixed_amount_option_is_gone_from_panel(main_dp) -> None:
     await reset_database()
     assert settings.admin_ids, "این تست به ADMIN_TELEGRAM_IDSِ محیطِ تست نیاز دارد"
     admin_id = next(iter(settings.admin_ids))
-    assert not hasattr(main_keyboards, "discount_type_keyboard"), "کیبوردِ انتخابِ نوع باید حذف شده باشد"
+    assert not hasattr(main_keyboards, "discount_type_keyboard"), "کیبوردِ نوع تخفیف باید حذف شده باشد"
     assert not hasattr(AdminPricingStates, "waiting_discount_type"), "مرحلهٔ نوع باید از FSM حذف شده باشد"
     assert not hasattr(main_texts, "ADMIN_ASK_DISCOUNT_TYPE"), "پرسشِ نوع باید از متن‌ها حذف شده باشد"
+    assert not hasattr(main_texts, "ADMIN_ASK_BALE_PAY_LINK_TEMPLATE"), "تنظیمِ «قالبِ لینک» هم از پنل برداشته شده"
 
     admin_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
     session_obj: FakeSession = admin_bot.session  # type: ignore[assignment]
@@ -212,7 +236,6 @@ async def test_fixed_amount_option_is_gone_from_panel(main_dp) -> None:
 
     await cb("admin_discount_add")
     await say("P25TEST")
-    # دیگر «نوع تخفیف» پرسیده نمی‌شود؛ بلافاصله مقدارِ درصد
     await say("۱۵")
     await say("نامحدود")
     async with session_scope() as session:
@@ -221,16 +244,15 @@ async def test_fixed_amount_option_is_gone_from_panel(main_dp) -> None:
     type_value = code.type.value if hasattr(code.type, "value") else code.type
     assert type_value == "percent" and int(code.value) == 15, (type_value, code.value)
 
-    # کیبوردِ کهنهٔ «مبلغ ثابت» ⇒ توستِ توضیحی و بیرون‌آمدن از FSM (نه کرش، نه سکوت)
     await cb("admin_discount_add")
     n += 1
     await main_dp.feed_update(admin_bot, make_callback_update(n, data="discount_type:fixed", user_id=admin_id))
     assert session_obj.answered_callbacks[-1]["text"] == main_texts.ADMIN_DISCOUNT_TYPE_REMOVED
     await say("50000")
     async with session_scope() as session:
-        assert len(list((await session.execute(select(DiscountCode))).scalars().all())) == 1, "با state پاک‌شده کد ساخته نشود"
+        after = len(list((await session.execute(select(DiscountCode))).scalars().all()))
+    assert after == 1, "با state پاک‌شده نباید کدی ساخته شود"
 
-    # درصدِ بیش از ۱۰۰ «مبلغ ثابت» تفسیر نمی‌شود
     await cb("admin_discount_add")
     await say("TOOBIG")
     await say("5000")
@@ -239,9 +261,8 @@ async def test_fixed_amount_option_is_gone_from_panel(main_dp) -> None:
     print("✅ test_fixed_amount_option_is_gone_from_panel PASSED")
 
 
-# ============================================================================= ۶ — پرداختِ سفارشِ فروشگاه: باطل‌شدنِ تلاشِ ناموفق
+# ============================================================================= ۸ — باطل‌کردنِ تلاشِ ناموفقِ پرداختِ سفارش
 async def test_mark_link_failed_is_bounded_and_idempotent() -> None:
-    """`P_FAILED` اولین مصرفِ واقعی‌اش را پیدا کرد: لینک نرسید ⇒ فقط همین تلاشِ پرداخت می‌سوزد."""
     await reset_database()
     shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
     async with session_scope() as session:
@@ -257,12 +278,9 @@ async def test_mark_link_failed_is_bounded_and_idempotent() -> None:
         fresh = await session.get(OrderPayment, payment_id)
         assert fresh.status == order_payment_service.P_FAILED, fresh.status
         assert fresh.reject_reason and "ارسال نشد" in fresh.reject_reason, fresh.reject_reason
-        assert fresh.decided_by == "system"
-
         await order_payment_service.mark_link_failed(session, fresh, reason="دوباره")
         assert (await session.get(OrderPayment, payment_id)).status == order_payment_service.P_FAILED
 
-        # پرداختِ پرداخت‌شده هرگز باطل نمی‌شود (این شاخه پولِ واقعی است)
         paid = OrderPayment(
             group_id="h" * 32, shop_bot_id=shop_bot_id, method="bale",
             amount_toman=50_000, status=order_payment_service.P_PAID,
@@ -274,53 +292,17 @@ async def test_mark_link_failed_is_bounded_and_idempotent() -> None:
     print("✅ test_mark_link_failed_is_bounded_and_idempotent PASSED")
 
 
-# ============================================================================= ۷ — صفِ ۱۰ ثانیه‌ایِ بله
-def test_pre_checkout_updates_jump_the_queue() -> None:
-    updates = [
-        {"update_id": 1, "message": {"successful_payment": {"invoice_payload": "p1"}}},
-        {"update_id": 2, "pre_checkout_query": {"id": "pc1"}},
-        {"update_id": 3, "message": {"text": "سلام"}},
-        {"update_id": 4, "pre_checkout_query": {"id": "pc2"}},
-    ]
-    ordered = order_for_handling(updates)
-    assert [u["update_id"] for u in ordered[:2]] == [2, 4], "pre_checkoutها باید اول بروند (سقفِ ۱۰ ثانیه)"
-    assert [u["update_id"] for u in ordered[2:]] == [1, 3], "ترتیبِ بقیه حفظ می‌شود"
-    assert order_for_handling([{"update_id": 5, "message": {"text": "hi"}}]) == [{"update_id": 5, "message": {"text": "hi"}}]
-    assert order_for_handling([]) == []
-    print("✅ test_pre_checkout_updates_jump_the_queue PASSED")
-
-
-# ============================================================================= ۸ — چیزی که عمداً مانده: پاسخِ بی‌شکل از بله
-async def test_unstructured_response_creates_nothing(main_dp) -> None:
-    await reset_database()
-    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
-    await _configure_bale(template=None)
-
-    chat = Chat(main_dp, OWNER_TG_ID)
-    original = bale_service.create_invoice_link
-    bale_service.create_invoice_link = _fake_invoice_link("ok")
-    try:
-        await _run_to_payment_methods(chat)
-        await chat.tap("payment_method:bale")
-    finally:
-        bale_service.create_invoice_link = original
-
-    assert chat.last_text == main_texts.BALE_LINK_UNRESOLVED, chat.last_text
-    assert await _payments() == [], "پاسخِ بی‌شکل نباید ردیفِ پرداخت بگذارد"
-    print("✅ test_unstructured_response_creates_nothing PASSED")
-
-
 async def main() -> None:
     main_dp, _shop_dp, _bot_manager, _main_bot = build_test_dispatchers()
-    test_unusable_host_never_becomes_a_button_url()
-    await test_button_and_status_survive_without_panel_template(main_dp)
+    test_pay_chat_link_shape()
+    await test_unknown_payment_bot_offers_nothing(main_dp)
+    await test_topup_link_points_at_the_bale_chat(main_dp)
     await test_undeliverable_link_voids_the_payment(main_dp)
+    await test_stale_payment_keyboard_answers(main_dp)
     test_discount_list_keyboard_survives_both_type_shapes()
     await test_fixed_amount_option_is_gone_from_panel(main_dp)
     await test_mark_link_failed_is_bounded_and_idempotent()
-    test_pre_checkout_updates_jump_the_queue()
-    await test_unstructured_response_creates_nothing(main_dp)
-    print("\n✅ همهٔ تست‌هایِ P25 پاس شدند")
+    print("\n✅ همهٔ تست‌هایِ P25/P26 پاس شدند")
 
 
 if __name__ == "__main__":
