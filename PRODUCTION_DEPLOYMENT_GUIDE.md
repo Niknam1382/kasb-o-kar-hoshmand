@@ -129,7 +129,7 @@ docker compose run --rm -e ADMIN_TELEGRAM_IDS=12345 bot python tests_manual/run_
 | فاکتور HTML رفت | ساختِ PDF ناموفق بوده (فونت/کتابخانه)؛ در لاگ `invoice_service` علت هست، فاکتور گم نمی‌شود |
 | «⚠️ N فروشگاه‌دار اختلافِ حسابداری دارد» | همسنجیِ PHASE 5E؛ از «📤 دفترِ کیف‌پول (اکسل) › 🔎 همسنجیِ دفتر» ببین و با ردیفِ معکوسِ ادمین اصلاح کن (تاریخچه را ویرایش نکن) |
 | «نسخهٔ دیگری از این ربات در حالِ polling است» (P24) | دو نسخة هم‌زمان بالا آمده (`--scale bot=2`، یا deployِ جدید قبل از کشتنِ قدیمی). دومی عمداً هیچ getUpdates‌ای شروع نمی‌کند تا پیام دوباره پاسخ نگیرد و کیف‌پول دوباره کم نشود؛ نسخهٔ قدیمی را ببند (`docker compose ps`، بعد `up -d`) |
-| `Bad Request: inline keyboard button URL 'invoice_id=…' is invalid` در لاگ (P23/P24) | قالبِ لینکِ پرداختِ بله در پنل تنظیم نشده؛ «🔑 تنظیمات کلیدها › 🔗 قالبِ لینکِ پرداختِ بله‌پی» را از برگهٔ «اطلاعات اتصالِ وب‌سرویس» بله پر کن |
+| `Bad Request: inline keyboard button URL 'invoice_id=…' is invalid` در لاگ (P23/P24) | از P25 این خطا برایِ مقدارِ تنظیمیِ ناقصِ پنل است؛ کد خودِ پیش‌فرضِ بله (`https://bale.ai/pay/{invoice_id}`) را مصرف می‌کند. اگر این خطا دیدی، «🔑 تنظیمات کلیدها › 🔗 قالبِ لینکِ پرداختِ بله‌پی» را **خالی** کن (یا آدرسِ واقعیِ همان برگه را با `{invoice_id}` بگذار) و با «🧪 آزمایشِ بله‌پی» تأیید بگیر که لینک از کجا ساخته می‌شود |
 
 ## ۸) مانیتورینگِ حداقلی
 
@@ -139,6 +139,11 @@ docker compose run --rm -e ADMIN_TELEGRAM_IDS=12345 bot python tests_manual/run_
   `/metrics` هم همین‌جا است، ولی **با `METRICS_TOKEN`ِ خالی عمداً ۴۰۴ می‌دهد** (پیش‌فرضِ امن):
   برایِ دیدنِ شمارنده‌ها `METRICS_TOKEN=…` را در `.env` بگذار و با هدرِ `X-Metrics-Token` بپرس.
 - لاگ stdout + چرخشِ ۵×۱۰MB در compose؛ `LOG_LEVEL` در `.env`.
+- از P24 خودِ compose هم `/health` را به‌عنوانِ `healthcheck` می‌پرسد (گیرکردنِ polling ⇒
+  ری‌استارتِ خودکار). از P25 دیتابیس هم هر کوئریِ کندتر از **۲۵۰ms** را در لاگش می‌نویسد
+  (`log_min_duration_statement=250ms`؛ MEASURED از `pg_settings`: `250`) — برایِ دیدنش:
+  `docker compose logs db | grep "duration:"`. `random_page_cost=1.1` هم رویِ NVMe گذاشته شده
+  تا پلنر ایندکس‌هایِ مسیرِ پرداخت را جدی بگیرد.
 - ممیزیِ عملیاتیِ انسانی: «📜 گزارشِ ممیزی» در پنلِ ادمین (`audit_log_entries`)، «🔎 آخرین رویدادهایِ پرداخت» (`payment_event_logs` + correlation id).
 - هشدارهایِ ادمین: `admin_alert_service` (پنجرهٔ ۵ دقیقه، آستانه‌ها، کول‌دان ۳۰ دقیقه، بودجهٔ ۱۲/ساعت) — حالا `KIND_LEDGER` هم دارد.
 - نبودِ متریک‌هایِPrometheus‌مانند = شناخته‌شده و باز: `REMAINING_ISSUES.md` P1-5.

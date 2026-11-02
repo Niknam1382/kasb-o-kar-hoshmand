@@ -238,4 +238,33 @@ Payment · ۴ بدونِ قالب هیچ دکمهٔ بله‌پی ساخته ن�
 ۱۰ هندلرِ crash با `admin_owner_suspend:not-a-number` ⇒ `CALLBACK_FAILED_TOAST` (دیگر سکوت نیست) ·
 ۱۱ منویِ مشتریِ مشاوره‌ای هیچ دکمهٔ مرده‌ای ندارد (و «حالتِ تعمیر» سه مسیرِ سبد/سفارش/چک‌اوت را هم می‌بندد) + `check_callbacks.main() == 0`.
 
+## ۱۵) نتیجه‌هایِ P25 (MEASURED — اجرایِ ۲۰۲۶-۱۱-۰۲، بله‌پی از ریشه + حذفِ «مبلغ ثابت» + بهینه‌سازی)
+
+| چک | عددِ این اجرا | جزئیات |
+|---|---|---|
+| علتِ واقعیِ «دکمهٔ بله‌پی کار نمی‌کند» | از لاگِ زنده، نه حدس | سه رخداد: ۱۳:۰۲:۴۸ (`shop_bot/handlers/payments.py:225`)، ۱۳:۰۴:۳۳ (`panel.py:932`) با `TelegramBadRequest: inline keyboard button URL 'https://YOUR_BALE_PAYMENT_BASE_URL?invoice_id=…' is invalid: Wrong HTTP URL`، و ۱۳:۰۵:۴۸ `AttributeError: 'str' object has no attribute 'value'` در `keyboards.py:589`. `payment_event_logs` ids ۱۱..۱۵، ۲۳، ۲۴: `createInvoiceLink` با `ok` و `result: "invoice_id=…"` ⇒ سمتِ بله سالم بود؛ **میزبانِ آدرسِ ما** متنِ نمونهٔ داکیومنت بود |
+| تأییدِ رفع رویِ دیتابیسِ خودِ کاربر | **MEASURED** | `bale_pay_link_template`ِ ذخیره‌شده (۵۸ نویسه، میزبانِ `YOUR_…`) ⇒ `usable_link_template = False`، `payment_link_source = default` و لینکِ ساخته‌شده `https://bale.ai/pay/<id>` با شکلِ قابل‌قبولِ تلگرام. کاربر لازم نیست چیزی را پاک کند |
+| قاعدهٔ «پرداختِ نیمه‌کاره نمی‌ماند» | دو مسیر | `panel.py`: ارسالِ ناموفق ⇒ `reject_payment(reason="لینکِ پرداخت ارسال نشد…")` (قبلاً rollback و ردیفِ نامرئی); `payments.py`: ⇒ `order_payment_service.mark_link_failed()` که `P_FAILED`ِ بی‌مصرف را مصرف می‌کند و سفارش را برایِ تلاشِ دوباره نگه می‌دارد |
+| `run_all_tests.py` | **۱۰۰/۱۰۰ فایل · ۶۵۶ تست · صفر fail** | بیس‌لاینِ P24: ۹۹/۶۴۸. فایلِ تازهٔ `test_p25_bale_link_and_discounts.py` = ۸ تست |
+| اجرایِ اولِ همین سوئیت (ثبتِ صادقانه) | «۹۹/۱۰۰ · ۶۴۴» با یکِ TIMEOUT | `test_payments_w3w4.py` در پاسِ اول ۶۰ ثانیه‌ای کشته شد؛ آخرین خطِ لاگش دو تلاشِ ناموفقِ *شبکه‌ای*ِ AI بود (`ai_service: فراخوانیِ هوش مصنوعی ناموفق بود (تلاشِ ۱/۲)`). «flaky» فرض نکردم: **سه اجرایِ جدا** (۱۵٫۰ / ۱۵٫۴ / ۱۶٫۱ ثانیه، همه پاس) و **یکِ سوئیتِ کاملِ دوباره** (۱۰۰/۱۰۰، همان فایل ۱۵٫۱ ثانیه) ⇒ بازمحصول نشد. عددِ بالایِ جدول از اجرایِ دوم است. علتِ محتمل: مکثِ شبکهٔ outgoing در همان دقیقه؛ ردِ آن در `REMAINING_ISSUES.md` §P25 ثبت شده تا تکرارِ آن جدی گرفته شود |
+| پنج گیت | `check_refs` · `check_attrs` · `lint_names` · `check_callbacks` · `check_text_hygiene` + ثبتِ فایل‌ها ⇒ همه **OK** (۲۵۹ فایل) | `check_callbacks` از ۳۰۶ به **۳۰۴** شکل رسید (دو دکمهٔ «نوع تخفیف» حذف شد) و مصرف‌کنندهٔ `discount_type:` عمداً ماند تا کیبوردِ کهنه مرده نشود |
+| `ruff` | `app scripts` **All checks passed!** و چهار فایلِ تستِ دست‌خورده هم تمیز | در `tests_manual/` ۲۹ خطایِ F401/F841 از پیش موجود بود (فایل‌هایی که در این پاس دست نخوردند) |
+| `alembic heads` | تک‌head = `c4f8a2d6b9e1` (تغییرِ جدیدی لازم نبود) | هیچ ستون/جدولی حذف نشد؛ «مبلغ ثابت» فقط از UI رفت، `DiscountType.FIXED` و ردیف‌هایِ قدیمی ماندند |
+| دادهٔ کاربر بعد ازِ پاس | `owners=3` · `bots=3` · `products=8` · `customers=7` · `orders_consultations=13` · `payments=1` · `discount_codes=1` · `audit=7` | سفارش‌ها یکی زیاد شد (تستِ خودِ کاربر در ۱۳:۰۲) و هیچ ردیفی کم نشد؛ `verify_audit_chain.py`: ۷ ردیفِ هش‌دار، ۰ پیوندِ ناهمسایه ⇒ سالم |
+| PG زیرِ اثر | `log_min_duration_statement=250` · `random_page_cost=1.1` · `shared_buffers=512MB` | سه‌تاشان از خودِ `pg_settings`ِ کانتینرِ بالا‌آمده خوانده شدند (نه از فایلِ compose) |
+| ایندکس‌هایِ مسیرِ پرداخت | **کمبودی نبود** ⇒ مایگریشنِ لازم نشد | `ix_payments_bale_invoice_payload`، `ix_order_payments_provider_ref`، `ix_orders_consultations_bale_invoice_payload` و ایندکسِ جزئیِ `pending/reserved_until` در `pg_indexes` دیده شدند |
+| NOT RUN | تراکنشِ واقعیِ بله‌پی · تأخیرِ واقعیِ AI · بارِ HTTP در حالتِ webhook | همان سه «NOT RUN»ِ همیشگی. «🧪 آزمایشِ بله‌پی» هم توسطِ من اجرا نشد (با اعتبارهایِ واقعیِ تو درخواستِ زنده می‌سازد)؛ حالا در گزارشش می‌نویسد لینک از `panel` است یا `default` |
+
+### پوششِ `test_p25_bale_link_and_discounts.py` (۸ مورد)
+
+۱ میزبانِ جعلی/زیرخط/بدونِ نقطه ⇒ هیچ لینکی از آن ساخته نمی‌شود و پیش‌فرض جایگزین می‌شود (pure) ·
+۲ قالبِ تنظیم‌نشده: دکمه هست، لینک = پیش‌فرض، دقیقاً یکِ Paymentِ PENDING ·
+۳ ارسالِ ردشده ⇒ ردیف با `REJECTED` و دلیل می‌ماند، نه rollback، نه PENDINGِ بی‌صاحب، و پیامِ صادقانه ·
+۴ کرشِ بازگشتیِ فهرستِ تخفیف: `type` به‌شکلِ enum و رشتهٔ خام، برچسبِ «(قدیمی)» برایِ fixed ·
+۵ حذفِ «مبلغ ثابت»: نبودِ کیبورد/state/متن + ساختِ کدِ درصدی در دو مرحله + توستِ کالبکِ کهنه + ردِّ درصدِ >۱۰۰ ·
+۶ `mark_link_failed`: ایدمپوتنت، و دست‌نزدن به پرداختِ `P_PAID` ·
+۷ `order_for_handling()`: pre_checkoutها اولِ صف، ترتیبِ بقیه حفظ (pure) ·
+۸ پاسخِ بی‌شکلِ بله ⇒ هیچ ردیفِ پرداختی ساخته نمی‌شود.
+
+
 
