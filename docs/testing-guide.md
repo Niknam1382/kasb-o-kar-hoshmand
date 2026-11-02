@@ -11,10 +11,12 @@
 
 ### اجرا (ویندوز، CMD یا PowerShell)
 ```
-cd C:\Users\nik0228\Desktop\kasb-o-kar-hoshmand\kasb-o-kar-hoshmand
+cd <مسیرِ مخزن>\kasb-o-kar-hoshmand   # همان جایی که docker-compose.yml هست
 docker compose build
+docker compose stop bot              # P24: با رباتِ روشن، سوئیت رویِ TRUNCATE قفل می‌کند
 docker compose run --rm bot alembic upgrade head
 docker compose run --rm bot python3 tests_manual/run_all_tests.py
+docker compose up -d bot             # بعد ازِ اجرا برگردان
 ```
 - `docker compose build` **حتماً** بعد از هر تعویضِ فایل‌ها (کد موقعِ build توی ایمیج کپی می‌شه؛ بدونش تست‌هایِ قدیمی اجرا می‌شن).
 - خروجیِ سالم: آخرِ خروجی «✅ همه‌ی فایل‌هایِ تست با موفقیت پاس شدن» و یه جمع‌بندی از تعدادِ فایل/تست.
@@ -24,7 +26,11 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
   `kasbokar` با پیامِ فارسی متوقف می‌شود، چون `reset_database()` همه‌یِ جدول‌ها را خالی می‌کند
   و تنظیماتِ پنلِ ادمین را از بین می‌برد. اگر جایی عمداً خواستی رویِ دیتابیسِ دیگر اجرا کنی:
   `RESET_DB_CONFIRM=1`.)
-- مایگریشن‌هایِ سالم: بعد از `alembic upgrade head` آخرین خط باید به `d4a9c6e2b8f1` برسه (`docker compose run --rm bot alembic heads` فقط یه head نشون می‌ده).
+- مایگریشن‌هایِ سالم: بعد از `alembic upgrade head` آخرین خط باید به `c4f8a2d6b9e1` برسه (`docker compose run --rm bot alembic heads` فقط یه head نشون می‌ده).
+- **قبلِ اجرایِ سوئیت، سرویسِ `bot` را خاموش کن** (`docker compose stop bot`، بعد ازِ اجرا
+  `docker compose up -d bot`). تست‌ها جدول‌ها را `TRUNCATE` می‌کنند و رباتِ روشن همزمان رویِ
+  همان جدول‌ها می‌خواند ⇒ قفلِ متقابل و گیرکردنِ اجرا در میانهٔ سوئیت (این دقیقاً یکِ اجرا را
+  در P24 خراب کرد). هیچ volume mount رویِ `/app` نیست، پس «build قبل از run» شرطِ همان اجرا هم هست.
 
 ### اگه چیزی fail شد
 فقط این رو برایِ دستیار بفرست: **اسمِ فایلِ fail‌شده + ۲۰–۳۰ خطِ آخرِ خروجیِ اون فایل** (با دستورِ «یه فایلِ تکی» بالا بگیر). لازم نیست حدس بزنی.
@@ -36,7 +42,7 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
   داخلِ dispatcherِ واقعی رد می‌کنه. رباتِ فیک (`FakeSession` توی `harness.py`) همه‌یِ پیام‌ها/دکمه‌ها/ویرایش‌ها/فایل‌هایِ ارسالی رو ثبت می‌کنه.
 - هوش مصنوعی هم جعلیه (`FakeAi` توی `phase4_helpers.py`)؛ هیچ پولی خرج نمی‌شه و اینترنت لازم نیست.
 - `run_all_tests.py` همه‌یِ فایل‌ها رو یکی‌یکی اجرا می‌کنه و تعدادِ «✅ test_…» هر خروجی رو می‌شمره.
-- بررسیِ استاتیکِ سریع (چند ثانیه، بدونِ Docker): `python3 scripts/check_refs.py` (ارجاعِ شکسته) و `python3 scripts/check_attrs.py` (ویژگیِ ناموجود).
+- بررسیِ استاتیک (چند ثانیه، بدونِ Docker): `python3 scripts/check_gates.py` — `check_refs` (ارجاعِ شکسته)، `check_attrs` (ویژگیِ ناموجود)، `lint_names` و `check_callbacks` (P24: هر `callback_data` باید هندلر داشته باشد).
 
 ### فایل‌هایِ فازِ ۴ (۶ فایل، ۵۵ تست)
 | فایل | تعداد | چی رو قفل می‌کنه؟ |

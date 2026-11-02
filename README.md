@@ -77,7 +77,9 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
 `kasbokar_test` اجرا می‌شود تا تنظیماتِ پنلِ تو پاک نشود). جزئیات و چک‌لیستِ تستِ دستیِ تلگرام: `docs/testing-guide.md`.
 
-بررسیِ استاتیکِ سریع (بدونِ Docker): `python3 scripts/check_refs.py` و `python3 scripts/check_attrs.py`.
+بررسیِ استاتیک: `python3 scripts/check_gates.py` — چهار گیت را با هم اجرا می‌کند: `check_refs`
+(ارجاعِ شکسته)، `check_attrs` (ویژگیِ ناموجود)، `lint_names` و از P24 `check_callbacks`
+(هر `callback_data` که کیبوردی می‌سازد باید هندلری داشته باشد ⇒ «دکمهٔ مرده» به production نمی‌رسد).
 
 ## ساختارِ پروژه
 
@@ -93,9 +95,9 @@ app/
     shop_bot/               # رباتِ فروشگاه: handlers/customer.py (چتِ AI، سفارش، سبد، ...)
   services/                 # منطقِ کسب‌وکار (۴۷ فایل، بدونِ وابستگی به aiogram)
   utils/                    # رمزنگاری، اعتبارسنجی، تاریخِ شمسی، ...
-migrations/                 # Alembic (head: d4a9c6e2b8f1)
+migrations/                 # Alembic (head: c4f8a2d6b9e1 — تک‌head)
 tests_manual/               # تست‌هایِ end-to-end با FakeSession + harness.py / shop_setup.py
-scripts/                    # check_refs.py، check_attrs.py
+scripts/                    # check_gates.py → check_refs / check_attrs / lint_names / check_callbacks
 docs/                       # راهنماها و changelogها
 ```
 
