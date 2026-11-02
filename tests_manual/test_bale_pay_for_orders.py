@@ -77,6 +77,8 @@ async def _seed(with_provider_token: bool) -> tuple[int, int]:
     shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
     async with session_scope() as session:
         await update_setting(session, "bale_pay_enabled", True)
+        # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی ساخته نمی‌شود (بله فقط شناسه می‌دهد نه آدرس).
+        await update_setting(session, "bale_pay_link_template", "https://bale-gateway.test/pay?invoice_id={invoice_id}")
         if with_provider_token:
             shop_bot = await session.get(ShopBot, shop_bot_id)
             shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"

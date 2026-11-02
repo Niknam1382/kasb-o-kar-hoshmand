@@ -265,6 +265,11 @@ class AdminSettings(Base):
     bale_bot_token: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
     # P18 · A1: رازِ وب‌هوکِ بله فقط در حالتِ webhook لازم است و *خودکار* ساخته می‌شود — هرگز از ادمین پرسیده نمی‌شود.
     bale_webhook_secret_auto: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
+    # P23: بله از `createInvoiceLink` یکِ شناسه برمی‌گرداند («invoice_id=…») نه آدرسِ قابل‌کلیک، و
+    # مستنداتِ عمومی قالبِ لینک را نمی‌دهد. ادمین قالبِ واقعی را از «اطلاعات اتصالِ وب‌سرویس»ِ
+    # همان برگه‌ای که بله صادر می‌کند برمی‌دارد و اینجا می‌گذارد؛ `{invoice_id}` جایِ شناسه می‌نشیند.
+    # خالی ⇒ دکمهٔ «پرداخت با بله‌پی» ساخته نمی‌شود (به‌جایِ فرستادنِ لینکِ بی‌اعتبار به تلگرام).
+    bale_pay_link_template: Mapped[str | None] = mapped_column(String(256), nullable=True)
     platform_card_holder_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     referral_reward_type: Mapped[ReferralRewardType] = _enum_column(

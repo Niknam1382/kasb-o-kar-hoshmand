@@ -544,6 +544,8 @@ async def test_bale_invoice_uses_discounted_amount_and_free_order_skips_payment(
     bale_service.create_invoice_link = _fake_create_invoice_link
     async with session_scope() as session:
         await update_setting(session, "bale_pay_enabled", True)
+        # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی ساخته نمی‌شود (بله فقط شناسه می‌دهد نه آدرس).
+        await update_setting(session, "bale_pay_link_template", "https://bale-gateway.test/pay?invoice_id={invoice_id}")
         (await session.get(ShopBot, shop_bot_id)).bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
 
     ten_percent_id = await _new_campaign(shop_bot_id, name="۱۰٪")

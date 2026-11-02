@@ -58,6 +58,8 @@ async def _configure(shop_bot_id: int, *, card: bool = False, bale: bool = False
             shop_bot = await session.get(ShopBot, shop_bot_id)
             shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
             await update_setting(session, "bale_pay_enabled", True)
+            # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی ساخته نمی‌شود (بله فقط شناسه می‌دهد نه آدرس).
+            await update_setting(session, "bale_pay_link_template", "https://bale-gateway.test/pay?invoice_id={invoice_id}")
 
 
 async def _payments() -> list[OrderPayment]:

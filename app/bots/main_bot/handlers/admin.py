@@ -457,6 +457,9 @@ async def cb_toggle_bale_pay(callback: CallbackQuery, session: AsyncSession) -> 
     if admin_settings.bale_pay_enabled and not admin_settings.bale_provider_token:
         # A1: توکنِ درگاهِ سراسری فقط پشتیبان است؛ بدونِ آن هر فروشگاه باید توکنِ درگاهِ خودش را داشته باشد.
         await callback.message.answer(texts.BALE_ENABLED_WITHOUT_GLOBAL_PROVIDER)
+    if admin_settings.bale_pay_enabled and not (admin_settings.bale_pay_link_template or "").strip():
+        # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی ساخته نمی‌شود (بله فقط شناسه می‌دهد) — همان‌جا گفته می‌شود.
+        await callback.message.answer(texts.BALE_ENABLED_WITHOUT_LINK_TEMPLATE)
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -798,6 +801,8 @@ _NULLABLE_TEXT_FIELDS: dict[str, str] = {
     # P18 · A1: هر دو توکنِ بله از پنل قابلِ تنظیم و پاک‌کردن‌اند (رمزنگاری‌شده، اعمال بدونِ ری‌استارت).
     "bale_bot_token": texts.ADMIN_ASK_BALE_BOT_TOKEN,
     "bale_provider_token": texts.ADMIN_ASK_BALE_PROVIDER_TOKEN,
+    # P23: آدرسِ پرداختی که خودِ بله صادر کرده؛ بدونِ آن دکمهٔ بله‌پی ساخته نمی‌شود.
+    "bale_pay_link_template": texts.ADMIN_ASK_BALE_PAY_LINK_TEMPLATE,
 }
 
 # P18 · A1: بعدِ ذخیره‌یِ این فیلدها کشِ اعتبارهایِ بله تازه می‌شود ⇒ تغییر بدونِ ری‌استارت اعمال می‌شود.
@@ -976,10 +981,22 @@ async def cb_bale_selftest(callback: CallbackQuery, session: AsyncSession) -> No
         steps.append(("createInvoiceLink", False, "توکنِ درگاهِ بله‌پی در تنظیماتِ ادمین ثبت نشده."))
     else:
         try:
-            link = await bale_service.create_invoice_link(
+            invoice_result = await bale_service.create_invoice_link(
                 token, admin_settings.bale_provider_token, "آزمایش", "آزمایشِ بله‌پی (پرداخت نکن)", f"selftest-{secrets.token_hex(6)}", 10_000
             )
-            steps.append(("createInvoiceLink (۱۰٬۰۰۰ ریال)", True, link[:80]))
+            # P23: «موفق» یعنی خروجی به لینکِ قابل‌کلیک تبدیل می‌شود، نه اینکه بله فقط ok داده باشد؛
+            # خودِ بله «ok:true» را با شناسهٔ صورتحساب برمی‌گرداند و لینکِ بی‌اعتبار را تلگرام رد می‌کند.
+            resolved = bale_service.resolve_payment_link(invoice_result, admin_settings.bale_pay_link_template)
+            if resolved is None:
+                steps.append(
+                    (
+                        "createInvoiceLink (۱۰٬۰۰۰ ریال)",
+                        False,
+                        f"پاسخِ بله شناسه بود نه آدرس: «{invoice_result[:60]}» — «🔗 قالبِ لینکِ پرداختِ بله‌پی» را تنظیم کن.",
+                    )
+                )
+            else:
+                steps.append(("createInvoiceLink (۱۰٬۰۰۰ ریال)", True, resolved[:80]))
         except bale_service.BaleError as exc:
             steps.append(("createInvoiceLink (۱۰٬۰۰۰ ریال)", False, str(exc)[:200]))
     await callback.message.answer(texts.bale_selftest_report(steps))
@@ -1144,6 +1161,18 @@ async def setting_value_entered(
         await admin_settings_service.update_setting(session, field, value)
         # A1: تغییرِ توکن بدونِ ری‌استارت اعمال شود.
         await bale_credentials_service.refresh(session)
+        await state.clear()
+        await message.answer(texts.ADMIN_SETTING_SAVED)
+        await _refresh_settings_menu(message, session, _setting_group(field))
+        return
+
+    if field == "bale_pay_link_template":
+        # P23: بدونِ این قالب، لینکِ بله‌پی ساخته نمی‌شود؛ پس ورودیِ بی‌جای‌نگهدار را نگه می‌داریم
+        # و دوباره می‌پرسیم، نه اینکه ذخیره‌اش کنیم تا بعداً تلگرام لینک را رد کند.
+        if value is not None and not bale_service.valid_link_template(str(value)):
+            await message.answer(texts.ADMIN_INVALID_BALE_LINK_TEMPLATE)
+            return
+        await admin_settings_service.update_setting(session, field, value)
         await state.clear()
         await message.answer(texts.ADMIN_SETTING_SAVED)
         await _refresh_settings_menu(message, session, _setting_group(field))

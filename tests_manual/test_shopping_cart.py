@@ -394,6 +394,8 @@ async def test_bale_pay_offered_for_cart_when_configured(shop_dp, bot_manager) -
 
     async with session_scope() as session:
         await update_setting(session, "bale_pay_enabled", True)
+        # P23: قالبِ لینک لازم است، وگرنه هیچ پیشنهادِ پرداختِ بله‌پی‌ای ساخته نمی‌شود.
+        await update_setting(session, "bale_pay_link_template", "https://bale-gateway.test/pay?invoice_id={invoice_id}")
         shop_bot = await session.get(ShopBot, shop_bot_id)
         shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
 

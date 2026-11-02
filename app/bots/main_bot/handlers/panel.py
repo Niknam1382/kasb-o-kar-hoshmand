@@ -84,6 +84,20 @@ async def _get_discount_or_none(session: AsyncSession, discount_code_id: int | N
     return await session.get(DiscountCode, discount_code_id)
 
 
+async def _payment_draft(state: FSMContext) -> dict | None:
+    """پیش‌نویسِ پرداختِ درِجریان یا None.
+
+    P23 (از لاگِ زنده): سه هندلرِ «روشِ پرداخت» مستقیماً `data["base_amount"]` را می‌خواندند؛
+    حالتِ دستگاه در `MemoryStorage` است، پس با هر ری‌استارتِ ربات (یا کیبوردِ کهنه) آن کلید نبود
+    و `KeyError` *پیش ازِ* `callback.answer()` می‌افتاد ⇒ تلگرام هیچ جوابی نمی‌داد و دکمه‌ها
+    مرده به‌نظر می‌رسیدند. None یعنی «این مرحله تمام شده» ⇒ یکِ پیامِ روشن به‌جایِ سکوت.
+    """
+    data = await state.get_data()
+    if not isinstance(data.get("base_amount"), int) or not isinstance(data.get("final_amount"), int):
+        return None
+    return data
+
+
 # =============================================================================
 # لغو عمومی (این‌جلسه — بخشی از رفع گیرکردن FSM)
 # =============================================================================
@@ -608,20 +622,32 @@ async def payment_discount_code(message: Message, state: FSMContext, session: As
     await state.update_data(discount_code_id=discount.id, final_amount=final_amount)
     await message.answer(texts.discount_applied_text(discount, final_amount))
     admin_settings = await get_admin_settings(session)
-    await message.answer(texts.ASK_PAYMENT_METHOD, reply_markup=keyboards.payment_method_keyboard(admin_settings.zarinpal_enabled, admin_settings.bale_pay_enabled))
+    # P23: نمایشِ دکمه و شروعِ پرداخت باید یکِ ملاک داشته باشند (همان درسِ B11).
+    bale_ready = bale_credentials_service.platform_status(admin_settings)[0]
+    await message.answer(
+        texts.ASK_PAYMENT_METHOD,
+        reply_markup=keyboards.payment_method_keyboard(admin_settings.zarinpal_enabled, admin_settings.bale_pay_enabled and bale_ready),
+    )
 
 
 @router.callback_query(PaymentStates.waiting_discount_code, F.data == "skip_discount")
 async def cb_skip_discount(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     await callback.answer()
     admin_settings = await get_admin_settings(session)
-    await callback.message.answer(texts.ASK_PAYMENT_METHOD, reply_markup=keyboards.payment_method_keyboard(admin_settings.zarinpal_enabled, admin_settings.bale_pay_enabled))
+    bale_ready = bale_credentials_service.platform_status(admin_settings)[0]
+    await callback.message.answer(
+        texts.ASK_PAYMENT_METHOD,
+        reply_markup=keyboards.payment_method_keyboard(admin_settings.zarinpal_enabled, admin_settings.bale_pay_enabled and bale_ready),
+    )
 
 
 @router.callback_query(F.data == "payment_method:card")
 async def cb_payment_method_card(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     owner = await _current_owner(callback, session)
-    data = await state.get_data()
+    data = await _payment_draft(state)
+    if data is None:
+        await callback.answer(texts.PAYMENT_FLOW_STALE, show_alert=True)
+        return
     purpose = PaymentPurpose(data.get("purpose", PaymentPurpose.WALLET_TOPUP.value))
 
     # نکته‌ی مهم (اصلاح‌شده): همیشه base_amount (مبلغِ واقعیِ پیش از تخفیف) رو
@@ -777,7 +803,6 @@ async def cb_wallet_status(callback: CallbackQuery, state: FSMContext, session: 
 @router.callback_query(F.data == "payment_method:zarinpal")
 async def cb_payment_method_zarinpal(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     owner = await _current_owner(callback, session)
-    data = await state.get_data()
     admin_settings = await get_admin_settings(session)
 
     if not admin_settings.zarinpal_enabled:
@@ -788,6 +813,11 @@ async def cb_payment_method_zarinpal(callback: CallbackQuery, state: FSMContext,
     if not admin_settings.zarinpal_merchant_id:
         await callback.answer()
         await callback.message.answer(texts.ZARINPAL_ERROR)
+        return
+
+    data = await _payment_draft(state)
+    if data is None:
+        await callback.answer(texts.PAYMENT_FLOW_STALE, show_alert=True)
         return
 
     # همون مبلغِ نهاییِ تخفیف‌خورده رو باید از زرین‌پال درخواست کنیم (چون کاربر
@@ -819,7 +849,6 @@ async def cb_payment_method_zarinpal(callback: CallbackQuery, state: FSMContext,
 @router.callback_query(F.data == "payment_method:bale")
 async def cb_payment_method_bale(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     owner = await _current_owner(callback, session)
-    data = await state.get_data()
     admin_settings = await get_admin_settings(session)
 
     _platform_ok, missing = bale_credentials_service.platform_status(admin_settings)
@@ -828,13 +857,18 @@ async def cb_payment_method_bale(callback: CallbackQuery, state: FSMContext, ses
         await callback.message.answer(texts.bale_platform_not_ready(missing))
         return
 
+    data = await _payment_draft(state)
+    if data is None:
+        await callback.answer(texts.PAYMENT_FLOW_STALE, show_alert=True)
+        return
+
     purpose = PaymentPurpose(data.get("purpose", PaymentPurpose.WALLET_TOPUP.value))
     description = "شارژ کیف‌پول کسب‌وکار هوشمند" if purpose == PaymentPurpose.WALLET_TOPUP else "خرید اشتراک کسب‌وکار هوشمند"
     invoice_payload = f"payment-{owner.id}-{secrets.token_hex(8)}"
     # مبلغ‌های داخلیِ ما همیشه تومانن؛ بله‌پی طبقِ فایلِ ارائه‌شده ریال می‌خواد (۱ تومان = ۱۰ ریال).
     amount_rial = bale_service.toman_to_rial(data["final_amount"])
     try:
-        pay_url = await bale_service.create_invoice_link(
+        invoice_result = await bale_service.create_invoice_link(
             bale_credentials_service.bot_token(),
             admin_settings.bale_provider_token,
             title="شارژ کیف‌پول" if purpose == PaymentPurpose.WALLET_TOPUP else "خرید اشتراک",
@@ -846,6 +880,16 @@ async def cb_payment_method_bale(callback: CallbackQuery, state: FSMContext, ses
         logger.exception("درخواستِ ساختِ لینکِ بله‌پی ناموفق بود.")
         await callback.answer()
         await callback.message.answer(texts.BALE_PAY_ERROR)
+        return
+
+    # P23: بله از این سرویس «invoice_id=…» برمی‌گرداند نه آدرس (MEASURED از payment_event_logs).
+    # تا قالبِ لینک در پنلِ ادمین وارد نشده باشد لینک نمی‌سازیم — لینکِ بی‌اعتبار را تلگرام رد
+    # می‌کند، پیامِ پرداخت ارسال نمی‌شود و دکمه مرده به‌نظر می‌رسد (علتِ گزارشِ کاربر).
+    pay_url = bale_service.resolve_payment_link(invoice_result, admin_settings.bale_pay_link_template)
+    if pay_url is None:
+        logger.warning("پاسخِ createInvoiceLink به لینک تبدیل نشد (قالب تنظیم نیست یا پاسخ قابل‌مصرف نبود): %r", invoice_result[:60])
+        await callback.answer()
+        await callback.message.answer(texts.BALE_LINK_NOT_CONFIGURED)
         return
 
     await payment_service.create_bale_payment(

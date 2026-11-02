@@ -123,6 +123,62 @@ async def create_invoice_link(
     return result
 
 
+INVOICE_ID_FIELD = "invoice_id"
+PLACEHOLDER_ID = "{invoice_id}"
+PLACEHOLDER_PARAMS = "{invoice_params}"
+
+
+def parse_invoice_result(result: str) -> tuple[str | None, str, str]:
+    """به دو شکل برمی‌گردد: یا آدرسِ کامل، یا `کلید=مقدار`. خروجی: (url|None, شناسه, رشتهٔ خام).
+
+    MEASURED از `payment_event_logs`ِ همین محیط: بله «invoice_id=M6dm…» می‌دهد، نه URL.
+    چیزی که نه آدرس است نه `کلید=مقدار` ⇒ (None, "", "")؛ یعنی قابلِ مصرف نیست. جایِ خالی را در
+    قالب نمی‌چشانیم، وگرنه لینکِ نصفه دقیقاً همان «دکمهٔ مرده» را برمی‌گرداند.
+    """
+    text = (result or "").strip()
+    if text.startswith("http://") or text.startswith("https://"):
+        return text, "", text
+    key, sep, value = text.partition("=")
+    if sep and key.strip() and value.strip():
+        return None, value.strip(), text
+    return None, "", ""
+
+
+def valid_link_template(raw: str | None) -> bool:
+    """قالبِ لینک باید آدرسِ http(s) باشد و یکی از جای‌نگهدارها را داشته باشد (اگر خالی است، پاک‌کردن حساب می‌شود)."""
+    text = (raw or "").strip()
+    if not text:
+        return True
+    if len(text) > 256 or any(ch.isspace() for ch in text):
+        return False
+    if not (text.startswith("http://") or text.startswith("https://")):
+        return False
+    return PLACEHOLDER_ID in text or PLACEHOLDER_PARAMS in text
+
+
+def resolve_payment_link(result: str, template: str | None = None) -> str | None:
+    """یا همان URL را رد می‌کند، یا با قالبِ ادمین می‌سازد؛ اگر هیچ‌کدام نشد None (نه لینکِ بی‌اعتبار).
+
+    قالبِ مجاز باید `{invoice_id}` یا `{invoice_params}` را داشته باشد و نتیجه با http(s) شروع شود؛
+    `.replace` به‌جای `.format` تا علامت‌هایِ دیگرِ آدرس (مثل `{}` در query) نشکنند.
+    """
+    url, invoice_id, raw = parse_invoice_result(result)
+    if url:
+        return url
+    if not raw:
+        return None
+    pattern = (template or "").strip()
+    if not pattern:
+        return None
+    if PLACEHOLDER_ID in pattern:
+        if not invoice_id:
+            return None
+    elif PLACEHOLDER_PARAMS not in pattern:
+        return None
+    built = pattern.replace(PLACEHOLDER_ID, invoice_id).replace(PLACEHOLDER_PARAMS, raw)
+    return built if built.startswith("http://") or built.startswith("https://") else None
+
+
 async def answer_pre_checkout_query(
     bot_token: str, pre_checkout_query_id: str, ok: bool, error_message: str | None = None
 ) -> None:

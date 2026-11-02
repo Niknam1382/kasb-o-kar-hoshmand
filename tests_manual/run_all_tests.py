@@ -119,6 +119,7 @@ TEST_FILES = [
     "test_p22_seed_cleanup_safety.py",
     "test_p22_export_beautification.py",
     "test_p22_inactive_owners.py",
+    "test_p23_bale_payment_link.py",
 ]
 
 

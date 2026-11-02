@@ -197,7 +197,7 @@ async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot)
     total = order_transition_service.group_total_toman(rows)
     payload = f"cartgroup-{key}-{secrets.token_hex(8)}"
     try:
-        pay_url = await bale_service.create_invoice_link(
+        invoice_result = await bale_service.create_invoice_link(
             status.bot_token,
             status.provider_token,
             title="پرداختِ سفارش",
@@ -207,6 +207,15 @@ async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot)
         )
     except bale_service.BaleError:
         logger.exception("ساختِ لینکِ بله‌پی برایِ گروهِ %s ناموفق بود.", key)
+        await callback.answer(texts.PAY_ONLINE_LINK_FAILED, show_alert=True)
+        return
+
+    # P23: خروجیِ بله شناسه است («invoice_id=…») نه آدرس؛ لینک از قالبِ پنلِ ادمین ساخته می‌شود.
+    # `shop_status` همین را ملاکِ نمایشِ دکمه قرار می‌دهد، پس این‌جا فقط حالتِ «بله چیزِ دیگری داد».
+    admin_row = await get_admin_settings(session)
+    pay_url = bale_service.resolve_payment_link(invoice_result, admin_row.bale_pay_link_template)
+    if pay_url is None:
+        logger.error("پاسخِ createInvoiceLink به لینکِ قابل‌کلیک تبدیل نشد (گروه %s): %r", key, invoice_result[:60])
         await callback.answer(texts.PAY_ONLINE_LINK_FAILED, show_alert=True)
         return
     payment, expires = await order_payment_service.start_payment(session, rows, payment_settings_service.METHOD_BALE, settings_row)
