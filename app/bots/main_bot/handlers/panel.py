@@ -913,23 +913,30 @@ async def cb_payment_method_bale(callback: CallbackQuery, state: FSMContext, ses
         return
 
     # P23: بله از این سرویس «invoice_id=…» برمی‌گرداند نه آدرس (MEASURED از payment_event_logs).
-    # تا قالبِ لینک در پنلِ ادمین وارد نشده باشد لینک نمی‌سازیم — لینکِ بی‌اعتبار را تلگرام رد
-    # می‌کند، پیامِ پرداخت ارسال نمی‌شود و دکمه مرده به‌نظر می‌رسد (علتِ گزارشِ کاربر).
+    # P25: قالبِ قابلِ‌استفادهٔ پنل نباشد، پیش‌فرضِ مستندِ بله (https://bale.ai/pay/{invoice_id})
+    # کار می‌کند؛ None فقط وقتی می‌رسد که خودِ پاسخِ بله قابلِ مصرف نباشد.
     pay_url = bale_service.resolve_payment_link(invoice_result, admin_settings.bale_pay_link_template)
     if pay_url is None:
-        logger.warning("پاسخِ createInvoiceLink به لینک تبدیل نشد (قالب تنظیم نیست یا پاسخ قابل‌مصرف نبود): %r", invoice_result[:60])
+        logger.warning("پاسخِ createInvoiceLink به لینک تبدیل نشد (پاسخِ غیرمنتظره از بله): %r", invoice_result[:60])
         await callback.answer()
-        await callback.message.answer(texts.BALE_LINK_NOT_CONFIGURED)
+        await callback.message.answer(texts.BALE_LINK_UNRESOLVED)
         return
 
-    await payment_service.create_bale_payment(
+    payment = await payment_service.create_bale_payment(
         session, owner, data["base_amount"], await _get_discount_or_none(session, data.get("discount_code_id")), invoice_payload,
         duration_months=data.get("duration_months"),
         purpose=purpose,
     )
     await state.clear()
     await callback.answer()
-    await callback.message.answer(texts.BALE_PAY_REDIRECT_TEXT, reply_markup=keyboards.bale_pay_keyboard(pay_url))
+    try:
+        await callback.message.answer(texts.BALE_PAY_REDIRECT_TEXT, reply_markup=keyboards.bale_pay_keyboard(pay_url))
+    except TelegramAPIError:
+        # MEASURED (P25): با آدرسِ نامعتبر، تلگرام اینجا می‌ترکید و ردیفِ پرداخت هم با هندلر
+        # rollback می‌شد؛ این‌جا صریحاً باطلش می‌کنیم تا «پرداختِ بازِ» بی‌صاحب نماند.
+        logger.exception("ارسالِ لینکِ پرداختِ بله ناموفق بود (payment=%s)", payment.id)
+        await payment_service.reject_payment(session, payment, None, reason="لینکِ پرداخت ارسال نشد (ردِ سمتِ ربات)")
+        await callback.message.answer(texts.BALE_LINK_UNRESOLVED)
 
 
 # =============================================================================

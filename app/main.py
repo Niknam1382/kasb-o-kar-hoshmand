@@ -240,6 +240,7 @@ async def run_polling() -> None:
             await bale_updates_task
         _stop_health_server(health)
         await ai_service.close_http_session()
+        await bale_service.close_http_session()
         await admin_alert_service.shutdown()
         await main_bot.session.close()
         await release_polling_lock(lock_connection)
@@ -363,6 +364,7 @@ async def on_shutdown() -> None:
 
     # جلسه‌ی HTTP مشترکِ سرویسِ هوش مصنوعی رو هم می‌بندیم تا سوکت باز نمونه
     await ai_service.close_http_session()
+    await bale_service.close_http_session()
     await admin_alert_service.shutdown()
     await _state["main_bot"].session.close()
 

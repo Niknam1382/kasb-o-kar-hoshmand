@@ -586,19 +586,17 @@ def admin_discounts_list_keyboard(codes) -> InlineKeyboardMarkup:
     rows = []
     for c in codes:
         status = "✅" if c.is_active else "❌"
-        value_label = f"{fa_number(f"{float(c.value):g}")}٪" if c.type.value == "percent" else f"{fa_grouped(int(c.value))} تومان"
+        # `type` یا enum است یا رشتهٔ خامِ ستون (بسته به مسیرِ خواندن) — هر دو شکلِ قدیمی هم
+        # هنوز نمایش داده می‌شوند؛ «مبلغ ثابت» از P25 فقط قابلِ ساخت نیست، نه قابلِ خواندن.
+        type_value = c.type.value if hasattr(c.type, "value") else c.type
+        if type_value == "percent":
+            value_label = f"{fa_number(f'{float(c.value):g}')}٪"
+        else:
+            value_label = f"{fa_grouped(int(c.value))} تومان (قدیمی)"
         rows.append([InlineKeyboardButton(text=f"{status} {c.code} ({value_label})", callback_data=f"admin_discount_toggle:{c.id}")])
     rows.append([InlineKeyboardButton(text="➕ افزودن کد جدید", callback_data="admin_discount_add")])
     rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="admin_pricing_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def discount_type_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="درصدی", callback_data="discount_type:percent"), InlineKeyboardButton(text="مبلغ ثابت", callback_data="discount_type:fixed")],
-        ]
-    )
 
 
 def switch_short_label(enabled: bool) -> str:

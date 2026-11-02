@@ -38,11 +38,30 @@ def next_offset(current: int | None, updates: list[dict]) -> int | None:
     return max(max(ids) + 1, current or 0)
 
 
+def is_pre_checkout(update: dict) -> bool:
+    """آیا این آپدیت `pre_checkout_query` است (مسیرِ حساسِ ۱۰ ثانیه‌ایِ بله)."""
+    return isinstance(update.get("pre_checkout_query"), dict)
+
+
+def order_for_handling(updates: list[dict]) -> list[dict]:
+    """P25 (سندِ بله): پاسخِ answerPreCheckoutQuery باید حداکثر ظرف ۱۰ ثانیه برسد.
+
+    هندلرها پشتِ هم اجرا می‌شوند و هر پرداختِ موفق (successful_payment) چند کوئری + یکِ
+    استعلامِ `inquireTransaction` است؛ اگر pre_checkout انتهای صف بیفتد، بله تراکنش را لغو
+    می‌کند. pre_checkoutها را اول می‌گذاریم (نسبتِ ترتیبِ بقیه حفظ می‌شود).
+    """
+    fast = [u for u in updates if isinstance(u, dict) and is_pre_checkout(u)]
+    if not fast:
+        return updates
+    rest = [u for u in updates if not (isinstance(u, dict) and is_pre_checkout(u))]
+    return fast + rest
+
+
 async def poll_once(bot_token: str, offset: int | None, handler: Handler, fetch: Fetcher) -> tuple[int | None, int]:
     """یک دور: (offsetِ جدید, تعدادِ آپدیتِ پردازش‌شده). خطایِ fetch بالا می‌ره؛ خطایِ هندلر فقط لاگ می‌شه."""
     updates = await fetch(bot_token, offset)
     processed = 0
-    for update in updates:
+    for update in order_for_handling(updates):
         if not isinstance(update, dict):
             continue
         try:

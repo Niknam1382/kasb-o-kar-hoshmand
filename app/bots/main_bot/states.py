@@ -133,7 +133,6 @@ class AdminChannelStates(StatesGroup):
 
 class AdminPricingStates(StatesGroup):
     waiting_discount_code = State()
-    waiting_discount_type = State()
     waiting_discount_value = State()
     waiting_discount_max_uses = State()
 

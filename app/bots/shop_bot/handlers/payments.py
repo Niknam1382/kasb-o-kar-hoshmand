@@ -210,8 +210,8 @@ async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot)
         await callback.answer(texts.PAY_ONLINE_LINK_FAILED, show_alert=True)
         return
 
-    # P23: خروجیِ بله شناسه است («invoice_id=…») نه آدرس؛ لینک از قالبِ پنلِ ادمین ساخته می‌شود.
-    # `shop_status` همین را ملاکِ نمایشِ دکمه قرار می‌دهد، پس این‌جا فقط حالتِ «بله چیزِ دیگری داد».
+    # P23: خروجیِ بله شناسه است («invoice_id=…») نه آدرس. P25: از قالبِ پنلِ ادمین و در نبودِ
+    # آن از پیش‌فرضِ مستندِ بله (https://bale.ai/pay/{invoice_id}) ساخته می‌شود.
     admin_row = await get_admin_settings(session)
     pay_url = bale_service.resolve_payment_link(invoice_result, admin_row.bale_pay_link_template)
     if pay_url is None:
@@ -222,7 +222,15 @@ async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot)
     payment.provider_ref = payload[:160]
     await session.commit()
     await callback.answer()
-    await _edit(callback, texts.online_pay_offer("bale", total, format_jalali_datetime(to_tehran(expires))), keyboards.online_pay_keyboard(pay_url, key))
+    try:
+        await _edit(callback, texts.online_pay_offer("bale", total, format_jalali_datetime(to_tehran(expires))), keyboards.online_pay_keyboard(pay_url, key))
+    except TelegramAPIError:
+        # MEASURED (P25): آدرسِ نامعتبرِ دکمه («https://YOUR_BALE_PAYMENT_BASE_URL?…») این هندلر را
+        # می‌کشت؛ پرداختِ بی‌صاحب را باطل می‌کنیم و سفارش برایِ تلاشِ دوباره می‌ماند.
+        logger.exception("ارسالِ لینکِ بله‌پی به مشتری ناموفق بود (payment=%s)", payment.id)
+        await order_payment_service.mark_link_failed(session, payment, reason="لینکِ پرداخت ارسال نشد (ردِ سمتِ ربات)")
+        await session.commit()
+        await callback.message.answer(texts.PAY_ONLINE_LINK_FAILED)
 
 
 @router.callback_query(F.data.startswith("pm_zarinpal:"))

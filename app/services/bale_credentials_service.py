@@ -1,16 +1,16 @@
 """منبعِ واحدِ حقیقتِ اعتبارهایِ بله‌پی (P18 · A1 + B11).
 
-چهار مقدار برایِ پرداختِ بله‌پی لازم است و همه از پنلِ ادمین قابلِ تنظیم‌اند (بدونِ ری‌استارت):
+سه مقدار برایِ پرداختِ بله‌پی لازم است و یکِ مقدار اختیاری (همه از پنلِ ادمین، بدونِ ری‌استارت):
 
 ۱) **توکنِ رباتِ بله** (`bale_bot_token`) — سراسری؛ همان چیزی که رباتِ بله با آن کار می‌کند
    (getUpdates / setWebhook / createInvoiceLink / inquireTransaction). اولویت: پنل ← `.env`.
 ۲) **توکنِ درگاه (provider_token)** — مجوزِ ساختِ لینکِ پرداخت. اولویت: فروشگاه ← پنلِ ادمین (پشتیبان).
 ۳) **رازِ وب‌هوک** — فقط در `BALE_UPDATES_MODE=webhook` لازم است و **خودکار** ساخته می‌شود؛
    هرگز از ادمین پرسیده نمی‌شود (در `polling` که پیش‌فرض است اصلاً لازم نیست).
-۴) **قالبِ لینکِ پرداخت** (`bale_pay_link_template` · P23) — بله از `createInvoiceLink` یکِ
-   شناسه («invoice_id=…») برمی‌گرداند نه آدرس؛ بدونِ این قالب هیچِ لینکی ساخته نمی‌شود و
-   دکمهٔ بله‌پی به مشتری/فروشگاه‌دار نشان داده نمی‌شود (دقیقاً همان چیزی که باعث شد دکمه
-   «هیچ کاری نکند»: آدرسِ نامعتبر را تلگرام رد می‌کرد و پیامِ پرداخت ارسال نمی‌شد).
+۴) **قالبِ لینکِ پرداخت** (`bale_pay_link_template` · P23) — اختیاری. بله از `createInvoiceLink`
+   شناسه («invoice_id=…») برمی‌گرداند نه آدرس، و از P25 شکلِ رسمیِ آدرس در پیش‌فرضِ داخلی
+   (`bale_service.DEFAULT_PAY_LINK_TEMPLATE` از سندِ docs.bale.ai) ساخته می‌شود؛ این ستون فقط برایِ
+   override است (مثلاً اگر بله بعداً درگاهِ میزبانِ خودش را عوض کند).
 
 هیچ مقدارِ خامی در این ماژول لاگ یا برگردانده نمی‌شود؛ نمایش فقط ماسک‌شده (در `texts`).
 ملاکِ `shop_status` *تنها* معیاری است که هم «نمایشِ دکمه به مشتری» و هم «شروعِ پرداخت» از آن
@@ -34,7 +34,6 @@ logger = logging.getLogger(__name__)
 # علت‌هایِ ناقص‌بودنِ پیکربندی (کدِ داخلی؛ متنِ کاربرپسند در texts.bale_missing_hint)
 MISSING_BOT_TOKEN = "bot_token"
 MISSING_PROVIDER_TOKEN = "provider_token"
-MISSING_PAY_LINK_TEMPLATE = "pay_link_template"
 ADMIN_DISABLED = "admin_disabled"
 SHOP_DISABLED = "shop_disabled"
 
@@ -129,9 +128,6 @@ async def shop_status(
     provider = await provider_token(session, shop_bot)
     if not provider:
         missing.append(MISSING_PROVIDER_TOKEN)
-    if not (admin_row.bale_pay_link_template or "").strip():
-        # P23: بدونهٔ قالب، خروجیِ createInvoiceLink یکِ شناسه است نه آدرس ⇒ دکمه نساز.
-        missing.append(MISSING_PAY_LINK_TEMPLATE)
     return ShopBaleStatus(token, provider, tuple(missing))
 
 
@@ -145,7 +141,11 @@ async def methods(
 
 
 def platform_status(session_row) -> tuple[bool, list[str]]:
-    """مسیرِ سراسری (شارژِ کیف‌پولِ فروشگاه‌دار به پلتفرم): توکنِ ربات + توکنِ درگاهِ ادمین + کلیدِ ادمین + قالبِ لینک."""
+    """مسیرِ سراسری (شارژِ کیف‌پولِ فروشگاه‌دار به پلتفرم): توکنِ ربات + کلیدِ ادمین + توکنِ درگاهِ ادمین.
+
+    قالبِ لینک دیگر جزوِ پیش‌نیازها نیست: از P25 پیش‌فرضِ مستندِ بله وجود دارد و اگر ادمین
+    مقدارِ ناقصی ذخیره کرده باشد، `resolve_payment_link` همان را نادیده می‌گیرد.
+    """
     missing: list[str] = []
     if not bot_token():
         missing.append(MISSING_BOT_TOKEN)
@@ -153,7 +153,4 @@ def platform_status(session_row) -> tuple[bool, list[str]]:
         missing.append(ADMIN_DISABLED)
     if not (getattr(session_row, "bale_provider_token", None) or ""):
         missing.append(MISSING_PROVIDER_TOKEN)
-    if not (getattr(session_row, "bale_pay_link_template", None) or "").strip():
-        # P23: بدونِ قالب، خروجیِ createInvoiceLink شناسه است نه آدرس ⇒ پرداخت شروع نشود.
-        missing.append(MISSING_PAY_LINK_TEMPLATE)
     return (not missing, missing)

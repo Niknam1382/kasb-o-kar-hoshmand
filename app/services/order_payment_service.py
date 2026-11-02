@@ -335,6 +335,21 @@ async def reject_payment(
     return DecisionResult(True, True, rows=rows, payment=payment, final_status=target)
 
 
+async def mark_link_failed(session: AsyncSession, payment: OrderPayment, *, reason: str) -> None:
+    """P25: لینکِ پرداخت ساخته شد ولی به دستِ مشتری نرسید (مثلاً آدرس را تلگرام رد کرد).
+
+    فقط همین تلاشِ پرداخت باطل می‌شود؛ سفارش دست‌نخورده در `awaiting_payment` و با همان مهلت
+    می‌ماند تا مشتری بتواند دوباره (با این روش یا روشِ دیگر) پرداخت کند. ایدمپوتنت است.
+    """
+    if payment.status in (P_PAID, P_APPROVED, P_FAILED):
+        return
+    payment.status = P_FAILED
+    payment.reject_reason = reason[:1000]
+    payment.decided_at = now_utc()
+    payment.decided_by = "system"
+    await session.flush()
+
+
 async def expire_stale_payment_groups(session: AsyncSession) -> list[list[OrderConsultation]]:
     """جابِ انقضا (F7): گروه‌هایِ awaiting_payment/receipt_submitted با مهلتِ گذشته ⇒ `expired` + آزادسازیِ رزرو
     + پرداختِ فعالشون `expired`. گروه‌هایی که تغییر کردن برمی‌گردن (تا هندلر اطلاع بده). ایدمپوتنت."""

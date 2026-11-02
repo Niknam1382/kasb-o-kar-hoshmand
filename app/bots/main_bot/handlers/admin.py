@@ -498,9 +498,13 @@ async def cb_toggle_bale_pay(callback: CallbackQuery, session: AsyncSession) -> 
     if admin_settings.bale_pay_enabled and not admin_settings.bale_provider_token:
         # A1: توکنِ درگاهِ سراسری فقط پشتیبان است؛ بدونِ آن هر فروشگاه باید توکنِ درگاهِ خودش را داشته باشد.
         await callback.message.answer(texts.BALE_ENABLED_WITHOUT_GLOBAL_PROVIDER)
-    if admin_settings.bale_pay_enabled and not (admin_settings.bale_pay_link_template or "").strip():
-        # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی ساخته نمی‌شود (بله فقط شناسه می‌دهد) — همان‌جا گفته می‌شود.
-        await callback.message.answer(texts.BALE_ENABLED_WITHOUT_LINK_TEMPLATE)
+    if admin_settings.bale_pay_enabled and not bale_service.usable_link_template(admin_settings.bale_pay_link_template):
+        # P25: قالبِ لازم نیست (پیش‌فرضِ مستندِ بله کار می‌کند)، ولی اگر ادمین مقدارِ نمونهٔ
+        # داکیومنت را چسبانده باشد باید بداند که همان مقدارِ ذخیره‌شده هرگز استفاده نمی‌شود.
+        stored = (admin_settings.bale_pay_link_template or "").strip()
+        await callback.message.answer(
+            texts.BALE_LINK_TEMPLATE_FALLBACK_NOTE if stored else texts.BALE_LINK_TEMPLATE_DEFAULT_NOTE
+        )
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
@@ -689,33 +693,28 @@ async def discount_code_entered(message: Message, state: FSMContext, session: As
         return
 
     await state.update_data(discount_code=code)
-    await state.set_state(AdminPricingStates.waiting_discount_type)
-    await message.answer(texts.ADMIN_ASK_DISCOUNT_TYPE, reply_markup=keyboards.discount_type_keyboard())
-
-
-@super_router.callback_query(AdminPricingStates.waiting_discount_type, F.data.startswith("discount_type:"))
-async def discount_type_chosen(callback: CallbackQuery, state: FSMContext) -> None:
-    discount_type = callback.data.split(":")[1]
-    await state.update_data(discount_type=discount_type)
+    # P25: «مبلغِ ثابت» از پنل حذف شد — هر کدِ تازه‌ای درصدی است، پس مرحلهٔ پرسیدنِ نوع هم نیست.
     await state.set_state(AdminPricingStates.waiting_discount_value)
-    await callback.answer()
-    await callback.message.answer(texts.ADMIN_ASK_DISCOUNT_VALUE)
+    await message.answer(texts.ADMIN_ASK_DISCOUNT_VALUE)
+
+
+@super_router.callback_query(F.data.startswith("discount_type:"))
+async def discount_type_removed(callback: CallbackQuery, state: FSMContext) -> None:
+    """کیبوردِ کهنهٔ «نوع تخفیف» (P24 و قبل‌تر): دکمهٔ مرده نمی‌ماند و مسیرِ تازه را توضیح می‌دهد."""
+    await callback.answer(texts.ADMIN_DISCOUNT_TYPE_REMOVED, show_alert=True)
+    await state.clear()
 
 
 @super_router.message(AdminPricingStates.waiting_discount_value, F.text)
 async def discount_value_entered(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
     try:
         value = Decimal(message.text.strip().replace(",", "").replace("،", ""))
     except InvalidOperation:
         await message.answer(texts.ADMIN_INVALID_NUMBER)
         return
 
-    if data["discount_type"] == "percent" and not (0 < value <= 100):
+    if not (0 < value <= 100):
         await message.answer(texts.ADMIN_INVALID_PERCENT)
-        return
-    if value <= 0:
-        await message.answer(texts.ADMIN_INVALID_NUMBER)
         return
 
     await state.update_data(discount_value=str(value))
@@ -739,8 +738,9 @@ async def discount_max_uses_entered(message: Message, state: FSMContext, session
             return
 
     data = await state.get_data()
-    discount_type = DiscountType.PERCENT if data["discount_type"] == "percent" else DiscountType.FIXED
-    code = await discount_service.create_code(session, data["discount_code"], discount_type, Decimal(data["discount_value"]), max_uses, None)
+    code = await discount_service.create_code(
+        session, data["discount_code"], DiscountType.PERCENT, Decimal(data["discount_value"]), max_uses, None
+    )
 
     await state.clear()
     await message.answer(texts.admin_discount_code_saved(code.code))
@@ -1060,19 +1060,28 @@ async def cb_bale_selftest(callback: CallbackQuery, session: AsyncSession) -> No
             invoice_result = await bale_service.create_invoice_link(
                 token, admin_settings.bale_provider_token, "آزمایش", "آزمایشِ بله‌پی (پرداخت نکن)", f"selftest-{secrets.token_hex(6)}", 10_000
             )
-            # P23: «موفق» یعنی خروجی به لینکِ قابل‌کلیک تبدیل می‌شود، نه اینکه بله فقط ok داده باشد؛
-            # خودِ بله «ok:true» را با شناسهٔ صورتحساب برمی‌گرداند و لینکِ بی‌اعتبار را تلگرام رد می‌کند.
+            # P23: «موفق» یعنی خروجی به لینکِ قابل‌کلیک تبدیل می‌شود، نه اینکه بله فقط ok داده باشد.
+            # P25: مینویسیم لینک از کجا ساخته شده (قالبِ پنل یا پیش‌فرضِ مستندِ بله) تا ادمین
+            # مقدارِ بی‌اثرِ خودش را «سالم» نبیند.
             resolved = bale_service.resolve_payment_link(invoice_result, admin_settings.bale_pay_link_template)
+            source = bale_service.payment_link_source(admin_settings.bale_pay_link_template)
             if resolved is None:
                 steps.append(
                     (
                         "createInvoiceLink (۱۰٬۰۰۰ ریال)",
                         False,
-                        f"پاسخِ بله شناسه بود نه آدرس: «{invoice_result[:60]}» — «🔗 قالبِ لینکِ پرداختِ بله‌پی» را تنظیم کن.",
+                        f"پاسخِ بله قابلِ مصرف نبود: «{invoice_result[:60]}» — شکلِ لینک از مستنداتِ بله عوض شده است.",
                     )
                 )
+            elif source == "panel":
+                steps.append(("createInvoiceLink (۱۰٬۰۰۰ ریال)", True, f"لینک از قالبِ پنل: {resolved[:70]}"))
             else:
-                steps.append(("createInvoiceLink (۱۰٬۰۰۰ ریال)", True, resolved[:80]))
+                note = (
+                    "لینک از پیش‌فرضِ بله ساخته شد"
+                    if not (admin_settings.bale_pay_link_template or "").strip()
+                    else "قالبِ ذخیره‌شده در پنل نامعتبر است ⇒ پیش‌فرضِ بله استفاده شد"
+                )
+                steps.append(("createInvoiceLink (۱۰٬۰۰۰ ریال)", True, f"{note}: {resolved[:70]}"))
         except bale_service.BaleError as exc:
             steps.append(("createInvoiceLink (۱۰٬۰۰۰ ریال)", False, str(exc)[:200]))
     await callback.message.answer(texts.bale_selftest_report(steps))
@@ -1249,12 +1258,14 @@ async def setting_value_entered(
         return
 
     if field == "bale_pay_link_template":
-        # P23: بدونِ این قالب، لینکِ بله‌پی ساخته نمی‌شود؛ پس ورودیِ بی‌جای‌نگهدار را نگه می‌داریم
-        # و دوباره می‌پرسیم، نه اینکه ذخیره‌اش کنیم تا بعداً تلگرام لینک را رد کند.
-        if value is not None and not bale_service.valid_link_template(str(value)):
+        # P25: خالی = «از پیش‌فرضِ مستندِ بله استفاده کن». مقدارِ پرِ نامعتبر (میزبانِ نمونهٔ
+        # داکیومنت، بدونِ جای‌نگهدار، فاصله) را ذخیره نمی‌کنیم — تلگرام چنین آدرسی را رد می‌کند
+        # و دکمهٔ پرداخت می‌مرد؛ پس همین‌جا رد و دوباره می‌پرسیم.
+        text = "" if value is None else str(value).strip()
+        if text and not bale_service.usable_link_template(text):
             await message.answer(texts.ADMIN_INVALID_BALE_LINK_TEMPLATE)
             return
-        await admin_settings_service.update_setting(session, field, value)
+        await admin_settings_service.update_setting(session, field, text or None)
         await state.clear()
         await message.answer(texts.ADMIN_SETTING_SAVED)
         await _refresh_settings_menu(message, session, _setting_group(field))
