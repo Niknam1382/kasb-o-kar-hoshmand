@@ -10,6 +10,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.states import RegistrationStates as RS
 from app.config import AuthMode, settings
@@ -415,7 +416,7 @@ async def cb_reg_confirm(callback: CallbackQuery, state: FSMContext, session: As
         business_mode=data["mode"], username=callback.from_user.username,
     )
     try:
-        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.edit_reply_markup(reply_markup=NO_INLINE_KEYBOARD)
     except TelegramBadRequest:
         pass
     await callback.message.answer(texts.registration_complete_welcome(owner.first_name), reply_markup=ReplyKeyboardRemove())

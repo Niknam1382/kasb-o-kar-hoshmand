@@ -51,10 +51,14 @@ def resolve_global_prompt(admin_settings, tenant_mode) -> str:
 
 
 def build_bot_tools(tenant_mode, support_enabled: bool, labels) -> list[str]:
-    """خط‌هایِ بخشِ «ابزارهایِ ربات» — فقط دکمه‌هایی که واقعاً توی رباتِ همین فروشگاه هست."""
-    if _mode_value(tenant_mode) == "consultation":
-        tools = [f"«{labels.BTN_SERVICES}» — دیدنِ خدمات و بسته‌ها"]
-    else:
+    """خط‌هایِ بخشِ «ابزارهایِ ربات» — فقط دکمه‌هایی که واقعاً توی رباتِ همین فروشگاه هست.
+
+    P24: در مودِ مشاوره «🗂 خدمات و بسته‌ها» از منو حذف شده (کاتالوگ در این مود بسته است ⇒
+    فهرست همیشه خالی). اگر همین‌جا ذكرش می‌شد، هوش مصنوعی مشتری را به دکمه‌ای دعوت می‌کرد که
+    وجود ندارد — یعنی همان «دکمهٔ مرده» در شکلِ گفتمانی.
+    """
+    tools: list[str] = []
+    if _mode_value(tenant_mode) != "consultation":
         tools = [f"«{labels.BTN_PRODUCTS}» — دیدنِ کاتالوگ", f"«{labels.BTN_CART}» — مرورِ سبد و تسویه‌حساب"]
     if support_enabled:
         tools.append(f"«{labels.BTN_SUPPORT}» — ارتباط با فروشگاه")

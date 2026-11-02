@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aiogram import Router
 
+from app.bots.common.error_handler import on_handler_error
 from app.bots.common.middlewares import ChannelGateMiddleware, IdentityRefreshMiddleware, MenuButtonEscapeMiddleware
 from app.bots.main_bot.handlers import (
     accounting,
@@ -84,6 +85,10 @@ _KNOWN_MENU_BUTTONS = {
 
 def build_main_router() -> Router:
     router = Router(name="main_bot")
+
+    # P24: خطایِ هر هندلر (even KeyError/ValueError از callback_data دستکاری‌شده) باید لاگ شود و
+    # یکِ بازخوردِ دیدنی بدهد؛ بی‌این هندلر، دکمه بی‌جواب می‌ماند و «هیچ کاری نمی‌کند» به‌نظر می‌رسد.
+    router.errors.register(on_handler_error)
 
     # این باید outer_middleware باشه، نه middleware معمولی: چون aiogram قبل از
     # اینکه اصلاً handler رو بر اساسِ StateFilter انتخاب کنه، از یه مقدارِ کش‌شده

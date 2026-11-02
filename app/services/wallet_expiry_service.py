@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts
@@ -34,5 +34,15 @@ async def process_wallet_expiry_and_reminders(session: AsyncSession, main_bot: B
         try:
             await main_bot.send_message(owner.telegram_id, texts.wallet_expiry_reminder(days_left, charge.remaining_toman))
             await wallet_service.mark_reminder_sent(session, charge, threshold)
+        except (TelegramForbiddenError, TelegramBadRequest) as exc:
+            # P24: «chat not found» و «bot was blocked» حالتِ همیشگی‌اند. بی‌mark_reminder_sent،
+            # هر گردشِ جاب همان یادآوری را دوباره.try می‌کرد و یک traceback کامل در لاگ می‌ریخت
+            # (در دیپلوی: هر ساعت، برایِ هر حسابِ حذف‌شده/بلاک‌کرده — یعنی لاگِ بی‌پایانِ بی‌فایده).
+            await wallet_service.mark_reminder_sent(session, charge, threshold)
+            logger.info(
+                "یادآوریِ انقضا برای %s فرستاده نشد (%s)؛ همین مرز دیگر تلاش نمی‌شود.",
+                owner.telegram_id,
+                type(exc).__name__,
+            )
         except TelegramAPIError:
             logger.exception("یادآوریِ انقضای کیف‌پول برای %s ناموفق بود.", owner.telegram_id)

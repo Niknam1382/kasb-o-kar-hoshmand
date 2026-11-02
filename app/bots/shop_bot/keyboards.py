@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+)
 
 from app.utils.validators import fa_grouped
 
@@ -42,21 +48,32 @@ def _paginate(items: list, page: int) -> tuple[list, int, int]:
     return items[start : start + _PAGE_SIZE], page, total_pages
 
 
-def customer_main_keyboard(tenant_mode=None, support_enabled: bool = False) -> ReplyKeyboardMarkup:
-    """کیبوردِ منوی مشتری (C1)، مود-آگاه: فروشگاهی = محصولات/سبد؛ مشاوره‌ای = خدمات (بدونِ سبد/خرید).
-    «📞 ارتباط با پشتیبانی» فقط وقتی فروشگاه‌دار فعالش کرده."""
+def customer_main_keyboard(tenant_mode=None, support_enabled: bool = False) -> ReplyKeyboardMarkup | ReplyKeyboardRemove:
+    """کیبوردِ منوی مشتری (C1)، مود-آگاه: فروشگاهی = محصولات/سبد؛ مشاوره‌ای = فقط پشتیبانی.
+
+    P24 (درخواستِ کاربر): دو دکمهٔ «🗂 خدمات و بسته‌ها» و «📦 سفارش‌هایِ من» از منویِ
+    مشاوره‌ای برداشته شدند، چون در آن حالت هیچ‌وقت پر نمی‌شدند:
+    - «خدمات»: کاتالوگِ محصول در مودِ مشاوره عمداً بسته است ⇒ فهرست همیشگی خالی.
+    - «سفارش‌هایِ من»: پیگیری فقط `OrderType.ORDER` را می‌خواند و درخواست‌های این مود
+      `CONSULTATION` ساخته می‌شوند ⇒ «هیچ سفارشی نداری» همیشگی.
+    کیبوردِ خالیِ باقی‌مانده با `ReplyKeyboardRemove` فرستاده می‌شود تا دکمه‌هایِ مردهٔ
+    نسخه‌هایِ قبلی هم از صفحهٔ مشتری پاک بروند (نه اینکه فقط نو ones ساخته نشوند).
+    """
     from app.bots.shop_bot import texts  # لازیم؛ texts به cart_edit_service وابسته‌ست
 
     value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     if value == "consultation":
-        # P21-D (F6): پیگیریِ وضعیتِ درخواست‌ها برایِ مشاوره هم معنا دارد («مراجعه‌ام تایید شد؟»)
-        buttons = [KeyboardButton(text=texts.BTN_SERVICES), KeyboardButton(text=texts.BTN_MY_ORDERS)]
-    else:
-        buttons = [
-            KeyboardButton(text=texts.BTN_PRODUCTS),
-            KeyboardButton(text=texts.BTN_CART),
-            KeyboardButton(text=texts.BTN_MY_ORDERS),
-        ]
+        if not support_enabled:
+            return ReplyKeyboardRemove()
+        return ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text=texts.BTN_SUPPORT)]],
+            resize_keyboard=True,
+        )
+    buttons = [
+        KeyboardButton(text=texts.BTN_PRODUCTS),
+        KeyboardButton(text=texts.BTN_CART),
+        KeyboardButton(text=texts.BTN_MY_ORDERS),
+    ]
     if support_enabled:
         buttons.append(KeyboardButton(text=texts.BTN_SUPPORT))
     return ReplyKeyboardMarkup(keyboard=_chunks(buttons), resize_keyboard=True)

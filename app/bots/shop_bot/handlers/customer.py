@@ -38,6 +38,7 @@ from app.services import (
     moderation_service,
     prompt_defaults,
     order_detection_service,
+    order_payment_service,
     order_service,
     platform_service,
     product_service,
@@ -134,6 +135,18 @@ async def customer_menu(message: Message, session: AsyncSession, state: FSMConte
     await state.clear()
     shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     await message.answer(texts.MENU_REPLY, reply_markup=_menu_keyboard(shop_bot))
+
+
+async def _in_maintenance(session: AsyncSession) -> bool:
+    """P24: «حالتِ تعمیر» پیش ازِ این فقط مسیرِ متنِ هوش مصنوعی (و «🛍 محصولات») را می‌بست.
+
+    مشتری می‌توانست با «🛒 سبد»، «📦 سفارش‌هایِ من» یا «💳 پرداخت» از دکمه‌ها رد شود و سفارش
+    ثبت کند در حالی که فروشگاه‌دار ربات را «خاموش» کرده بود. این helper تنها همان یکِ چک را
+    می‌کند؛ چکِ موجودیِ کیف‌پول و محدودیتِ نرخ عمداً اینجا تکرار نمی‌شود تا شمارشِ مصرفِ AI
+    (که در `_check_access` ثبت می‌شود) با بُرش‌هایِ فهرست دستکاری نشود.
+    """
+    return bool((await get_admin_settings(session)).maintenance_mode)
+
 
 
 async def _check_access(message: Message, session: AsyncSession, shop_bot, main_bot: Bot) -> bool:
@@ -258,6 +271,9 @@ async def cart_open_view(message: Message, session: AsyncSession) -> None:
     shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
+    if await _in_maintenance(session):
+        await message.answer(texts.PLATFORM_MAINTENANCE_REPLY)
+        return
     if _is_consultation(shop_bot):
         await _stale_button_reply(message, shop_bot)
         return
@@ -274,15 +290,16 @@ async def cart_open_view(message: Message, session: AsyncSession) -> None:
 
 @router.message(F.text == texts.BTN_SERVICES)
 async def open_services(message: Message, session: AsyncSession) -> None:
-    """مشاوره‌ای: فهرستِ فقط‌خواندنیِ خدمات/بسته‌ها (بدونِ سبد/خرید)."""
+    """دکمهٔ «🗂 خدمات و بسته‌ها» از منویِ مشاوره برداشته شده (P24) ⇒ هر تپِ باقی‌مانده کهنه است.
+
+    چرا حذف: کاتالوگِ محصول در مودِ مشاوره عمداً بسته است (products.py: «📦 محصولات» و ساختِ
+    کاتالوگ در این مود وجود ندارد)، پس این فهرست برایِ مشتریِ مشاوره‌ای *همیشه* خالی می‌ماند و
+    بن‌بست بود. منویِ درستِ همان فروشگاه را دوباره می‌فرستیم تا راهِ ادامه داشته باشد.
+    """
     shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
         return
-    if not _is_consultation(shop_bot):
-        await _stale_button_reply(message, shop_bot)
-        return
-    products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
-    await message.answer(texts.services_list_text(products) if products else texts.SERVICES_EMPTY)
+    await _stale_button_reply(message, shop_bot)
 
 
 @router.message(F.text == texts.BTN_SUPPORT)
@@ -805,11 +822,23 @@ async def customer_photo(message: Message, session: AsyncSession, main_bot: Bot)
     # ندارد و فقط برایِ فروشگاه‌دار می‌رود؛ همان‌جا اگر رسید باشد خودش مسیرِ «🧾 ثبتِ رسید»
     # را می‌رود (handlers/payments.py).
     image_bytes: bytes | None = None
+    photo = message.photo[-1]
+    # P24: عکسِ عادیِ مشتری سقفِ حجمی نداشت (برخلافِ رسید و اکسل). بایت‌هایِ کامل در حافظه
+    # می‌نشینند و بعد به ادمین فوروارد می‌شوند ⇒ یکِ عکسِ سنگینِ پشت‌سرهم می‌تواند RSS را بالا ببرد.
+    declared_size = getattr(photo, "file_size", None)
+    if declared_size is not None and declared_size > order_payment_service.MAX_RECEIPT_BYTES:
+        await message.answer(texts.PHOTO_TOO_BIG)
+        return
     try:
-        file_io = await message.bot.download(message.photo[-1].file_id)
+        file_io = await message.bot.download(photo.file_id)
         image_bytes = file_io.read()
     except Exception:
         logger.exception("دانلودِ عکسِ مشتری %s ناموفق بود.", message.from_user.id)
+
+    if image_bytes is not None and len(image_bytes) > order_payment_service.MAX_RECEIPT_BYTES:
+        # اندازهٔ اعلامی دراپ‌شدنی است؛ مقدارِ واقعیِ دانلودشده ملاک است (همان قاعدهٔ مسیرِ رسید).
+        await message.answer(texts.PHOTO_TOO_BIG)
+        return
 
     if image_bytes is not None:
         try:

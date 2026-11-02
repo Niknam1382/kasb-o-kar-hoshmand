@@ -12,6 +12,7 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.main_bot import keyboards, texts
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.main_bot.states import (
@@ -112,6 +113,35 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession)
     else:
         keyboard = keyboards.shop_owner_panel_keyboard(owner.business_mode if owner else None, bale_visible=await bale_bot_service.visible_for(session))
     await message.answer(texts.OPERATION_CANCELLED, reply_markup=keyboard)
+
+
+@router.callback_query(F.data == "main_menu")
+async def cb_back_to_panel(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """«⬅️ بازگشت به پنل».
+
+    این callback در پنج کیبورد ساخته می‌شد (صفحه‌هایِ خالی، فهرستِ کمپین، صفحهٔ «🧹 کاربرانِ
+    غیرفعال» و…) ولی هیچ هندلری نداشت ⇒ تپِ آن *واقعاً* هیچ کاری نمی‌کرد؛ همان شکلی که کاربر
+    گزارش کرد. پنل با ReplyKeyboardMarkup نشان داده می‌شود و تلگرام اجازه نمی‌دهد کیبوردِ reply
+    را رویِ پیامِ موجود edit کرد، پس کیبوردِ inlineِ پیامِ قبلی برداشته می‌شود (دابل‌تپ پیامِ
+    تکراری نسازد) و یکِ پیامِ تازه با منویِ درستِ همان نقش می‌رود.
+    """
+    await state.clear()
+    owner = await _current_owner(callback, session)
+    is_super = callback.from_user.id in settings.admin_ids
+    is_admin = is_super or await admin_role_service.is_operator(session, callback.from_user.id)
+    if is_admin:
+        keyboard = keyboards.admin_panel_keyboard(is_super)
+    else:
+        keyboard = keyboards.shop_owner_panel_keyboard(
+            owner.business_mode if owner else None, bale_visible=await bale_bot_service.visible_for(session)
+        )
+    await callback.answer()
+    try:
+        # کیبوردِ inlineِ همان صفحه برداشته می‌شود تا دابل‌تپ، دو پیامِ پنل نسازد.
+        await callback.message.edit_reply_markup(reply_markup=NO_INLINE_KEYBOARD)
+    except TelegramAPIError:
+        pass  # پیامِ قدیمی/پاک‌شده؛ برگشتِ منویِ اصلی مهم‌تر است
+    await callback.message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboard)
 
 
 # =============================================================================
@@ -1145,9 +1175,27 @@ async def open_scheduled_broadcasts(message: Message, session: AsyncSession, sta
         return
     rows = await scheduled_broadcast_service.upcoming(session, shop_bot.id)
     if not rows:
-        await message.answer(texts.SCHEDULE_EMPTY)
+        await message.answer(texts.SCHEDULE_EMPTY, reply_markup=keyboards.scheduled_empty_keyboard())
         return
     await message.answer(texts.scheduled_list_text(rows), reply_markup=keyboards.scheduled_cancel_keyboard(rows))
+
+
+@router.callback_query(F.data == "sched_new")
+async def cb_new_scheduled_broadcast(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """«🕓 زمان‌بندیِ تازه» از همان صفحهٔ فهرست — قبلاً ساختِ ارسالِ زمان‌بندی‌شده فقط از داخلِ
+    پیش‌نمایشِ «📣 پیام به مشتری‌ها» در دسترس بود و صفحهٔ فهرست هیچ کاری برای انجام دادن نداشت."""
+    owner = await _current_owner(callback, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await callback.answer(texts.SHOP_BOT_NOT_SET_UP, show_alert=True)
+        return
+    if await customer_service.count_by_shop_bot(session, shop_bot.id) == 0:
+        await callback.answer(texts.SCHEDULE_NO_CUSTOMERS, show_alert=True)
+        return
+    await state.clear()
+    await state.set_state(CustomerBroadcastStates.waiting_message)
+    await callback.answer()
+    await callback.message.answer(texts.ASK_CUSTOMER_BROADCAST_MESSAGE)
 
 
 @router.callback_query(F.data.startswith("sched_cancel:"))
@@ -1370,9 +1418,9 @@ async def cb_reject_order(callback: CallbackQuery, session: AsyncSession, bot_ma
     await callback.answer(texts.ORDER_REJECTED_CONFIRMATION)
     new_caption = (callback.message.caption or callback.message.text or "") + f"\n\n{texts.ORDER_REJECTED_CONFIRMATION}"
     if callback.message.photo:
-        await callback.message.edit_caption(caption=new_caption, reply_markup=None)
+        await callback.message.edit_caption(caption=new_caption, reply_markup=NO_INLINE_KEYBOARD)
     else:
-        await callback.message.edit_text(new_caption, reply_markup=None)
+        await callback.message.edit_text(new_caption, reply_markup=NO_INLINE_KEYBOARD)
 
 
 # -----------------------------------------------------------------------------
@@ -1449,7 +1497,7 @@ async def cb_reject_cart_group(callback: CallbackQuery, session: AsyncSession, b
 
     await _notify_manual_decision(session, shop_bot, orders, "rejected", bot_manager)
     await callback.answer(texts.CART_GROUP_REJECTED)
-    await callback.message.edit_text((callback.message.text or "") + f"\n\n{texts.CART_GROUP_REJECTED}", reply_markup=None)
+    await callback.message.edit_text((callback.message.text or "") + f"\n\n{texts.CART_GROUP_REJECTED}", reply_markup=NO_INLINE_KEYBOARD)
 
 
 @router.callback_query(F.data.startswith("advance_order:"))

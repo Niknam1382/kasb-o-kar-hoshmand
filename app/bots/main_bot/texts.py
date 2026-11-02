@@ -939,6 +939,11 @@ def broadcast_sent_confirmation(count: int) -> str:
     return f"✅ پیام همگانی برای {fa_number(count)} فروشگاه‌دار ارسال شد."
 
 
+def admin_broadcast_started(count: int) -> str:
+    """P24: ارسال در پس‌زمینه ادامه دارد؛ خلاصهٔ «چندتا واقع رفت» در پایان یک پیام جدا می‌آید."""
+    return f"⏳ ارسالِ پیام همگانی برایِ {fa_number(count)} فروشگاه‌دار در پس‌زمینه شروع شد. وقتی تمام شد، نتیجه را می‌فرستم."
+
+
 BROADCAST_CANCELLED = "ارسال پیام همگانی لغو شد."
 
 
@@ -1302,6 +1307,12 @@ OTP_RATE_LIMITED = "📮 برایِ این شماره اخیراً پیامکِ 
 ADMIN_ASK_AI_API_KEY = "کلید API هوش مصنوعی رو بفرست:"
 ADMIN_ASK_AI_MODEL = "نام مدل هوش مصنوعی رو بفرست:"
 ADMIN_ASK_AI_BASE_URL = "آدرس Base URL سرویس هوش مصنوعی رو بفرست (سازگار با فرمت OpenAI):"
+# P24 (امنیت): این آدرس با هدرِ کلیدِ AI درخواست می‌زند؛ رویِ هاستِ داخلی یعنی نشتِ کلید + SSRF.
+ADMIN_INVALID_AI_URL = (
+    "❌ این آدرس را ذخیره نکردم. باید با «https://» شروع شود (نه http)، میزبان داشته باشد و "
+    "به شبکه‌یِ داخلیِ سرور نرود (localhost، 127.x، 10.x، 192.168.x، 172.16-31.x، 169.254.x و "
+    "آدرس‌هایِ IPِ داخلی مجاز نیستند). کلیدِ هوش مصنوعی در headerِ همین درخواست می‌رود."
+)
 ADMIN_ASK_AI_FALLBACK_API_KEY = (
     "کلید API سرویسِ پشتیبانِ هوش مصنوعی رو بفرست (اختیاری — اگه سرویسِ اصلی قطع بود، خودکار به این سوییچ می‌کنه). "
     "برای پاک‌کردن، «خالی» بفرست:"
@@ -3174,13 +3185,26 @@ ASK_SCHEDULE_WHEN = (
     "ساعت‌ها به وقتِ تهران است. برایِ لغو «خالی» بنویس."
 )
 SCHEDULE_INVALID_WHEN = "این را نفهمیدم. نمونه‌ها: ۲۱:۳۰ · فردا ۹:۳۰ · +۲h"
-SCHEDULE_TOO_SOON = f"حداقلِ {5} دقیقه وقت لازم است — برایِ «همین الان» همون دکمهٔ «بله، بفرست» را بزن."
+# اعدادِ ۵/۶۰/۵ در سه متنِ بالا باثباتِ `scheduled_broadcast_service` (MIN_LEAD_MINUTES،
+# MAX_LEAD_DAYS، MAX_ACTIVE_PER_SHOP) یکی‌اند؛ importِ سرویس در این فایل دورِ import می‌سازد،
+# پس test_p24_automation_surfaces.py همان‌ها را با متن مقایسه می‌کند (اگر عددی عوض شد، تست می‌گوید).
+SCHEDULE_TOO_SOON = "حداقلِ ۵ دقیقه وقت لازم است — برایِ «همین الان» همون دکمهٔ «بله، بفرست» را بزن."
 SCHEDULE_TOO_FAR = "حداکثر ۶۰ روز جلوتر می‌شود زمان‌بندی کرد."
 SCHEDULE_CANCELLED = "⏱ زمان‌بندی لغو شد؛ پیامی ارسال نمی‌شود."
 SCHEDULE_MAX_REACHED = "همزمان فقط ۵ ارسالِ زمان‌بندی‌نشده می‌توانی داشته باشی؛ اول یکی را لغو کن."
-SCHEDULE_EMPTY = "⏰ هیچ ارسالِ زمان‌بندی‌شده‌ای در انتظار نیست."
-SCHEDULE_STALE = "⚠️ این ارسال دیگر در فهرست نیست (فرستاده شده یا لغو شده)."
+SCHEDULE_EMPTY = (
+    "⏰ هیچ ارسالِ زمان‌بندی‌شده‌ای در انتظار نیست.\n"
+    "با دکمهٔ پایین، متنِ پیام را بنویس و بعد ساعتِ ارسالش را تعیین کن."
+)
+SCHEDULE_NEW_BUTTON = "🕓 زمان‌بندیِ تازه"
+SCHEDULE_STALE = "⏳ این ارسال دیگر در فهرست نیست (فرستاده شده یا لغو شده)."
 SCHEDULE_CANCEL_BUTTON = "🗑 لغوِ این ارسال"
+SCHEDULE_NO_CUSTOMERS = "هنوز هیچ مشتری‌ای در فهرستِ تو نیست؛ وقتی مشتری اضافه شد می‌توانی برایِ بعد زمان‌بندی کنی."
+
+
+def schedule_cancel_button_label(position: int) -> str:
+    """شمارهٔ *صفحه‌ای* (۱..N)، نه شناسهٔ داخلیِ دیتابیس — قراردادِ پروژه: عددِ داخلی در متنِ کاربر نیاید."""
+    return f"🗑 لغوِ ارسالِ {fa_number(position)}"
 
 
 def schedule_saved_text(when_label: str, recipients: int) -> str:
@@ -3195,11 +3219,11 @@ def scheduled_list_text(rows) -> str:
     from app.utils.jalali import format_jalali_datetime
 
     lines = ["⏰ ارسال‌هایِ زمان‌بندی‌شده", ""]
-    for row in rows:
+    for position, row in enumerate(rows, start=1):
         preview = (row.text or "").replace("\n", " ")[:60]
-        lines.append(f"• {format_jalali_datetime(row.scheduled_at)} — «{preview}»")
+        lines.append(f"{fa_number(position)}) {format_jalali_datetime(row.scheduled_at)} — «{preview}»")
     lines.append("")
-    lines.append("برایِ لغو، رویِ عددِ مورد بزن.")
+    lines.append("برایِ لغو، دکمهٔ همان شماره را بزن.")
     return "\n".join(lines)
 
 

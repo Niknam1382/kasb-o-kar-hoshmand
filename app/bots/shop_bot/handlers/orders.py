@@ -14,9 +14,11 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts as main_texts
+from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.shop_bot import keyboards, texts
 from app.database.models import Customer, Product, TenantMode
 from app.services import (
+    admin_settings_service,
     customer_service,
     digital_service,
     invoice_service,
@@ -116,6 +118,19 @@ async def _render_list(session: AsyncSession, shop_bot, customer: Customer, page
 async def my_orders_open(message: Message, session: AsyncSession) -> None:
     shop_bot = await shop_bot_service.get_by_bot(session, message.bot)
     if shop_bot is None:
+        return
+    if (await admin_settings_service.get_admin_settings(session)).maintenance_mode:
+        # P24: «حالتِ تعمیر» باید همه‌ی درهایِ مشتری را ببندد، نه فقط متنِ هوش مصنوعی
+        await message.answer(texts.PLATFORM_MAINTENANCE_REPLY)
+        return
+    if shop_bot.tenant_mode == TenantMode.CONSULTATION:
+        # P24: دکمه از منویِ مشاوره حذف شده — پیگیریِ سفارش فقط OrderType.ORDER را می‌خواند و
+        # درخواست‌های این مود CONSULTATION ساخته می‌شوند، پس پاسخِ همیشه‌«خالی» بن‌بست بود.
+        # تپِ کهنه (کیبوردِ قدیمیِ رویِ دستگاه مشتری) به منویِ درستِ همین فروشگاه می‌رود.
+        await message.answer(
+            texts.STALE_BUTTON_REPLY,
+            reply_markup=keyboards.customer_main_keyboard(shop_bot.tenant_mode, bool(shop_bot.support_enabled)),
+        )
         return
     customer = await customer_service.get_or_create_customer(
         session,
@@ -238,7 +253,7 @@ async def my_order_cancel(callback: CallbackQuery, session: AsyncSession, main_b
     await session.commit()
     await callback.answer(texts.MY_ORDER_CANCELLED)
     try:
-        await callback.message.edit_text(texts.MY_ORDER_CANCELLED, reply_markup=None)
+        await callback.message.edit_text(texts.MY_ORDER_CANCELLED, reply_markup=NO_INLINE_KEYBOARD)
     except TelegramAPIError:
         pass
     if result.changed:

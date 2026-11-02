@@ -374,6 +374,11 @@ async def cart_checkout_start(callback: CallbackQuery, session: AsyncSession, st
     if shop_bot is None:
         await callback.answer()
         return
+    if (await get_admin_settings(session)).maintenance_mode:
+        # P24: درِ «حالتِ تعمیر» باید رویِ چک‌اوت هم بسته باشد؛ قبلاً فقط متنِ عادیِ مشتری می‌رفت
+        # و مشتریِ اهلِ دکمه‌ها می‌توانست وسطِ تعمیر سفارش ثبت کند.
+        await callback.answer(texts.PLATFORM_MAINTENANCE_REPLY, show_alert=True)
+        return
     customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id) if customer else None
     items = await cart_service.get_items_with_products(session, cart.id) if cart else []

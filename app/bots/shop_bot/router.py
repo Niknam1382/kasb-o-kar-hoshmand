@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aiogram import Router
 
+from app.bots.common.error_handler import on_handler_error
 from app.bots.common.middlewares import MenuButtonEscapeMiddleware
 from app.bots.shop_bot import texts
 from app.bots.shop_bot.handlers import cart_proposals, checkout, customer, orders, payments, product_photos
@@ -10,6 +11,8 @@ from app.bots.shop_bot.middlewares import BlockedCustomerMiddleware
 
 def build_shop_router() -> Router:
     router = Router(name="shop_bot")
+    # P24: هیچ دکمه‌ای نباید بی‌جواب بمیرد (traceback در لاگ، پیامِ روشن به مشتری)
+    router.errors.register(on_handler_error)
     # B4: مشتریِ بلاک‌شده پیش از هر چیز دیگری متوقف می‌شود (outermost، برایِ متن و کالبک)
     router.message.outer_middleware(BlockedCustomerMiddleware())
     router.callback_query.outer_middleware(BlockedCustomerMiddleware())

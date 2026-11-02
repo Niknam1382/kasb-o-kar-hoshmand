@@ -491,10 +491,29 @@ def audit_filter_keyboard(group: str | None, window: str | None) -> InlineKeyboa
 
 
 def scheduled_cancel_keyboard(rows) -> InlineKeyboardMarkup:
-    """لغوِ هر ارسالِ زمان‌بندی‌شده با عددِ خودش (بدونِ فاش‌کردنِ شناسهٔ داخلی در متن)."""
-    buttons = [[InlineKeyboardButton(text=f"🗑 لغوِ ارسالِ شمارهٔ {row.id}", callback_data=f"sched_cancel:{row.id}")] for row in rows]
-    buttons.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    """دکمهٔ لغوِ هر ارسالِ زمان‌بندی‌شده.
+
+    برچسب شمارهٔ *صفحه‌ای* (۱..N) را نشان می‌دهد نه `row.id` — قراردادِ پروژه: شناسهٔ داخلیِ
+    دیتابیس در متنِ کاربر نیاید (شناسه فقط در callback_data می‌نشیند و سمتِ سرور با
+    `shop_bot_id` محدود می‌شود). قبلاً همین تابع برخلافِ docstring خودش شمارهٔ ردیف را لو می‌داد.
+    """
+    buttons = [
+        InlineKeyboardButton(text=texts.schedule_cancel_button_label(position), callback_data=f"sched_cancel:{row.id}")
+        for position, row in enumerate(rows, start=1)
+    ]
+    buttons.append(InlineKeyboardButton(text=texts.SCHEDULE_NEW_BUTTON, callback_data="sched_new"))
+    buttons.append(InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu"))
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=26))
+
+
+def scheduled_empty_keyboard() -> InlineKeyboardMarkup:
+    """صفحهٔ خالیِ «ارسال‌های زمان‌بندی‌شده» نباید بن‌بست باشد (گزارشِ کاربر: «چیزی نداره که کار کنه»)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.SCHEDULE_NEW_BUTTON, callback_data="sched_new")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")],
+        ]
+    )
 
 
 def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
