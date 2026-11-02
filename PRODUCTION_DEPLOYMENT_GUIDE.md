@@ -135,7 +135,9 @@ docker compose run --rm -e ADMIN_TELEGRAM_IDS=12345 bot python tests_manual/run_
 
 - `GET /health` در **هر دو حالت** (O2): ۲۰۰ سالم / ۵۰۳ با `{"database":"down"}` یا `{"bot":"not_initialized"}`؛
   در حالتِ polling رویِ `127.0.0.1:8000` است و از P24 خودِ compose هم همین مسیر را به‌عنوانِ
-  `healthcheck` می‌پرسد ⇒ گیرکردنِ حلقهٔ polling ری‌استارتِ خودکار را فعال می‌کند. `/metrics` هم همین‌جا.
+  `healthcheck` می‌پرسد ⇒ گیرکردنِ حلقهٔ polling ری‌استارتِ خودکار را فعال می‌کند.
+  `/metrics` هم همین‌جا است، ولی **با `METRICS_TOKEN`ِ خالی عمداً ۴۰۴ می‌دهد** (پیش‌فرضِ امن):
+  برایِ دیدنِ شمارنده‌ها `METRICS_TOKEN=…` را در `.env` بگذار و با هدرِ `X-Metrics-Token` بپرس.
 - لاگ stdout + چرخشِ ۵×۱۰MB در compose؛ `LOG_LEVEL` در `.env`.
 - ممیزیِ عملیاتیِ انسانی: «📜 گزارشِ ممیزی» در پنلِ ادمین (`audit_log_entries`)، «🔎 آخرین رویدادهایِ پرداخت» (`payment_event_logs` + correlation id).
 - هشدارهایِ ادمین: `admin_alert_service` (پنجرهٔ ۵ دقیقه، آستانه‌ها، کول‌دان ۳۰ دقیقه، بودجهٔ ۱۲/ساعت) — حالا `KIND_LEDGER` هم دارد.
@@ -153,3 +155,5 @@ docker compose run --rm -e ADMIN_TELEGRAM_IDS=12345 bot python tests_manual/run_
 نه مجوزِ scale: برایِ افقی‌شدن، بندِ §۵ِ `HARDWARE_REQUIREMENTS_AND_CAPACITY_PLAN.md` را اول بخوان.
 ۱۱) (P24) `docker compose ps` ستونِ `health` را `healthy` نشان دهد؛ `mem_limit: 1g` رویِ سرویسِ bot
 است (MEASURED: RSS بی‌کاری ۲۰۸MiB ⇒ ۵ برابرِ سرِ‌باز) و رویِ سرورِ بزرگ‌تر می‌توانی بالا ببری.
+۱۲) (P24) اگر شمارنده‌ها را جایی جمع می‌کنی، `METRICS_TOKEN` را در `.env` تنظیم کن — بدونِ آن
+`/metrics` عمداً **۴۰۴** است و فقط `/health` جواب می‌دهد (این را در dev اندازه گرفتیم).
