@@ -121,6 +121,7 @@ TEST_FILES = [
     "test_p22_inactive_owners.py",
     "test_p23_bale_payment_link.py",
     "test_p24_dead_buttons_and_scope.py",
+    "test_p25_bale_link_and_discounts.py",
 ]
 
 

@@ -109,13 +109,32 @@ async def test_pricing_menu_still_opens_discounts(main_dp) -> None:
 
     await main_dp.feed_update(admin_bot, make_callback_update(3, data="admin_discount_add", user_id=ADMIN_TG_ID))
     await main_dp.feed_update(admin_bot, make_message_update(4, text="MEHR10", user_id=ADMIN_TG_ID))
-    await main_dp.feed_update(admin_bot, make_callback_update(5, data="discount_type:percent", user_id=ADMIN_TG_ID))
+    # P25: «مبلغ ثابت» حذف شد ⇒ مرحلهٔ پرسیدنِ نوع هم نیست؛ بعد ازِ اسمِ کد مستقیم مقدارِ درصد می‌آید
     await main_dp.feed_update(admin_bot, make_message_update(6, text="10", user_id=ADMIN_TG_ID))
     await main_dp.feed_update(admin_bot, make_message_update(7, text="نامحدود", user_id=ADMIN_TG_ID))
 
     async with session_scope() as session:
         code = (await session.execute(select(DiscountCode).where(DiscountCode.code == "MEHR10"))).scalar_one_or_none()
         assert code is not None and code.max_uses is None and code.is_active is True
+        type_value = code.type.value if hasattr(code.type, "value") else code.type
+        assert type_value == "percent", type_value
+
+    # حذفِ گزینه از UI و جریان (نه از داده): کیبورد، state و متنِ «نوع تخفیف» دیگر وجود ندارند
+    assert not hasattr(keyboards, "discount_type_keyboard"), "کیبوردِ نوع تخفیف باید حذف شده باشد"
+    assert not hasattr(AdminPricingStates, "waiting_discount_type"), "مرحلهٔ نوع تخفیف باید حذف شده باشد"
+    assert not hasattr(texts, "ADMIN_ASK_DISCOUNT_TYPE"), "پرسشِ نوع تخفیف باید حذف شده باشد"
+
+    # کیبوردِ کهنهٔ «نوع تخفیف» دکمهٔ مرده نمی‌شود: توستِ توضیحی + بیرون‌آمدن از FSM
+    session_obj.sent_messages.clear()
+    await main_dp.feed_update(admin_bot, make_callback_update(20, data="admin_discount_add", user_id=ADMIN_TG_ID))
+    await main_dp.feed_update(admin_bot, make_callback_update(21, data="discount_type:fixed", user_id=ADMIN_TG_ID))
+    assert session_obj.answered_callbacks[-1]["text"] == texts.ADMIN_DISCOUNT_TYPE_REMOVED, session_obj.answered_callbacks[-1]
+    async with session_scope() as session:
+        before = len(list((await session.execute(select(DiscountCode))).scalars().all()))
+    await main_dp.feed_update(admin_bot, make_message_update(22, text="50000", user_id=ADMIN_TG_ID))
+    async with session_scope() as session:
+        after = len(list((await session.execute(select(DiscountCode))).scalars().all()))
+    assert after == before == 1, f"با state پاک‌شده نباید کدی ساخته شود: {before} → {after}"
 
     # ورودیِ نامعتبر هنوز رد می‌شود
     await main_dp.feed_update(admin_bot, make_callback_update(8, data="admin_discount_add", user_id=ADMIN_TG_ID))

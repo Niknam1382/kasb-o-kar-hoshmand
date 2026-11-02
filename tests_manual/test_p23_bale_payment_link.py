@@ -79,10 +79,17 @@ def test_resolve_payment_link() -> None:
     )
     # اگر بله روزی آدرسِ کامل بدهد، همان رد می‌شود و قالب بی‌اثر است
     assert bale_service.resolve_payment_link("https://pay.example/abc", TEMPLATE) == "https://pay.example/abc"
-    # هیچ‌کدام از این‌ها لینک نمی‌سازند (و هیچ‌وقت url=بی‌اعتبار به تلگرام نمی‌رود)
-    assert bale_service.resolve_payment_link(BALE_RAW_ID, None) is None
-    assert bale_service.resolve_payment_link(BALE_RAW_ID, "") is None
-    assert bale_service.resolve_payment_link(BALE_RAW_ID, "https://gateway.invalid/bale/pay") is None
+    # P25: بدونِ قالبِ قابلِ‌استفاده، پیش‌فرضِ مستندِ بله ساخته می‌شود (نه None، نه لینکِ بی‌اعتبار)
+    default_link = "https://bale.ai/pay/M6dm2AJsfX32GuWpmlCX"
+    assert bale_service.resolve_payment_link(BALE_RAW_ID, None) == default_link
+    assert bale_service.resolve_payment_link(BALE_RAW_ID, "") == default_link
+    assert bale_service.resolve_payment_link(BALE_RAW_ID, "https://gateway.invalid/bale/pay") == default_link
+    # P25: مقدارِ نمونهٔ داکیومنت (میزبانِ جعلی) همان باگی بود که دکمه را می‌کشت ⇒ نادیده گرفته می‌شود
+    assert bale_service.resolve_payment_link(BALE_RAW_ID, "https://YOUR_BALE_PAYMENT_BASE_URL?invoice_id={invoice_id}") == default_link
+    assert bale_service.usable_link_template("https://YOUR_BALE_PAYMENT_BASE_URL?invoice_id={invoice_id}") is False
+    assert bale_service.usable_link_template(TEMPLATE) is True
+    assert bale_service.usable_link_template("") is False  # خالی = «استفاده نکن»، نه «قابلِ استفاده»
+    # پاسخِ بی‌شکل از بله هیچ‌وقت لینک نمی‌سازد
     assert bale_service.resolve_payment_link("not-a-link-and-no-equals", TEMPLATE) is None
     assert bale_service.resolve_payment_link("", TEMPLATE) is None
     print("✅ test_resolve_payment_link PASSED")
@@ -120,8 +127,10 @@ async def test_stale_keyboard_answers_instead_of_crashing(main_dp) -> None:
     print("✅ test_stale_keyboard_answers_instead_of_crashing PASSED")
 
 
-# ============================================================================= ۳ — نمایش = توانایی
+# ============================================================================= ۳ — نمایش = توانایی (بدونِ «قالبِ لازم»)
 async def test_bale_button_follows_the_template(main_dp) -> None:
+    """P25: دکمه به «قالبِ لینک» وابسته نیست؛ با توکن/درگاه/کلیدِ کامل ساخته می‌شود — قالبِ
+    ناقصِ ادمین فقط نادیده گرفته می‌شود و پیش‌فرضِ مستندِ بله لینک را می‌سازد."""
     await reset_database()
     await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
 
@@ -129,8 +138,22 @@ async def test_bale_button_follows_the_template(main_dp) -> None:
     chat = Chat(main_dp, OWNER_TG_ID)
     labels = await _run_to_payment_methods(chat)
     assert any("کارت‌به‌کارت" in label for label in labels), labels
-    assert not any("بله‌پی" in label for label in labels), f"بدونِ قالبِ لینک دکمه نساز: {labels}"
+    assert any("بله‌پی" in label for label in labels), f"قالبِ تنظیم‌نشده نباید دکمه را حذف کند: {labels}"
 
+    # با همان پیکربندی، لینکِ ارسالی باید پیش‌فرضِ بله باشد و شناسه در آن نشسته باشد
+    async def fake_invoice_link(*args, **kwargs):
+        return BALE_RAW_ID
+
+    original = bale_service.create_invoice_link
+    bale_service.create_invoice_link = fake_invoice_link
+    try:
+        await chat.tap("payment_method:bale")
+    finally:
+        bale_service.create_invoice_link = original
+    buttons = [btn for row in chat.last_markup.inline_keyboard for btn in row]
+    assert buttons and buttons[0].url == "https://bale.ai/pay/M6dm2AJsfX32GuWpmlCX", [b.url for b in buttons]
+
+    # و با قالبِ پنل، همان قالب برنده است
     await _configure_bale(template=TEMPLATE)
     chat2 = Chat(main_dp, OWNER_TG_ID)
     labels = await _run_to_payment_methods(chat2)
@@ -188,7 +211,7 @@ async def test_unresolvable_response_creates_nothing(main_dp) -> None:
     finally:
         bale_service.create_invoice_link = original
 
-    assert chat.last_text == main_texts.BALE_LINK_NOT_CONFIGURED, chat.last_text
+    assert chat.last_text == main_texts.BALE_LINK_UNRESOLVED, chat.last_text
     assert chat.last_markup is None or all(
         btn.url is None for row in chat.last_markup.inline_keyboard for btn in row
     ), "هیچ دکمهٔ لینک‌دارِ بی‌اعتباری ارسال نمی‌شود"

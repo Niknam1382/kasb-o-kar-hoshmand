@@ -554,6 +554,10 @@ async def main() -> None:
     await test_bale_new_flow(shop_dp, main_dp, bot_manager, main_bot)
     await test_bale_late_payment_and_oversell(shop_dp, main_dp, bot_manager, main_bot)
     await test_zarinpal_shop_flow(shop_dp, main_dp, bot_manager, main_bot)
+    # P25-E: این فایل چند مسیرِ بله را *واقعی* صدا می‌زند (`answer_pre_checkout_query`)، پس
+    # sessionِ مشترکِ HTTP ساخته می‌شود؛ همان کاری که shutdownِ برنامه می‌کند اینجا هم انجام
+    # می‌شود تا «Unclosed client session» در خروجیِ تست نماند.
+    await bale_service.close_http_session()
 
 
 if __name__ == "__main__":

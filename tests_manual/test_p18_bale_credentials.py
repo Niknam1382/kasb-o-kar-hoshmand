@@ -46,8 +46,8 @@ SHOP_TOKEN = "SHOP-OWN-PROVIDER-TOKEN"
 GLOBAL_TOKEN = "GLOBAL-ADMIN-PROVIDER-TOKEN"
 ENV_BOT_TOKEN = "123456:ENV-BALE-BOT-TOKEN"
 PANEL_BOT_TOKEN = "654321:PANEL-BALE-BOT-TOKEN"
-# P23: بله از createInvoiceLink فقط شناسه می‌دهد؛ بدونِ این قالب هیچ لینکی ساخته نمی‌شود و
-# `shop_status` آن را به‌عنوانِ علتِ «فعال نبودنِ دکمه» گزارش می‌کند.
+# P25: قالبِ لینکِ پرداخت اختیاری شد (پیش‌فرضِ مستندِ بله: https://bale.ai/pay/{invoice_id})؛
+# این مقدار فقط «overrideِ ذخیره‌شده در پنل» را تست می‌کند و دیگر علتِ ناقص‌بودن نیست.
 LINK_TEMPLATE = "https://gateway.test/bale/pay?invoice_id={invoice_id}"
 
 _created: list[dict] = []
@@ -83,7 +83,7 @@ class _Cfg:
 
 
 async def _configure(
-    shop_bot_id: int, *, shop_token: bool, global_token: bool, admin_enabled: bool, card: bool = True, link_template: bool = True
+    shop_bot_id: int, *, shop_token: bool, global_token: bool, admin_enabled: bool, card: bool = True
 ) -> None:
     async with session_scope() as session:
         row = await payment_settings_service.get_or_create(session, shop_bot_id)
@@ -96,8 +96,6 @@ async def _configure(
         if global_token:
             await update_setting(session, "bale_provider_token", GLOBAL_TOKEN)
         await update_setting(session, "bale_pay_enabled", admin_enabled)
-        # P23: بدونِ قالبِ لینک، دکمهٔ بله‌پی هیچ‌وقت ساخته نمی‌شود (پاسخِ بله شناسه است نه آدرس).
-        await update_setting(session, "bale_pay_link_template", LINK_TEMPLATE if link_template else None)
 
 
 # ============================================================================= ۱ و ۲ و ۳ و ۹ — سرویس
@@ -151,13 +149,12 @@ async def test_shop_status_reports_every_reason() -> None:
                 creds.MISSING_BOT_TOKEN,
                 creds.ADMIN_DISABLED,
                 creds.MISSING_PROVIDER_TOKEN,
-                creds.MISSING_PAY_LINK_TEMPLATE,
             }, status.missing
             assert not status.available
-            # فروشگاه‌دار کلیدِ خودش را خاموش کرده ⇒ علتِ پنجم هم اضافه می‌شود
+            # فروشگاه‌دار کلیدِ خودش را خاموش کرده ⇒ علتِ چهارم هم اضافه می‌شود
             row.bale_enabled = False
             status = await creds.shop_status(session, shop_bot, row)
-            assert creds.SHOP_DISABLED in status.missing and len(status.missing) == 5
+            assert creds.SHOP_DISABLED in status.missing and len(status.missing) == 4
             # پیکربندیِ کامل ⇒ هیچ علتی نیست
             row.bale_enabled = True
             shop_bot.bale_provider_token = SHOP_TOKEN
