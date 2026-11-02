@@ -414,3 +414,24 @@ NOT RUN: نمایشِ واقعی در تلگرام/بله (چینشِ نهایی
 
 کارِ بعدیِ این بخش: صفحه‌بندیِ واقعی برایِ ۱۵ فهرستِ بریده‌شده، تاییدِ دو مرحله‌ای برایِ
 حذفِ کمپین/کلیدِ AI/نگهبان/ادمین، و PHASE ۶ (صورتحسابِ مصرفِ API).
+
+## ۱۶) پ۲۳ — «دکمه‌هایِ پرداختِ اعتبار هیچ‌کاری نمی‌کردند»
+
+گزارشِ کاربر بعد ازِ تنظیمِ توکنِ بله/پروایدر و شماره کارت در پنلِ ادمین. تشخیص از لاگِ زنده و
+`payment_event_logs` گرفته شد، نه از حدس (جدولِ کامل در `docs/changelog-p23.md`):
+
+| علت | شاهد | رفع |
+|---|---|---|
+| بله از `createInvoiceLink` شناسه می‌دهد نه آدرس | `result: "invoice_id=M6dm…"` و بعد `TelegramBadRequest: inline keyboard button URL 'invoice_id=…' is invalid: Wrong HTTP URL` | `bale_service.resolve_payment_link` + ستونِ `admin_settings.bale_pay_link_template` (مایگریشنِ `b3e7d1a9c4f6`) + فیلد در «🔑 تنظیمات کلیدها». بدونِ قالب، دکمهٔ بله‌پی هیچ‌جا ساخته نمی‌شود |
+| سه دکمهٔ «روشِ پرداخت» با state خالی می‌شکستند | `KeyError: 'base_amount'` / `'final_amount'` در لاگ (FSM در `MemoryStorage`؛ کیبوردِ کهنه یا ری‌استارت) | `_payment_draft()` + توستِ `PAYMENT_FLOW_STALE` پیش ازِ هر نوشتن؛ بدونِ ردیفِ Payment نیمه‌کاره |
+
+تغییرِ رفتاریِ عمدی که پنج فایلِ قدیمی را هم‌راستا کرد: `shop_status`/`platform_status` حالا
+قالبِ لینک را هم می‌شمارند ⇒ `test_p18_bale_credentials` (۴ علت ⇒ ۵ علت)،
+`test_bale_pay_for_orders`، `test_shopping_cart`، `test_campaign_checkout` و
+`test_payments_w3w4` (تنظیمِ قالب در بلوکِ پیکربندی). تستِ تازه:
+`test_p23_bale_payment_link.py` (۶ مورد).
+
+**بازمانده (نیازمندِ متنِ برگهٔ بله):** کانالِ «بعد ازِ پرداخت، خودکار تایید شود» برایِ مسیرِ
+لینک. راستی‌آزماییِ امروز شناسهٔ تراکنش را از آپدیتِ `successful_payment` می‌گیرد (مسیرِ چت)؛
+برایِ لینک یا callback با HTTPS عمومی لازم است یا استعلام با همان `invoice_id` — که فقط از
+«اطلاعات اتصالِ وب‌سرویس» صادرشده توسطِ خودِ بله در می‌آید. `REMAINING_ISSUES.md` §P23.
