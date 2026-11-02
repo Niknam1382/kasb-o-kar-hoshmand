@@ -25,6 +25,16 @@ services:
       - wal_compression=on
       - -c
       - jit=off
+      # P25-F (دو پیچِ کم‌ریسکِ دیپلوی‌محور):
+      # `log_min_duration_statement` ⇒ کوئریِ کندتر از ۲۵۰ms در لاگِ db نوشته می‌شود؛ بدونِ این،
+      # کندیِ مسیرِ پرداخت رویِ سرورِ واقعی فقط «ربات کند است» به‌نظر می‌رسید و شاهدی نداشت.
+      # `random_page_cost=1.1` ⇒ پیش‌فرضِ PG (۴٫۰) برایِ HDD است و رویِ NVMe پلنر را به سمتِ
+      # sequential-scan می‌برد؛ با ۱٫۱ ایندکس‌هایِ مسیرِ پرداخت (مثلاً `ix_payments_bale_invoice_payload`)
+      # واقعاً استفاده می‌شوند. هیچ‌کدام داده را دست نمی‌زنند؛ فقط ری‌استارتِ db لازم دارد.
+      - -c
+      - log_min_duration_statement=250ms
+      - -c
+      - random_page_cost=1.1
     ports:
       - "127.0.0.1:5432:5432"  # فقط لوکال؛ هرگز روی اینترنت باز نشه (رمزِ پیش‌فرض postgres است)
     healthcheck:
