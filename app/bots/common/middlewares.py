@@ -111,9 +111,24 @@ class ChannelGateMiddleware(BaseMiddleware):
         return None
 
 
+async def _is_platform_admin(user_id: int, session) -> bool:
+    """آیا این کاربر ادمینِ پلتفرم است (سوپرادمین یا ادمینِ عملیاتی)."""
+    from app.services import admin_role_service  # لازیم: جلوگیری از importِ دایره‌ای
+
+    if user_id in settings.admin_ids:
+        return True
+    return await admin_role_service.is_operator(session, user_id)
+
+
 class IdentityRefreshMiddleware(BaseMiddleware):
     """H2: یوزرنیمِ فروشگاه‌دار رو (فقط وقتی عوض شده) از آپدیتِ تلگرام تازه می‌کنه تا هویتِ متنی همیشه به‌روز باشه.
-    یک SELECTِ ایندکس‌دار به‌ازایِ آپدیت؛ تغییر با commitِ DbSessionMiddleware ذخیره می‌شه."""
+    یک SELECTِ ایندکس‌دار به‌ازایِ آپدیت؛ تغییر با commitِ DbSessionMiddleware ذخیره می‌شه.
+
+    P22 (مشکلِ ۸) دو کارِ دیگر رویِ همان یک SELECT:
+    - `last_seen_at` را نو می‌کند (با میانه‌بندِ زمانی در خودِ کوئری).
+    - اگر حساب حذفِ نرم شده باشد، آپدیت را همین‌جا می‌بلعد و فقط پیامِ «حساب غیرفعال است» را
+      نشان می‌دهد. بیِ این دروازه، فروشگاه‌دارِ پاک‌شده به صفحه‌یِ «فروشگاه تنظیم نشده» می‌رفت و
+      می‌توانست از نو ثبت‌نام کند؛ دروازه باید قبلِ هر هندلری باشد، پس همین‌جا نشسته است."""
 
     async def __call__(
         self, handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]], event: TelegramObject, data: dict[str, Any]
@@ -121,9 +136,22 @@ class IdentityRefreshMiddleware(BaseMiddleware):
         user = getattr(event, "from_user", None)
         session = data.get("session")
         if user is not None and session is not None and not user.is_bot:
-            from app.services import identity_service, shop_owner_service  # لازیم: جلوگیری از importِ دایره‌ای
+            from app.services import identity_service, owner_activity_service, shop_owner_service  # لازیم: جلوگیری از importِ دایره‌ای
 
             owner = await shop_owner_service.get_by_telegram_id(session, user.id)
             if owner is not None:
+                # ادمین‌ها (سوپر یا عملیاتی) با حذفِ حسابِ فروشگاهیشان از پنلِ ادمین بیرون نمی‌مانند —
+                # وگرنه یک سوپرادمین که روزی فروشگاه داشته، با بستنِ همان فروشگاه قفل می‌شد.
+                if owner.is_deleted and not await _is_platform_admin(user.id, session):
+                    from app.bots.main_bot import texts as main_texts  # لازیم: این میدل‌ور برایِ هر دو ربات اجرا می‌شود
+
+                    if isinstance(event, CallbackQuery):
+                        await event.answer(main_texts.ACCOUNT_DELETED_NOTICE, show_alert=True)
+                    else:
+                        await event.answer(main_texts.ACCOUNT_DELETED_NOTICE)
+                    return None
                 identity_service.sync_from_telegram_user(owner, user)
+                # P22 (مشکلِ ۸): «آخرین دیدار». خودِ کوئری شرطِ زمانی دارد ⇒ هر ۱۰ دقیقه یکِ UPDATE،
+                # نه هر پیام؛ تغییر با commitِ DbSessionMiddleware ذخیره می‌شود.
+                await owner_activity_service.touch(session, owner)
         return await handler(event, data)

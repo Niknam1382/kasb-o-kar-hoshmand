@@ -6,6 +6,7 @@ from app.bots.common.middlewares import ChannelGateMiddleware, IdentityRefreshMi
 from app.bots.main_bot.handlers import (
     accounting,
     admin,
+    admin_inactive,
     admin_time,
     assistant,
     campaigns,
@@ -69,6 +70,7 @@ _KNOWN_MENU_BUTTONS = {
     "📊 آمار سراسری",
     "📣 پیام همگانی",
     "👥 مدیریت فروشگاه‌دارها",
+    "🧹 کاربرانِ غیرفعال",  # P22 · مشکلِ ۸
     "🔑 استخرِ کلیدهایِ AI",
     # این دوتا (نگهبانِ محتوا، گزارشِ ممیزی) هیچ‌وقت به این لیست اضافه نشده
     # بودن — همون باگِ کلاسِ «دکمه وسطِ FSM state درست escape نمی‌شه»؛ حین
@@ -125,6 +127,7 @@ def build_main_router() -> Router:
 
     router.include_router(admin.router)
     router.include_router(admin.super_router)
+    router.include_router(admin_inactive.router)  # P22 · مشکلِ ۸ (دستهٔ غیرفعال‌ها + حذفِ حساب؛ دامنه‌دار)
     router.include_router(admin_time.super_router)  # K3/K4: سوپرادمین اول؛ بعدش روترِ عمومی «غیرسوپر ⇒ پیامِ مودبانه»
     router.include_router(admin_time.router)
     router.include_router(profile.router)

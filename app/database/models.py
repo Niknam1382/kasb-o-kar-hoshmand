@@ -222,6 +222,9 @@ class AuditEventType(str, enum.Enum):
     WALLET_RECONCILED = "wallet_reconciled"  # PHASE 5E: نگاهِ ادمین به همسنجیِ دفتر
     BRANDING_TEXT_CHANGED = "branding_text_changed"  # P18 · A2
     AUDIT_EXPORTED = "audit_exported"  # P21-E · F9 (خروجیِ CSVِ دفترِ ممیزی)
+    OWNER_DEACTIVATED = "owner_deactivated"  # P22 · مشکلِ ۸ (حذفِ نرمِ حسابِ فروشگاه‌دار)
+    OWNER_RESTORED = "owner_restored"
+    OWNER_PURGED = "owner_purged"  # حذفِ قطعیِ محتوا (پوسته ماندنی است اگر ممیزی دارد)
 
 
 class AdminRoleType(str, enum.Enum):
@@ -425,6 +428,14 @@ class ShopOwner(Base):
     commission_reserved_toman: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     wallet_low_balance_notified_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     wallet_empty_notified_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # P22 (مشکلِ ۸): آخرین باری که این فروشگاه‌دار با رباتِ اصلی حرف زده. نوشتنش در
+    # میانه‌بند و با تِروتلِ چنددقیقه‌ای است (هر پیام ⇒ یک UPDATE رویِ جدولِ اصلی گران است).
+    # NULL یعنی «سابقه‌ای در دیتابیس نیست» — نه «غیرفعال»؛ حکمِ حذف از نبودِ داده ساخته نمی‌شود.
+    last_seen_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # حذفِ نرم: از فهرست‌ها، آمار و ورودِ کاربر بیرون می‌ماند، ولی ردیف و تاریخچهٔ مالی/ممیزی
+    # می‌مانند (حذفِ قطعیِ حسابِ پرداخت‌شده کمیسیون و زنجیرهٔ هش را از بین می‌برد).
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False, index=True)
+    deleted_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class SubscriptionPlan(Base):

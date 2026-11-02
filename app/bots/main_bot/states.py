@@ -252,6 +252,12 @@ class PaymentOpsStates(StatesGroup):
     waiting_reject_text = State()
 
 
+class InactiveOwnerStates(StatesGroup):
+    """تاییدِ نوشتاریِ «حذفِ قطعی» (P22 · مشکلِ ۸) — فقط سوپرادمین، فقط برایِ حسابِ ازپیش غیرفعال."""
+
+    waiting_word = State()
+
+
 class AdminTimeStates(StatesGroup):
     """W5 · K1–K4: هدیه/تمدیدِ گروهی، توقفِ زمان."""
 
