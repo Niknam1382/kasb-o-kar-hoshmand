@@ -91,7 +91,7 @@ async def notify_customer(session: AsyncSession, shop_bot, rows, text: str, bot_
 
 async def _edit_owner_message(callback: CallbackQuery, text: str, keyboard) -> None:
     try:
-        if callback.message.photo:
+        if callback.message.photo or callback.message.document:
             await callback.message.edit_caption(caption=text, reply_markup=keyboard)
         else:
             await callback.message.edit_text(text, reply_markup=keyboard)

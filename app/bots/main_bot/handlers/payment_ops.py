@@ -65,30 +65,46 @@ async def rcpt_ok(callback: CallbackQuery, session: AsyncSession, bot_manager=No
         await callback.answer(texts.PAYS_STALE if result.reason == "not_found" else texts.PAYS_ILLEGAL, show_alert=True)
         return
     await session.commit()
-    await callback.answer()
     rows = result.rows
     key = transitions.group_key(rows[0])
     suffix = texts.PAYS_APPROVED_SUFFIX
     if getattr(result, "late", False):
         suffix = f"{texts.PAYS_LATE_APPROVED_SUFFIX}" + (f"\n{texts.PAYS_LATE_OVERSOLD_SUFFIX}" if getattr(result, "oversold", False) else "")
+    # P27: «✅ تایید» باید در همین یک‌کلیک از روی پیام برداشته شود. دو شکستِ واقعی در لاگِ زنده
+    # دیده شد (پاسخِ دیرهنگامِ کالبک ⇒ «query is too old» و هر خطایِ اعلان/فاکتور)؛ پیش از این رفع،
+    # هندلر همان‌جا می‌مرد، دکمه سرِ جایش می‌ماند و فروشگاه‌دار دو بار می‌زد.
+    try:
+        await callback.answer()
+    except TelegramAPIError:
+        logger.warning("پاسخِ کالبکِ تاییدِ رسید نرسید (payment=%s)؛ پیامِ فروشگاه‌دار به‌روز می‌شود.", payment_id)
     if result.changed:
-        notified = await _to_customer(session, shop_bot, rows, shop_texts.payment_approved_message(shop_texts.order_code(rows)), bot_manager)
-        customer = await session.get(Customer, rows[0].customer_id)
-        bot = bot_manager.customer_bot(shop_bot.id, customer.platform) if (bot_manager is not None and customer is not None) else None
-        if customer is not None and bot is not None:
-            await send_invoice_to_customer(session, shop_bot, rows, customer, bot, customer.telegram_id)
-        from app.bots.main_bot.handlers import panel  # تحویلِ دیجیتال بعد از «پرداخت‌شده»
-
-        for row in rows:
-            try:
-                await panel._deliver_digital_after_confirm(session, row, shop_bot, bot_manager, callback.bot)
-            except Exception:  # noqa: BLE001 — شکستِ تحویل نباید تاییدِ ثبت‌شده رو خراب کنه
-                logger.exception("تحویلِ دیجیتال بعد از پرداخت ناموفق بود (order=%s).", row.id)
-        if not notified:
-            suffix += f"\n{texts.PAYS_CUSTOMER_NOTIFY_FAILED}"
+        try:
+            suffix = await _after_approval_notify(callback, session, shop_bot, rows, bot_manager, suffix)
+        except Exception:  # noqa: BLE001 — هیچ چیز نباید تاییدِ ثبت‌شده را به کلیکِ دوم بسپارد
+            logger.exception("اعلان/فاکتور بعد از تاییدِ رسید ناموفق بود (payment=%s)؛ تایید در دیتابیس محفوظ است.", payment_id)
+            suffix = f"{suffix}\n{texts.PAYS_CUSTOMER_NOTIFY_FAILED}"
     await order_ops._edit_owner_message(
         callback, f"{order_ops._current_text(callback)}\n\n{suffix}", keyboards.order_group_actions_keyboard(key, order_state.PAID)
     )
+
+
+async def _after_approval_notify(callback: CallbackQuery, session: AsyncSession, shop_bot, rows, bot_manager, suffix: str) -> str:
+    """کارهایِ جانبیِ بعد از تایید (اعلانِ مشتری، فاکتور، تحویلِ دیجیتال)؛ شکستش فقط یک خط صادقانه است."""
+    notified = await _to_customer(session, shop_bot, rows, shop_texts.payment_approved_message(shop_texts.order_code(rows)), bot_manager)
+    customer = await session.get(Customer, rows[0].customer_id)
+    bot = bot_manager.customer_bot(shop_bot.id, customer.platform) if (bot_manager is not None and customer is not None) else None
+    if customer is not None and bot is not None:
+        await send_invoice_to_customer(session, shop_bot, rows, customer, bot, customer.telegram_id)
+    from app.bots.main_bot.handlers import panel  # تحویلِ دیجیتال بعد از «پرداختشده»
+
+    for row in rows:
+        try:
+            await panel._deliver_digital_after_confirm(session, row, shop_bot, bot_manager, callback.bot)
+        except Exception:  # noqa: BLE001 — شکستِ تحویل نباید تاییدِ ثبت‌شده را خراب کند
+            logger.exception("تحویلِ دیجیتال بعد از پرداخت ناموفق بود (order=%s).", row.id)
+    if not notified:
+        suffix = f"{suffix}\n{texts.PAYS_CUSTOMER_NOTIFY_FAILED}"
+    return suffix
 
 
 # ── ردّ ──────────────────────────────────────────────────────────────────
