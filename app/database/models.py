@@ -254,7 +254,12 @@ class AdminSettings(Base):
     ai_fallback_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ai_fallback_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     zarinpal_merchant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    platform_card_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # P24 (د(۴)): شمارهٔ کارتِ پلتفرم هم مثلِ بقیهٔ رازها باید در حالتِ رمزنگاری‌شده بخوابد؛
+    # `.env.example` و راهنمایِ ادمین از P18 همین را ادعا می‌کردند ولی ستون plain بود.
+    # `EncryptedText` نوعِ ستون را عوض نمی‌کند (Text) و خواندنِ مقدارِ کهنهٔ رمزنگاری‌نشده
+    # برمی‌گردد و با اولین نوشتن رمز می‌شود ⇒ بدونِ مهاجرتِ داده. مایگریشنِ `c4f8a2d6b9e1`
+    # فقط عرضِ ستون را از VARCHAR(32) به Text می‌رساند (رمزِ Fernet بلندتر از ۳۲ نویسه است).
+    platform_card_number: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     # طبقِ فایلِ بله_پی که کاربر فرستاد، provider_token از @botfather در بله
     # گرفته می‌شه (نه شماره‌کارت) — ولی این ادعا مستقل از مستنداتِ رسمیِ
     # docs.bale.ai تاییدپذیر نبود (جزئیات در changelog-phase1a-recovery.md).

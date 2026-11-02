@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import secrets
 from decimal import Decimal, InvalidOperation
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.filters import IsAdmin, IsSuperAdmin
+from app.bots.main_bot.handlers.owner_common import parse_suffix_int
 from app.bots.main_bot.states import (
     AdminChannelStates,
     AdminGiftStates,
@@ -115,10 +118,18 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
 # =============================================================================
 @router.callback_query(F.data.startswith("admin_approve_payment:"))
 async def cb_admin_approve_payment(callback: CallbackQuery, session: AsyncSession) -> None:
-    payment_id = int(callback.data.split(":")[1])
-    payment = await payment_service.get_by_id(session, payment_id)
+    payment_id = parse_suffix_int(callback.data, "admin_approve_payment:")
+    payment = await payment_service.get_by_id(session, payment_id) if payment_id is not None else None
     if payment is None or payment.status != PaymentStatus.PENDING:
         await callback.answer("این پرداخت قبلاً بررسی شده.", show_alert=True)
+        return
+
+    # P24 (امنیت): تایید/ردِ پرداخت پولِ یکِ فروشگاه‌دارِ مشخص است، پس دقیقاً مثلِ suspend/هدیه/
+    # اصلاحِ کیف‌پول باید دامنه‌مند باشد. تا پیشِ این، ادمینِ عملیاتیِ دامنه‌دار با حدس‌زدنِ
+    # payment_id در callback_data می‌توانست شارژِ کیف‌پولِ هر فروشگاهِ دیگری را تأیید کند.
+    _owner_scope, allowed = await _scoped_owner(session, callback.from_user.id, payment.shop_owner_id)
+    if not allowed:
+        await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
         return
 
     owner = await shop_owner_service.get_by_id(session, payment.shop_owner_id)
@@ -131,7 +142,7 @@ async def cb_admin_approve_payment(callback: CallbackQuery, session: AsyncSessio
 
     await callback.answer()
     new_caption = (callback.message.caption or "") + f"\n\n{texts.admin_payment_approved_confirmation(_owner_display_name(owner))}"
-    await callback.message.edit_caption(caption=new_caption, reply_markup=None)
+    await callback.message.edit_caption(caption=new_caption, reply_markup=NO_INLINE_KEYBOARD)
 
     try:
         await callback.bot.send_message(
@@ -157,10 +168,15 @@ async def cb_admin_approve_payment(callback: CallbackQuery, session: AsyncSessio
 
 @router.callback_query(F.data.startswith("admin_reject_payment:"))
 async def cb_admin_reject_payment(callback: CallbackQuery, session: AsyncSession) -> None:
-    payment_id = int(callback.data.split(":")[1])
-    payment = await payment_service.get_by_id(session, payment_id)
+    payment_id = parse_suffix_int(callback.data, "admin_reject_payment:")
+    payment = await payment_service.get_by_id(session, payment_id) if payment_id is not None else None
     if payment is None or payment.status != PaymentStatus.PENDING:
         await callback.answer("این پرداخت قبلاً بررسی شده.", show_alert=True)
+        return
+
+    _owner_scope, allowed = await _scoped_owner(session, callback.from_user.id, payment.shop_owner_id)
+    if not allowed:
+        await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
         return
 
     owner = await shop_owner_service.get_by_id(session, payment.shop_owner_id)
@@ -168,7 +184,7 @@ async def cb_admin_reject_payment(callback: CallbackQuery, session: AsyncSession
 
     await callback.answer()
     new_caption = (callback.message.caption or "") + f"\n\n{texts.admin_payment_rejected_confirmation(_owner_display_name(owner))}"
-    await callback.message.edit_caption(caption=new_caption, reply_markup=None)
+    await callback.message.edit_caption(caption=new_caption, reply_markup=NO_INLINE_KEYBOARD)
 
     try:
         await callback.bot.send_message(owner.telegram_id, texts.payment_rejected_notification(None))
@@ -216,22 +232,47 @@ async def broadcast_message_entered(message: Message, state: FSMContext) -> None
     await message.answer(texts.broadcast_preview(message.text), reply_markup=keyboards.confirm_broadcast_keyboard())
 
 
+ADMIN_BROADCAST_PACE_SECONDS = 0.06  # همان درسِ مسیرِ مشتری: بدونِ ریتم، تلگرام flood-wait می‌زند
+
+
+async def _run_admin_broadcast(bot: Bot, owners, text: str, admin_telegram_id: int) -> None:
+    """P24 (امنک/عملکرد): حلقهٔ ارسالِ ادمین قبلاً *داخلِ* هندلر و بدونِ ریتم اجرا می‌شد.
+
+    دو پیامدِ واقعی: ۱) تا پایانِ حلقه، pollingِ رباتِ اصلی رویِ همه‌یِ آپدیت‌ها می‌خوابد
+    (چندصد فروشگاه‌دار × تأخیرِ شبکه = دقیقه‌ها بی‌پاسخیِ ربات)، ۲) بدونِ sleep/RetryAfter
+    تلگرام flood-wait می‌دهد و بیشترِ پیام‌ها در `except` می‌سوزند در حالی که شمارشِ «sent»
+    غلط گزارش می‌شود؛ خطرِ بن‌شدنِ ربات. حالا تسکِ پس‌زمینه با ریتم و یکِ retry.
+    """
+    sent = 0
+    for owner in owners:
+        try:
+            await bot.send_message(owner.telegram_id, text)
+            sent += 1
+        except TelegramRetryAfter as exc:
+            await asyncio.sleep(exc.retry_after)
+            try:
+                await bot.send_message(owner.telegram_id, text)
+                sent += 1
+            except TelegramAPIError:
+                logger.info("ارسالِ پیام همگانی به %s (حتی بعدِ retry) ناموفق بود.", owner.telegram_id)
+        except TelegramAPIError:
+            logger.info("ارسالِ پیام همگانی به %s ناموفق بود (احتمالاً ربات را بلاک کرده).", owner.telegram_id)
+        await asyncio.sleep(ADMIN_BROADCAST_PACE_SECONDS)
+    try:
+        await bot.send_message(admin_telegram_id, texts.broadcast_sent_confirmation(sent))
+    except TelegramAPIError:
+        logger.exception("خلاصهٔ پیام همگانی به ادمین %s نرسید.", admin_telegram_id)
+
+
 @router.callback_query(BroadcastStates.waiting_confirmation, F.data == "broadcast_confirm")
 async def broadcast_confirmed(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     data = await state.get_data()
     owners = await shop_owner_service.get_all_registered(session)
-
-    sent = 0
-    for owner in owners:
-        try:
-            await callback.bot.send_message(owner.telegram_id, data["broadcast_text"])
-            sent += 1
-        except TelegramAPIError:
-            logger.info("ارسالِ پیام همگانی به %s ناموفق بود.", owner.telegram_id)
-
+    targets = [owner for owner in owners if owner.telegram_id != callback.from_user.id]
     await state.clear()
     await callback.answer()
-    await callback.message.edit_text(texts.broadcast_sent_confirmation(sent))
+    await callback.message.edit_text(texts.admin_broadcast_started(len(targets)))
+    asyncio.create_task(_run_admin_broadcast(callback.bot, targets, data["broadcast_text"], callback.from_user.id))
 
 
 @router.callback_query(BroadcastStates.waiting_confirmation, F.data == "broadcast_cancel")
@@ -778,6 +819,20 @@ _INT_FIELDS_MAX: dict[str, int] = {
     # سقفِ هزینه‌ها: یکِ اشتباهِ تایپی نباید «هر دقیقهٔ صوت ۱۰۰ میلیون» بسازد.
     "wallet_cost_voice_per_minute_toman": 1_000_000,
     "wallet_cost_receipt_per_1k_tokens": 1_000_000,
+    # P24 (بهینه): بقیهٔ فیلدهایِ عددیِ پولی/درصدی هیچ سقفی نداشتند؛ یکِ صفرِ اضافه در
+    # «پورسانتِ معرف» یا «اعتبارِ آزمایشی» مستقیم رویِ پولِ کاربر اثر می‌گذارد.
+    "referral_reward_value": 100,  # درصد
+    "wallet_cost_per_1k_tokens_toman": 1_000_000,
+    "wallet_cost_receipt_analysis_toman": 1_000_000,
+    "wallet_cost_voice_transcription_toman": 1_000_000,
+    "wallet_cost_order_detection_toman": 1_000_000,
+    "wallet_trial_credit_toman": 100_000_000,
+    "wallet_low_balance_warning_toman": 100_000_000,
+    "usd_to_toman_rate": 500_000,
+    "grace_period_hours": 720,  # ۳۰ روز
+    "periodic_report_frequency_days": 365,
+    "conversation_history_limit": 1000,
+    "wallet_topup_validity_months": 120,
 }
 
 # کفِ مجاز برایِ بعضی فیلدها (پیش‌فرضِ عمومی ۱ است). بازدیدِ بیو زیرِ ۵ دقیقه یعنی هر لوپِ
@@ -824,6 +879,27 @@ def _sms_value_error(field: str, raw: str) -> str | None:
 
 
 _BALE_TOKEN_FIELDS: frozenset[str] = frozenset({"bale_bot_token", "bale_provider_token"})
+
+# P24 (امنیت): این دو آدرس با `aiohttp.post` در app/services/ai_service.py زده می‌شوند و هدرِ
+# Authorization را با خود می‌برند ⇒ اگر «آدرس سرویس هوش مصنوعی» به هاستِ داخلی برگردد، کلیدِ AI
+# به آنجا می‌رود و SSRF به شبکهٔ داخلیِ سرور ممکن می‌شود. فقط https + ردِ آدرس‌هایِ لوکال.
+_URL_FIELDS: frozenset[str] = frozenset({"ai_base_url", "ai_fallback_base_url"})
+_INTERNAL_HOST_RE = re.compile(
+    r"^(?:localhost|0\.0\.0\.0|::1|\[::1\]|127\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)",
+    re.IGNORECASE,
+)
+
+
+def _url_value_error(raw: str) -> str | None:
+    """None ⇒ معتبر. آدرسِ سرویس باید httpsِ خالص باشد و به شبکهٔ داخلی نزند."""
+    text = (raw or "").strip()
+    if not text.startswith("https://"):
+        return texts.ADMIN_INVALID_AI_URL
+    host = text[len("https://") :].split("/", 1)[0]
+    host = host.rsplit("@", 1)[-1].split(":", 1)[0]
+    if not host or _INTERNAL_HOST_RE.match(host):
+        return texts.ADMIN_INVALID_AI_URL
+    return None
 
 
 @super_router.message(F.text == "🔑 تنظیمات کلیدها")
@@ -1114,6 +1190,12 @@ async def setting_value_entered(
         value = None if raw in ("خالی", "پاک کن", "-") else raw
     else:
         value = raw
+
+    if field in _URL_FIELDS and value is not None:
+        error = _url_value_error(str(value))
+        if error is not None:
+            await message.answer(error)
+            return  # state همان «منتظرِ مقدار» می‌ماند و دوباره می‌پرسد
 
     if field == "branding_text":
         # A2: متنِ ادمین حداکثر ۶۰ نویسه؛ اگر عوض شد، بیویِ همه‌یِ ربات‌ها در پس‌زمینه همگام می‌شود.
@@ -1463,7 +1545,7 @@ async def owner_gift_confirmed(callback: CallbackQuery, state: FSMContext, sessi
 
     await callback.answer()
     await callback.message.edit_text(
-        texts.admin_gift_confirmation(_owner_display_name(owner), amount_toman), reply_markup=None
+        texts.admin_gift_confirmation(_owner_display_name(owner), amount_toman), reply_markup=NO_INLINE_KEYBOARD
     )
 
     try:

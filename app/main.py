@@ -154,8 +154,62 @@ async def _notify_payment_result(main_bot: Bot, owner_telegram_id: int, is_topup
 # =============================================================================
 # حالت polling (RUN_MODE=polling)
 # =============================================================================
+POLLING_LOCK_KEY = 20261103  # جدا از قفلِ جابها؛ شماره‌اش بخشی از قرارداد است
+
+
+async def acquire_polling_lock():
+    """دی(دیپلوی): نگهبانِ «فقط یکِ نسخه polling».
+
+    دو نسخة هم‌زمان (`--scale bot=2`، یا deployِ تازه‌ای که بالا آمد ولی قدیمی نمُرده) هر دو
+    `getUpdates` می‌گیرند ⇒ یکِ پیامِ مشتری دو بار به هوش مصنوعی می‌رود و **دو بار از کیف‌پول
+    کم می‌شود**، اعلان‌ها دوباره می‌روند و FSM در `MemoryStorage` بینِ دو پروسه نصفه می‌ماند.
+    قفلِ advisoryِ session-scoped رویِ یکِ اتصالِ نگه‌داشته‌شده_atomیک‌ترین راهِ دیتابیس-محور است:
+    پروسه که بمیرد اتصال بسته و قفل آزاد می‌شود ⇒ ری‌استارتِ خودکارِ compose کار می‌کند.
+    """
+    from sqlalchemy import text as sql_text
+
+    from app.database.session import engine
+
+    connection = await engine.connect()
+    try:
+        held = bool(
+            (await connection.execute(sql_text("SELECT pg_try_advisory_lock(:key)"), {"key": POLLING_LOCK_KEY})).scalar()
+        )
+    except Exception:  # noqa: BLE001 - نبودِ قفل نباید جلویِ بالا آمدنِ ربات را بگیرد
+        await connection.close()
+        raise
+    if not held:
+        await connection.close()
+        return None
+    return connection
+
+
+async def release_polling_lock(connection) -> None:
+    from sqlalchemy import text as sql_text
+
+    if connection is None:
+        return
+    try:
+        await connection.execute(sql_text("SELECT pg_advisory_unlock(:key)"), {"key": POLLING_LOCK_KEY})
+    except Exception:  # noqa: BLE001 - بستنِ اتصال قفل را هم آزاد می‌کند
+        logger.warning("آزادکردنِ قفلِ polling ناموفق بود؛ با بستنِ اتصال آزاد می‌شود.")
+    await connection.close()
+
+
 async def run_polling() -> None:
     admin_alert_service.install()
+    try:
+        lock_connection = await acquire_polling_lock()
+    except Exception:  # noqa: BLE001 - اگر دیتابیس قفل را نشناسد، مثلِ قبل کار کن (به‌جایِ توقفِ ربات)
+        logger.exception("قفلِ anti-double-polling خوانده نشد؛ ربات بدونِ آن بالا می‌آید.")
+        lock_connection = None
+    if lock_connection is None:
+        logger.error(
+            "نسخهٔ دیگری از این ربات در حالِ polling است (قفلِ دیتابیس آزاد نیست). "
+            "اینِ دومین هیچ getUpdates‌ای شروع نمی‌کند تا پیام‌ها دوباره پاسخ نگیرند و کیف‌پول دوباره کم نشود."
+        )
+        await admin_alert_service.shutdown()
+        return
     main_bot = Bot(token=settings.main_bot_token)
     shop_dispatcher = create_shop_dispatcher(main_bot)
     bot_manager = ShopBotManager(shop_dispatcher)
@@ -188,6 +242,7 @@ async def run_polling() -> None:
         await ai_service.close_http_session()
         await admin_alert_service.shutdown()
         await main_bot.session.close()
+        await release_polling_lock(lock_connection)
 
 
 # =============================================================================

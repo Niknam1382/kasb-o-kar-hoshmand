@@ -46,6 +46,9 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bgAAAAA[A-Za-z0-9_\-]{10,}"),  # رمزِ Fernet
     re.compile(r"\b(eyJ[A-Za-z0-9_\-]{5,}\.){2}[A-Za-z0-9_\-]{5,}\b"),  # JWT
     re.compile(r"(?<![\d+])(?:\+?98|0098|98|0)?9\d{9}(?!\d)"),  # موبایلِ ایران (0912…، +989…، 989…)
+    # P24: شمارهٔ کارت (PAN) — ۱۵/۱۶ رقم، با فاصله یا خط‌تیره. هر logger.exception که مدلِ پرداخت
+    # یا رشتهٔ رسید را چاپ کند، کارت را در لاگ می‌ریخت؛ الگوهایِ بالا کارت را نمی‌گرفتند.
+    re.compile(r"(?<!\d)(?:\d[ \-]?){14,15}\d(?!\d)"),
     re.compile(r"(?i)\b(authorization|api[_-]?key|secret|token|password)\b\s*[=:]\s*\S+"),
 )
 
