@@ -37,7 +37,9 @@ S = types.SimpleNamespace
 
 
 def _labels(markup) -> list[str]:
-    return [b.text for row in markup.keyboard for b in row]
+    # P24: «هیچ دکمه‌ای نه» هم یک پاسخِ معتبر است (ReplyKeyboardRemove کیبوردِ مرده را برمیدارد)
+    rows = getattr(markup, "keyboard", None) or getattr(markup, "inline_keyboard", None) or []
+    return [b.text for row in rows for b in row]
 
 
 # =============================================================================
@@ -67,8 +69,11 @@ def test_bot_tools_section_is_dynamic_and_optional() -> None:
     sales_tools = prompt_defaults.build_bot_tools(TenantMode.SALES, False, texts)
     assert sales_tools == [f"«{texts.BTN_PRODUCTS}» — دیدنِ کاتالوگ", f"«{texts.BTN_CART}» — مرورِ سبد و تسویه‌حساب"]
     assert any(texts.BTN_SUPPORT in line for line in prompt_defaults.build_bot_tools(TenantMode.SALES, True, texts))
+    # P24: در مودِ مشاوره دکمه‌ای برایِ «خدمات» وجود ندارد (کاتالوگ بسته است) ⇒ AI هم نباید
+    # به دکمه‌یِ غیرموجود ارجاع بدهد؛ تنها ابزارِ این مود پشتیبانی است.
+    assert prompt_defaults.build_bot_tools(TenantMode.CONSULTATION, False, texts) == []
+    assert prompt_defaults.build_bot_tools(TenantMode.CONSULTATION, True, texts) == [f"«{texts.BTN_SUPPORT}» — ارتباط با فروشگاه"]
     consult_tools = prompt_defaults.build_bot_tools(TenantMode.CONSULTATION, False, texts)
-    assert consult_tools == [f"«{texts.BTN_SERVICES}» — دیدنِ خدمات و بسته‌ها"]
     assert not any("سبد" in line or "محصولات" in line for line in consult_tools), "مشاوره بدونِ هیچ اشاره به سبد/خرید"
 
     shop_bot = S(tenant_mode=TenantMode.SALES, ai_instructions=None)
@@ -82,9 +87,11 @@ def test_bot_tools_section_is_dynamic_and_optional() -> None:
 def test_customer_keyboard_per_mode_pure() -> None:
     assert _labels(keyboards.customer_main_keyboard(TenantMode.SALES, False)) == [texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_MY_ORDERS]
     assert _labels(keyboards.customer_main_keyboard("sales", True)) == [texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_MY_ORDERS, texts.BTN_SUPPORT]
-    # P21-D: منویِ مشاوره‌ای «🧾 سفارش‌های من» را هم گرفت (پیگیریِ وضعیتِ درخواست/مراجعه)
-    assert _labels(keyboards.customer_main_keyboard(TenantMode.CONSULTATION, False)) == [texts.BTN_SERVICES, texts.BTN_MY_ORDERS]
-    assert _labels(keyboards.customer_main_keyboard("consultation", True)) == [texts.BTN_SERVICES, texts.BTN_MY_ORDERS, texts.BTN_SUPPORT]
+    # P24: دو دکمهٔ مرده از منویِ مشاوره حذف شدند («خدمات» هیچ‌وقت پر نمی‌شد، «سفارش‌هایِ من»
+    # فقط OrderType.ORDER را می‌خواند). بی‌پشتیبانی = کیبورد برداشته می‌شود.
+    removed = keyboards.customer_main_keyboard(TenantMode.CONSULTATION, False)
+    assert getattr(removed, "remove_keyboard", None) is True, "مشاوره بی‌پشتیبانی ⇒ هیچ دکمه‌ای نه"
+    assert _labels(keyboards.customer_main_keyboard("consultation", True)) == [texts.BTN_SUPPORT]
     assert _labels(keyboards.customer_main_keyboard()) == [texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_MY_ORDERS], "بدونِ آرگومان = فروشگاهی (سازگاری)"
     every = {b for mode in ("sales", "consultation") for flag in (True, False) for b in _labels(keyboards.customer_main_keyboard(mode, flag))}
     assert every <= texts.CUSTOMER_MENU_BUTTONS and texts.CUSTOMER_MENU_BUTTONS == {texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_SERVICES, texts.BTN_SUPPORT, texts.BTN_MY_ORDERS}, "هر برچسب در مجموعه‌یِ escape هست"
@@ -157,17 +164,17 @@ async def test_customer_menu_support_stale_and_escape(shop_dp) -> None:
     assert "@shop_help" in msg["text"] and "+989123334444" in msg["text"] and "۹ تا ۱۷" in msg["text"]
     assert msg["reply_markup"].inline_keyboard[0][0].url == "https://t.me/shop_help"
 
-    # مشاوره‌ای: دکمه‌هایِ فروش کهنه‌ان؛ خدمات فقط‌خواندنیه
+    # مشاوره‌ای (P24): هیچ دکمهٔ فروش/پیگیریِ مرده‌ای نیست؛ فقط پشتیبانی
     async with session_scope() as s:
         await product_service.create_product(s, shop_bot_id, "جلسه‌یِ مشاوره", None, 500_000, None, None)
     await update_shop(tenant_mode=TenantMode.CONSULTATION)
     msg = await say("/start")
-    assert msg["text"] == texts.SHOP_WELCOME_CONSULTATION and _labels(msg["reply_markup"]) == [texts.BTN_SERVICES, texts.BTN_MY_ORDERS, texts.BTN_SUPPORT]
-    for stale in (texts.BTN_PRODUCTS, texts.BTN_CART):
+    assert msg["text"] == texts.SHOP_WELCOME_CONSULTATION and _labels(msg["reply_markup"]) == [texts.BTN_SUPPORT]
+    for stale in (texts.BTN_PRODUCTS, texts.BTN_CART, texts.BTN_SERVICES, texts.BTN_MY_ORDERS):
         msg = await say(stale)
-        assert msg["text"] == texts.STALE_BUTTON_REPLY and _labels(msg["reply_markup"]) == [texts.BTN_SERVICES, texts.BTN_MY_ORDERS, texts.BTN_SUPPORT]
-    msg = await say(texts.BTN_SERVICES)
-    assert "جلسه‌یِ مشاوره" in msg["text"] and msg["reply_markup"] is None, "فهرستِ خدمات: بدونِ دکمه‌یِ افزودن به سبد"
+        assert msg["text"] == texts.STALE_BUTTON_REPLY and _labels(msg["reply_markup"]) == [texts.BTN_SUPPORT]
+    # (P24) قبلاً اینجا «فهرستِ خدمات» انتظار می‌رفت؛ آن فهرست در مودِ مشاوره همیشه خالی بود و
+    # دکمه‌اش از منو حذف شده ⇒ همان تپِ کهنه به منویِ پشتیبانی برمی‌گردد (تکرارِ حلقهٔ بالا).
 
     # برگشت به فروشگاهی: دکمه‌یِ مشاوره کهنه می‌شه
     await update_shop(tenant_mode=TenantMode.SALES)

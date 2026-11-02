@@ -40,12 +40,11 @@ def test_main_menu_is_paired() -> None:
         [shop_texts.BTN_PRODUCTS, shop_texts.BTN_CART],
         [shop_texts.BTN_MY_ORDERS, shop_texts.BTN_SUPPORT],
     ]
-    assert rows(keyboards.customer_main_keyboard(TenantMode.CONSULTATION, False)) == [
-        [shop_texts.BTN_SERVICES, shop_texts.BTN_MY_ORDERS]
-    ]
+    # P24: در مودِ مشاوره دو دکمهٔ مرده حذف شد؛ تنها ردیفِ ممکن، ردیفِ پشتیبانی است و
+    # بی‌پشتیبانی هیچ کیبوردی فرستاده نمی‌شود (ReplyKeyboardRemove).
+    assert getattr(keyboards.customer_main_keyboard(TenantMode.CONSULTATION, False), "remove_keyboard", None) is True
     assert rows(keyboards.customer_main_keyboard(TenantMode.CONSULTATION, True)) == [
-        [shop_texts.BTN_SERVICES, shop_texts.BTN_MY_ORDERS],
-        [shop_texts.BTN_SUPPORT],
+        [shop_texts.BTN_SUPPORT]
     ]
     print("✅ test_main_menu_is_paired PASSED")
 
