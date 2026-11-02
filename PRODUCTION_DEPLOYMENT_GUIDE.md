@@ -147,10 +147,12 @@ docker compose run --rm -e ADMIN_TELEGRAM_IDS=12345 bot python tests_manual/run_
 
 ۱) `.env` از `.env.docker.example` با مقادیرِ واقعی، بدونِ commit شدن (در `.gitignore` و `.dockerignore` است) ۲) `ENCRYPTION_KEY` بکاپ‌شده و جدا نگه‌داشته شده (بدونش رازها قابلِ بازیابی نیستند) ۳) بکاپِ تازه قبلِ migrate ۴) `docker compose build` و `up -d` در پنجرهٔ کم‌ترافیک ۵) `alembic heads` تک‌head ۶) لاگِ بوت تمیز + یک سفارشِ تستیِ واقعیِ کوچک در حالتِ sandbox/مبلغِ ناچیز ۷) بازگشتِ `RUN_MODE=polling` در دسترس به‌عنوانِ kill-switch ۸) «🔑 تنظیمات کلیدها › 🚧 حالتِ تعمیر» برایِ قطعِ ترافیکِ مشتری در صورتِ نیاز.
 
-۹) (P24) `python3 scripts/check_gates.py` سبز باشد — از این پاس **چهار** گیت دارد:
-`check_refs` (ارجاعِ ماژولی)، `check_attrs` (صفاتِ ORM)، `lint_names` (نام‌هایِ مشکوک) و
+۹) (P24) `python3 scripts/check_gates.py` سبز باشد — از این پاس **پنج** گیت دارد:
+`check_refs` (ارجاعِ ماژولی)، `check_attrs` (صفاتِ ORM)، `lint_names` (نام‌هایِ مشکوک)،
 `check_callbacks` (هر `callback_data` که ساخته می‌شود مصرف‌کننده داشته باشد ⇒ «دکمهٔ مرده» دیگر
-نمی‌تواند به production برسد). ۱۰) (P24) رویِ سرور فقط **یک** نسخهٔ `bot` بالا باشد؛ نسخهٔ دوم
+نمی‌تواند به production برسد) و `check_text_hygiene` (نویسهٔ سیریلیک/CJK/هانجی در خطِ فارسی).
+رویِ سرور با `docker compose run --rm bot python3 scripts/check_gates.py` و رویِ ماشینِ خودت
+بدونِ داکر هم اجرا می‌شود. ۱۰) (P24) رویِ سرور فقط **یک** نسخهٔ `bot` بالا باشد؛ نسخهٔ دوم
 قفلِ دیتابیس را نمی‌گیرد و polling را شروع نمی‌کند (لاگش را می‌شود دید) — این امنیتِ احتیاطی است،
 نه مجوزِ scale: برایِ افقی‌شدن، بندِ §۵ِ `HARDWARE_REQUIREMENTS_AND_CAPACITY_PLAN.md` را اول بخوان.
 ۱۱) (P24) `docker compose ps` ستونِ `health` را `healthy` نشان دهد؛ `mem_limit: 1g` رویِ سرویسِ bot

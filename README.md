@@ -77,9 +77,10 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
 `kasbokar_test` اجرا می‌شود تا تنظیماتِ پنلِ تو پاک نشود). جزئیات و چک‌لیستِ تستِ دستیِ تلگرام: `docs/testing-guide.md`.
 
-بررسیِ استاتیک: `python3 scripts/check_gates.py` — چهار گیت را با هم اجرا می‌کند: `check_refs`
-(ارجاعِ شکسته)، `check_attrs` (ویژگیِ ناموجود)، `lint_names` و از P24 `check_callbacks`
-(هر `callback_data` که کیبوردی می‌سازد باید هندلری داشته باشد ⇒ «دکمهٔ مرده» به production نمی‌رسد).
+بررسیِ استاتیک: `python3 scripts/check_gates.py` — پنج گیت را با هم اجرا می‌کند: `check_refs`
+(ارجاعِ شکسته)، `check_attrs` (ویژگیِ ناموجود)، `lint_names`، از P24 `check_callbacks`
+(هر `callback_data` که کیبوردی می‌سازد باید هندلری داشته باشد ⇒ «دکمهٔ مرده» به production نمی‌رسد)
+و `check_text_hygiene` (نویسهٔ سیریلیک/CJK/هانجی داخلِ متنِ فارسی). رویِ ویندوز هم بدونِ داکر اجرا می‌شود.
 
 ## ساختارِ پروژه
 
@@ -97,7 +98,7 @@ app/
   utils/                    # رمزنگاری، اعتبارسنجی، تاریخِ شمسی، ...
 migrations/                 # Alembic (head: c4f8a2d6b9e1 — تک‌head)
 tests_manual/               # تست‌هایِ end-to-end با FakeSession + harness.py / shop_setup.py
-scripts/                    # check_gates.py → check_refs / check_attrs / lint_names / check_callbacks
+scripts/                    # check_gates.py → check_refs / check_attrs / lint_names / check_callbacks / check_text_hygiene
 docs/                       # راهنماها و changelogها
 ```
 

@@ -42,7 +42,7 @@ docker compose up -d bot             # بعد ازِ اجرا برگردان
   داخلِ dispatcherِ واقعی رد می‌کنه. رباتِ فیک (`FakeSession` توی `harness.py`) همه‌یِ پیام‌ها/دکمه‌ها/ویرایش‌ها/فایل‌هایِ ارسالی رو ثبت می‌کنه.
 - هوش مصنوعی هم جعلیه (`FakeAi` توی `phase4_helpers.py`)؛ هیچ پولی خرج نمی‌شه و اینترنت لازم نیست.
 - `run_all_tests.py` همه‌یِ فایل‌ها رو یکی‌یکی اجرا می‌کنه و تعدادِ «✅ test_…» هر خروجی رو می‌شمره.
-- بررسیِ استاتیک (چند ثانیه، بدونِ Docker): `python3 scripts/check_gates.py` — `check_refs` (ارجاعِ شکسته)، `check_attrs` (ویژگیِ ناموجود)، `lint_names` و `check_callbacks` (P24: هر `callback_data` باید هندلر داشته باشد).
+- بررسیِ استاتیک (بدونِ Docker): `python3 scripts/check_gates.py` — `check_refs` (ارجاعِ شکسته)، `check_attrs` (ویژگیِ ناموجود)، `lint_names`، `check_callbacks` (P24: هر `callback_data` باید هندلر داشته باشد) و `check_text_hygiene` (P24: نویسهٔ سیریلیک/CJK/هانجی داخلِ متنِ فارسی). از P24 رویِ ویندوز هم اجرا می‌شود (کدِ صفحهٔ فرزندها به `utf-8` قفل شد؛ قبلاً با `cp1252` می‌ترکید).
 
 ### فایل‌هایِ فازِ ۴ (۶ فایل، ۵۵ تست)
 | فایل | تعداد | چی رو قفل می‌کنه؟ |

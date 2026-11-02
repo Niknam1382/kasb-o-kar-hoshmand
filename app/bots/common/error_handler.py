@@ -38,7 +38,7 @@ async def on_handler_error(event: ErrorEvent) -> bool:
     callback = update.callback_query
     if isinstance(callback, CallbackQuery):
         try:
-            # ممکن است هندلر قبلِ خطا уже جواب داده باشد؛ آن خطا هم نادیده گرفته می‌شود.
+            # ممکن است هندلر قبلِ خطا پاسخ داده باشد؛ خطایِ دومینِ answer هم نادیده گرفته می‌شود.
             await callback.answer(CALLBACK_FAILED_TOAST, show_alert=True)
         except Exception:  # noqa: BLE001 - بازخوردِ دوم هرگز نباید خودِ مسیر را ببیند
             logger.debug("جوابِ دومِ callback ممکن نشد (احتمالاً قبلاً پاسخ داده شده).")
