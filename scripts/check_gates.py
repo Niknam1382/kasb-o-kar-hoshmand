@@ -18,7 +18,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-GATES = ("scripts/check_refs.py", "scripts/check_attrs.py", "scripts/lint_names.py")
+GATES = ("scripts/check_refs.py", "scripts/check_attrs.py", "scripts/lint_names.py", "scripts/check_callbacks.py")
 TESTS_DIR = ROOT / "tests_manual"
 REGISTRY = TESTS_DIR / "run_all_tests.py"
 
