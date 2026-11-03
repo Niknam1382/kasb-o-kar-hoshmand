@@ -42,6 +42,7 @@ from app.services import (
     order_service,
     order_state,
     order_transition_service,
+    order_access_service,
     payment_settings_service,
     platform_service,
     shipping_service,
@@ -378,6 +379,11 @@ async def cart_checkout_start(callback: CallbackQuery, session: AsyncSession, st
         # P24: درِ «حالتِ تعمیر» باید رویِ چک‌اوت هم بسته باشد؛ قبلاً فقط متنِ عادیِ مشتری می‌رفت
         # و مشتریِ اهلِ دکمه‌ها می‌توانست وسطِ تعمیر سفارش ثبت کند.
         await callback.answer(texts.PLATFORM_MAINTENANCE_REPLY, show_alert=True)
+        return
+    if await order_access_service.state_for_shop_bot(session, shop_bot) == order_access_service.DEBT_CEILING:
+        # P30: بدهیِ کمیسیونِ این فروشگاه از سقفِ گذاشته‌شده رد شده ⇒ دکمه‌هایِ سفارش و
+        # پرداخت می‌ایستند، ولی چت و «سفارش‌هایِ من» باز می‌مانند.
+        await callback.answer(texts.CHECKOUT_STOPPED_BY_DEBT, show_alert=True)
         return
     customer = await customer_service.get_by_shop_bot_and_telegram_id(session, shop_bot.id, callback.from_user.id, platform=platform_service.of_event(callback))
     cart = await cart_service.get_or_create_cart(session, shop_bot.id, customer.id) if customer else None

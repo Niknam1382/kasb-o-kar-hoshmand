@@ -129,6 +129,8 @@ TEST_FILES = [
     "test_p29_job_query_bounds.py",
     "test_p30_catalog_instruction_conflict.py",
     "test_p30_platform_revenue_split.py",
+    "test_p30_zero_credit_orders.py",
+    "test_p30_concurrency_report.py",
 ]
 
 

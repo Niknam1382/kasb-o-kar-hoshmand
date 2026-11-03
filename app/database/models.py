@@ -349,6 +349,11 @@ class AdminSettings(Base):
     # خودِ سفارش snapshot می‌شود؛ تغییرِ بعدیِ ادمین سفارشِ باز را عوض نمی‌کند.
     commission_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     commission_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0.00"), server_default="0", nullable=False)
+    # P30: «ادامهٔ ثبتِ سفارش با اعتبارِ صفر» — سوییچِ سراسری + سقفِ بدهیِ کمیسیون (تومان).
+    # ۰ یعنی بی‌سقف؛ مقدارِ مثبت یعنی هر فروشگاه تا همان مبلغ می‌تواند بدهکار بماند و بعد
+    # فقط دکمه‌هایِ سفارش/پرداخت می‌ایستند (چت باز می‌ماند). مصرف‌کننده: `order_access_service`.
+    orders_allowed_when_wallet_empty: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    commission_debt_ceiling_toman: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     wallet_cost_photo_analysis_toman: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
     # W5 · 2.1: هزینه‌یِ تحلیلِ AIِ رسیدِ کارت‌به‌کارت (فقط مشورتی)
     wallet_cost_receipt_analysis_toman: Mapped[int] = mapped_column(Integer, default=500, server_default="500", nullable=False)

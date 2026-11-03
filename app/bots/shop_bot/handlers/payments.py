@@ -29,6 +29,7 @@ from app.services import (
     order_payment_service,
     order_state,
     order_transition_service,
+    order_access_service,
     payment_settings_service,
     receipt_ai_service,
     shop_owner_service,
@@ -96,6 +97,10 @@ async def pm_menu(callback: CallbackQuery, session: AsyncSession) -> None:
     shop_bot, _customer, rows = await _ctx(session, callback.bot, callback.from_user.id, key)
     if not _awaiting(rows):
         await callback.answer(texts.PAY_STALE, show_alert=True)
+        return
+    if await order_access_service.state_for_shop_bot(session, shop_bot) == order_access_service.DEBT_CEILING:
+        # P30: با عبورِ فروشگاه از سقفِ بدهیِ کمیسیون، درِ انتخابِ روشِ پرداخت هم بسته می‌شود.
+        await callback.answer(texts.CHECKOUT_STOPPED_BY_DEBT, show_alert=True)
         return
     methods = await _pay_methods(session, shop_bot, await payment_settings_service.get(session, shop_bot.id))
     if not methods:

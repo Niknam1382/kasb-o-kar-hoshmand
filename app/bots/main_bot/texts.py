@@ -742,6 +742,32 @@ def platform_stats_text(stats: dict) -> str:
     )
 
 
+def perf_report_text(data: dict) -> str:
+    """گزارشِ همزمانی و عملکرد (P30) — متنِ تخت با نوارِ متنی."""
+    from app.services import perf_report_service
+    from app.utils.jalali import format_jalali_datetime
+
+    lines = [f"📈 وضعیتِ همزمانی و عملکرد — {data['label']}:\n"]
+    lines.append(f"همزمانیِ مشتریان در هر دانه: {perf_report_service.sparkline(data['series'])}")
+    peak = data["peak_moment"]
+    peak_label = format_jalali_datetime(peak) if peak else "—"
+    lines.append(
+        f"بیشینه: {fa_number(data['peak_customers'])} مشتریِ هم‌زمان در {peak_label} · "
+        f"همین حالا ({fa_number(perf_report_service.NOW_WINDOW_MINUTES)} دقیقهٔ آخر): {fa_number(data['active_now'])} مشتری"
+    )
+    lines.append(
+        f"\nدر این بازه: {fa_number(data['messages'])} پیامِ مشتری از {fa_number(data['customers'])} مشتری\n"
+        f"🛒 سفارش: {fa_number(data['orders'])} · 💬 مشاوره: {fa_number(data['consultations'])} · "
+        f"✅ پرداختِ انجام‌شده: {fa_number(data['payments_paid'])} · 🔵 رویدادِ درگاه: {fa_number(data['gateway_events'])}"
+    )
+    lines.append("\nبه تفکیکِ قابلیت (تعدادِ فراخوانی):")
+    lines += [f"• {label}: {fa_number(count)}" for label, count in data["features"] if count]
+    if not any(count for _label, count in data["features"]):
+        lines.append("• هیچ فراخوانیِ هوش مصنوعی در این بازه ثبت نشده.")
+    lines.append("\n(همزمانی = مشتریِ متمایزی که در آن دانه پیام داده؛ نمایندهٔ بارِ واقعیِ AI و دیتابیس است.)")
+    return "\n".join(lines)
+
+
 # =============================================================================
 # تشخیص خودکار سفارش/مشاوره (مرحله ۹ + این‌جلسه: کالا/موجودی)
 # =============================================================================
@@ -1431,6 +1457,13 @@ ADMIN_ASK_WALLET_TOPUP_VALIDITY_MONTHS = "هر بار شارژِ کیف‌پول
 ADMIN_ASK_MIN_TOPUP_AMOUNT = "کمترینِ مبلغِ «شارژِ کیف‌پول» چقدر باشه؟ (تومان، ۱ تا ۱۰٬۰۰۰٬۰۰۰):"
 ADMIN_ASK_WALLET_TRIAL_CREDIT = "اعتبارِ آزمایشیِ رایگانِ فروشگاه‌دارهای جدید، به تومان چقدر باشه؟"
 ADMIN_ASK_WALLET_LOW_BALANCE_WARNING = "از چه موجودی‌ای (به تومان) به پایین‌تر، به فروشگاه‌دار هشدارِ «موجودی کم داره» بدیم؟"
+# P30: سقفِ بدهیِ کمیسیون برایِ «ادامهٔ سفارش با اعتبارِ صفر».
+ADMIN_ASK_COMMISSION_DEBT_CEILING = (
+    "سقفِ بدهیِ کمیسیونِ هر فروشگاه چقدر باشد (تومان)؟ تا این مبلغ فروشگاه می‌تواند با "
+    "اعتبارِ صفر هم سفارش بگیرد؛ بعد از آن دکمه‌هایِ سفارش و پرداختِ آنلاین می‌ایستند "
+    "(چت باز می‌ماند).\n"
+    "عددِ ۰ یعنی بی‌سقف."
+)
 ADMIN_ASK_GLOBAL_SYSTEM_PROMPT = (
     "دستور سراسری هوش مصنوعی رو بنویس (این روی دستور هر فروشگاه هم اضافه می‌شه). "
     "برای پاک کردنش، بنویس «خالی»."
@@ -1625,6 +1658,7 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
     "wallet_topup_validity_months": "payments",
     "wallet_trial_credit_toman": "payments",
     "wallet_low_balance_warning_toman": "payments",
+    "commission_debt_ceiling_toman": "payments",
     "bale_bot_token": "bale",
     "bale_provider_token": "bale",
     "sms_api_key": "messaging",
@@ -1721,6 +1755,11 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         ("min_topup_amount_toman", f"🧾 کمترینِ شارژِ کیف‌پول: {format_toman(admin_settings.min_topup_amount_toman)}"),
         ("wallet_trial_credit_toman", f"🎁 اعتبارِ آزمایشیِ فروشگاه‌دارِ جدید: {format_toman(admin_settings.wallet_trial_credit_toman)}"),
         ("wallet_low_balance_warning_toman", f"🟡 آستانه‌ی هشدارِ کمبودِ موجودی: {format_toman(admin_settings.wallet_low_balance_warning_toman)}"),
+        (
+            "commission_debt_ceiling_toman",
+            f"🟡 سقفِ بدهیِ کمیسیون: {('بی‌سقف' if not admin_settings.commission_debt_ceiling_toman else format_toman(admin_settings.commission_debt_ceiling_toman))}"
+            f" · ادامهٔ سفارش با اعتبارِ صفر: {'روشن' if admin_settings.orders_allowed_when_wallet_empty else 'خاموش'}",
+        ),
         ("global_ai_system_prompt", f"🌍 دستور سراسری هوش مصنوعی: {global_prompt_label}"),
         ("global_ai_prompt_sales", f"🛍 دستورِ سراسری — فروشگاهی: {'تنظیم‌شده ✅' if admin_settings.global_ai_prompt_sales else 'پیش‌فرضِ حرفه‌ای'}"),
         ("global_ai_prompt_consultation", f"💬 دستورِ سراسری — مشاوره‌ای: {'تنظیم‌شده ✅' if admin_settings.global_ai_prompt_consultation else 'پیش‌فرضِ حرفه‌ای'}"),

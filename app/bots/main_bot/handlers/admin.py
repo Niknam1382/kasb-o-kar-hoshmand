@@ -216,6 +216,33 @@ async def admin_stats(message: Message, session: AsyncSession) -> None:
 
 
 # =============================================================================
+# وضعیتِ همزمانی و عملکرد (P30)
+# =============================================================================
+async def _answer_perf_report(message: Message, session: AsyncSession, range_key: str) -> None:
+    from app.services import perf_report_service
+
+    data = await perf_report_service.build(session, range_key)
+    await message.answer(texts.perf_report_text(data), reply_markup=keyboards.perf_report_keyboard(range_key))
+
+
+@router.message(F.text == "📈 وضعیتِ همزمانی و عملکرد")
+async def admin_perf_report(message: Message, session: AsyncSession) -> None:
+    await _answer_perf_report(message, session, "24h")
+
+
+@router.callback_query(F.data.startswith("perf_range:"))
+async def cb_perf_range(callback: CallbackQuery, session: AsyncSession) -> None:
+    from app.services import perf_report_service
+
+    range_key = callback.data.split(":", 1)[1]
+    if range_key not in perf_report_service.RANGES:
+        await callback.answer("این بازه شناخته‌شده نیست.", show_alert=True)
+        return
+    await callback.answer()
+    await _answer_perf_report(callback.message, session, range_key)
+
+
+# =============================================================================
 # پیام همگانی
 # =============================================================================
 @router.message(Command("broadcast"))
@@ -505,6 +532,24 @@ async def cb_toggle_bale_pay(callback: CallbackQuery, session: AsyncSession) -> 
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
+@super_router.callback_query(F.data == "admin_toggle_zero_credit_orders")
+async def cb_toggle_zero_credit_orders(callback: CallbackQuery, session: AsyncSession) -> None:
+    """P30: سوییچِ سراسریِ «ادامهٔ سفارش با اعتبارِ صفر» (بدهیِ کمیسیون تا سقفِ ادمین جمع می‌شود)."""
+    admin_settings = await get_admin_settings(session)
+    admin_settings.orders_allowed_when_wallet_empty = not admin_settings.orders_allowed_when_wallet_empty
+    await audit_log_service.log(
+        session,
+        AuditEventType.KILL_SWITCH_TOGGLED,
+        actor_telegram_id=callback.from_user.id,
+        details=f"orders_allowed_when_wallet_empty -> {admin_settings.orders_allowed_when_wallet_empty}",
+    )
+    await session.flush()
+    await callback.answer(texts.switch_toast("ادامهٔ سفارش با اعتبارِ صفر", admin_settings.orders_allowed_when_wallet_empty))
+    if admin_settings.orders_allowed_when_wallet_empty and not admin_settings.commission_debt_ceiling_toman:
+        await callback.message.answer(texts.ADMIN_ASK_COMMISSION_DEBT_CEILING)
+    await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
+
+
 @super_router.callback_query(F.data == "admin_recalc_wallet_cost")
 async def cb_recalc_wallet_cost(callback: CallbackQuery, session: AsyncSession) -> None:
     admin_settings = await get_admin_settings(session)
@@ -777,6 +822,8 @@ _INT_FIELDS: dict[str, str] = {
     "min_topup_amount_toman": texts.ADMIN_ASK_MIN_TOPUP_AMOUNT,
     "wallet_trial_credit_toman": texts.ADMIN_ASK_WALLET_TRIAL_CREDIT,
     "wallet_low_balance_warning_toman": texts.ADMIN_ASK_WALLET_LOW_BALANCE_WARNING,
+    # P30: سقفِ بدهیِ کمیسیون (۰ = بی‌سقف) — فقط با سوییچِ «ادامهٔ سفارش با اعتبارِ صفر» معنا دارد.
+    "commission_debt_ceiling_toman": texts.ADMIN_ASK_COMMISSION_DEBT_CEILING,
     "usd_to_toman_rate": texts.ADMIN_ASK_USD_TO_TOMAN_RATE,
     # P21-A: فاصلهِ بازرسیِ بیو (دقیقه) — پیش‌تر ثابتِ ۶۰ در کد بود.
     "branding_check_minutes": texts.ADMIN_ASK_BRANDING_CHECK_MINUTES,
@@ -804,6 +851,8 @@ _INT_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset(
         # P21-C (F3): ۰ یعنی «همان نرخِ ثابتِ قبل» ⇒ خاموش‌کردنِ قیمتِ دقیقه‌ای/توکنی.
         "wallet_cost_voice_per_minute_toman",
         "wallet_cost_receipt_per_1k_tokens",
+        # P30: ۰ یعنی «بی‌سقف» — ادامهٔ سفارش بدونِ مهارِ بدهی.
+        "commission_debt_ceiling_toman",
     }
 )
 
@@ -816,6 +865,8 @@ _INT_FIELDS_MAX: dict[str, int] = {
     # سقفِ هزینه‌ها: یکِ اشتباهِ تایپی نباید «هر دقیقهٔ صوت ۱۰۰ میلیون» بسازد.
     "wallet_cost_voice_per_minute_toman": 1_000_000,
     "wallet_cost_receipt_per_1k_tokens": 1_000_000,
+    # P30: سقفِ بدهیِ کمیسیون — ۵۰۰ میلیون تومان (۰ = بی‌سقف) تا یکِ صفرِ اضافه فضا بسازد.
+    "commission_debt_ceiling_toman": 500_000_000,
     # P24 (بهینه): بقیهٔ فیلدهایِ عددیِ پولی/درصدی هیچ سقفی نداشتند؛ یکِ صفرِ اضافه در
     # «پورسانتِ معرف» یا «اعتبارِ آزمایشی» مستقیم رویِ پولِ کاربر اثر می‌گذارد.
     "referral_reward_value": 100,  # درصد

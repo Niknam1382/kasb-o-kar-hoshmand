@@ -37,6 +37,7 @@ from app.services import (
     knowledge_service,
     moderation_service,
     prompt_defaults,
+    order_access_service,
     order_detection_service,
     order_payment_service,
     order_service,
@@ -161,7 +162,8 @@ async def _check_access(message: Message, session: AsyncSession, shop_bot, main_
         return False
 
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
-    if owner is None or owner.wallet_balance_toman <= 0:
+    access_state = await order_access_service.evaluate(session, owner, admin_settings)
+    if access_state == order_access_service.NO_CREDIT:
         await message.answer(texts.SHOP_UNAVAILABLE)
         if owner is not None and await wallet_service.try_claim_empty_notification(session, owner):
             try:
@@ -620,9 +622,10 @@ async def _generate_and_send_reply(
     )
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
 
-    if owner is None or owner.wallet_balance_toman <= 0:
-        # موجودیِ کیف‌پول توی فاصله‌ی جمع‌آوریِ پیام‌ها (debounce) به صفر رسیده؛
-        # از فراخوانیِ هوش مصنوعی صرف‌نظر می‌کنیم تا هزینه‌ی بی‌فایده به فروشگاه‌دار تحمیل نشه.
+    if not order_access_service.chat_continues(await order_access_service.evaluate(session, owner, admin_settings)):
+        # موجودیِ کیف‌پول توی فاصله‌ی جمع‌آوریِ پیام‌ها (debounce) به صفر رسیده و سوییچِ
+        # «ادامهٔ سفارش با اعتبارِ صفر» هم خاموش است ⇒ از فراخوانیِ هوش مصنوعی صرف‌نظر
+        # می‌کنیم تا هزینه‌ی بی‌فایده تحمیل نشود.
         await shop_bot_instance.send_message(customer_tg_id, texts.SHOP_UNAVAILABLE)
         return
 
@@ -873,7 +876,7 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
 
     admin_settings = await get_admin_settings(session)
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
-    if owner is None or owner.wallet_balance_toman <= 0:
+    if not order_access_service.chat_continues(await order_access_service.evaluate(session, owner, admin_settings)):
         await message.answer(texts.SHOP_UNAVAILABLE)
         return
 

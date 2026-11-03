@@ -548,6 +548,7 @@ def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
         buttons += [KeyboardButton(text="💰 تنظیمات قیمت و تخفیف"), KeyboardButton(text="🔑 تنظیمات کلیدها")]
     buttons += [
         KeyboardButton(text="📊 آمار سراسری"),
+        KeyboardButton(text="📈 وضعیتِ همزمانی و عملکرد"),  # P30
         KeyboardButton(text="📣 پیام همگانی"),
         KeyboardButton(text="👥 مدیریت فروشگاه‌دارها"),
         KeyboardButton(text="🧹 کاربرانِ غیرفعال"),  # P22 · مشکلِ ۸
@@ -627,6 +628,26 @@ def switch_label(subject: str, enabled: bool) -> str:
     return f"⏸ خاموش‌کردنِ {subject}" if enabled else f"✅ روشن‌کردنِ {subject}"
 
 
+def perf_report_keyboard(active_range: str) -> InlineKeyboardMarkup:
+    """دکمه‌هایِ بازهٔ گزارشِ همزمانی (P30) — بازهٔ فعال با تیک علامت می‌خورد."""
+    from app.services import perf_report_service
+
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=("✅ " if key == active_range else "") + label,
+                callback_data=f"perf_range:{key}",
+            )
+        ]
+        for key, label in (
+            ("24h", perf_report_service.RANGE_LABELS["24h"]),
+            ("7d", perf_report_service.RANGE_LABELS["7d"]),
+        )
+    ]
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
     """صفحه‌یِ اصلیِ تنظیمات: فقط کلیدهایِ روشن/خاموشِ پلتفرم + دسته‌ها.
 
@@ -644,6 +665,7 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
     nightly_report_label = switch_label("گزارشِ شبانه", admin_settings.nightly_report_enabled)
     knowledge_gap_label = switch_label("تشخیصِ سوال‌هایِ بی‌جواب", admin_settings.knowledge_gap_enabled)
     commission_label = switch_label("کمیسیونِ سفارش", admin_settings.commission_enabled)
+    zero_credit_label = switch_label("ادامهٔ سفارش با اعتبارِ صفر", admin_settings.orders_allowed_when_wallet_empty)
     rows = [
         [InlineKeyboardButton(text=maintenance_label, callback_data="admin_toggle_maintenance")],
         [InlineKeyboardButton(text=registrations_label, callback_data="admin_toggle_registrations")],
@@ -653,6 +675,7 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=bale_bots_label, callback_data="admin_toggle_bale_bots")],
         [InlineKeyboardButton(text=sms_label, callback_data="admin_toggle_sms")],
         [InlineKeyboardButton(text=commission_label, callback_data="admin_toggle_commission")],
+        [InlineKeyboardButton(text=zero_credit_label, callback_data="admin_toggle_zero_credit_orders")],
         [InlineKeyboardButton(text=nightly_report_label, callback_data="admin_toggle_nightly_report")],
         [InlineKeyboardButton(text=knowledge_gap_label, callback_data="admin_toggle_knowledge_gap")],
     ]
