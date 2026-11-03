@@ -33,6 +33,11 @@ class ShopBotManager:
         self._secrets: dict[int, str] = {}
         self._bale_bots: dict[int, Bot] = {}
         self._bale_polling_tasks: dict[int, asyncio.Task] = {}
+        # P29 (MEASURED): با ۵۰۰ فروشگاه، راه‌اندازیِ قبلی همهٔ delete_webhook را در یکِ لحظه
+        # می‌فرستد (اوجِ هم‌زمانی = ۵۰۰ اندازه‌گرفته‌شده) و در حالتِ webhook ترتیبی می‌ماند
+        # (۲۰ ربات = ۵٫۰ ثانیه ⇒ ۵۰۰ ربات ≈ ۱۲۵ ثانیه). این درِ نیمه‌باز هر دو را به
+        # N/limit × RTT می‌رساند و هیچ رباتی را جا نمی‌اندازد.
+        self._start_gate = asyncio.Semaphore(max(1, settings.bot_register_concurrency))
 
     def get_bot(self, shop_bot_id: int) -> Bot | None:
         return self._bots.get(shop_bot_id)
@@ -117,10 +122,11 @@ class ShopBotManager:
 
     async def _poll(self, shop_bot_id: int, bot: Bot, *, bale: bool = False) -> None:
         label = "بله" if bale else "تلگرام"
-        try:
-            await bot.delete_webhook(drop_pending_updates=True)
-        except TelegramAPIError:
-            logger.exception("حذف وب‌هوکِ ربات %s فروشگاهی %s ناموفق بود.", label, shop_bot_id)
+        async with self._start_gate:
+            try:
+                await bot.delete_webhook(drop_pending_updates=True)
+            except TelegramAPIError:
+                logger.exception("حذف وب‌هوکِ ربات %s فروشگاهی %s ناموفق بود.", label, shop_bot_id)
 
         offset = None
         # فهرستِ نوعِ آپدیت‌هایِ مصرف‌شونده یک‌بار حساب می‌شود: این کوئری رویِ گرافِ روترهاست
@@ -157,16 +163,28 @@ class ShopBotManager:
                     logger.exception("پردازشِ یک آپدیت برای ربات %s فروشگاهی %s با خطا مواجه شد.", label, shop_bot_id)
 
     async def load_all(self, shop_bots: list[ShopBot], *, bale_enabled: bool = False) -> None:
-        for shop_bot in shop_bots:
-            try:
-                await self.register(shop_bot)
-            except Exception:
-                logger.exception("بارگذاریِ ربات فروشگاهی %s در راه‌اندازی ناموفق بود.", shop_bot.id)
-            if bale_enabled:
+        """ثبتِ همهٔ ربات‌ها، با حداکثر `BOT_REGISTER_CONCURRENCY` فروشگاه هم‌زمان (P29).
+
+        هیچ رفتاری عوض نمی‌شود: هر ربات همچنان یکِ تسکِ polling خودش را دارد، همان
+        `delete_webhook(drop_pending_updates=True)` قبل از اولین `getUpdates` زده می‌شود، و همان
+        لاگِ خطا برایِ رباتِ شکست‌خورده می‌ماند (پس از آن، بقیه ربات‌ها ثبت می‌شوند). فقط
+        «چندتا هم‌زمان» به‌جای «همه با هم» یا «یکی‌یکی» است.
+        """
+
+        async def _one(shop_bot: ShopBot) -> None:
+            async with self._start_gate:
                 try:
-                    await self.register_bale(shop_bot)
+                    await self.register(shop_bot)
                 except Exception:
-                    logger.exception("بارگذاریِ اتصالِ بله‌یِ فروشگاه %s ناموفق بود.", shop_bot.id)
+                    logger.exception("بارگذاریِ ربات فروشگاهی %s در راه‌اندازی ناموفق بود.", shop_bot.id)
+                if bale_enabled:
+                    try:
+                        await self.register_bale(shop_bot)
+                    except Exception:
+                        logger.exception("بارگذاریِ اتصالِ بله‌یِ فروشگاه %s ناموفق بود.", shop_bot.id)
+
+        if shop_bots:
+            await asyncio.gather(*(_one(shop_bot) for shop_bot in shop_bots))
 
     async def unregister(self, shop_bot_id: int, disable_in_db: bool = True) -> None:
         bot = self._bots.pop(shop_bot_id, None)
@@ -180,4 +198,29 @@ class ShopBotManager:
             except TelegramAPIError:
                 pass
             await bot.session.close()
+
+    async def shutdown(self) -> None:
+        """بستنِ همهٔ اتصال‌ها با همان سقفِ همزمانیِ راه‌اندازی (P29).
+
+        چرا لازم است: `unregister` یکِ `delete_webhook` شبکه‌ای منتظر می‌گیرد. در حالتِ ترتیبی،
+        ۵۰۰ فروشگاه ≈ ۵۰۰ × RTT خاموش‌شدن می‌ساخت — بیشتر از `stop_grace_period` داکر ⇒ هر دیپلوی
+        با SIGKILL تمام می‌شد. اینجا همان کار با `BOT_REGISTER_CONCURRENCY` درِ هم‌زمان انجام می‌شود
+        و ترتیبِ عمومی (اولِ تلگرام، بعدِ بله) مثلِ قبل است.
+        """
+        gate = asyncio.Semaphore(max(1, settings.bot_register_concurrency))
+
+        async def _close_telegram(shop_bot_id: int) -> None:
+            async with gate:
+                await self.unregister(shop_bot_id, disable_in_db=False)
+
+        async def _close_bale(shop_bot_id: int) -> None:
+            async with gate:
+                await self.unregister_bale(shop_bot_id)
+
+        telegram_ids = self.registered_shop_bot_ids()
+        if telegram_ids:
+            await asyncio.gather(*(_close_telegram(shop_bot_id) for shop_bot_id in telegram_ids))
+        bale_ids = self.registered_bale_bot_ids()
+        if bale_ids:
+            await asyncio.gather(*(_close_bale(shop_bot_id) for shop_bot_id in bale_ids))
 

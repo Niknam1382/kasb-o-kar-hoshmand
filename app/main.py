@@ -357,10 +357,9 @@ async def on_shutdown() -> None:
     if polling_task is not None:
         polling_task.cancel()
 
-    for shop_bot_id in _state["bot_manager"].registered_shop_bot_ids():
-        await _state["bot_manager"].unregister(shop_bot_id, disable_in_db=False)
-    for shop_bot_id in _state["bot_manager"].registered_bale_bot_ids():
-        await _state["bot_manager"].unregister_bale(shop_bot_id)
+    # P29: بستنِ اتصال‌ها با همان سقفِ همزمانیِ راه‌اندازی (قبلاً ترتیبی بود ⇒ ۵۰۰ فروشگاه ≈ ۵۰۰ × RTT
+    # خاموش‌شدن، بیشتر از stop_grace_period داکر ⇒ هر دیپلوی با SIGKILL تمام می‌شد).
+    await _state["bot_manager"].shutdown()
 
     # جلسه‌ی HTTP مشترکِ سرویسِ هوش مصنوعی رو هم می‌بندیم تا سوکت باز نمونه
     await ai_service.close_http_session()

@@ -155,24 +155,24 @@ class ProbeSession(FakeSession):
     rtt_s = 0.0
     longpoll_s = 0.0
     calls: dict[str, int] = {}
-    inflight = 0
-    peak_inflight = 0
+    inflight: dict[str, int] = {}
+    peak: dict[str, int] = {}
     ready_bots = 0
     first_at: dict[str, float] = {}
 
     @classmethod
     def reset(cls) -> None:
         cls.calls = {}
-        cls.inflight = 0
-        cls.peak_inflight = 0
+        cls.inflight = {}
+        cls.peak = {}
         cls.ready_bots = 0
         cls.first_at = {}
 
     async def make_request(self, bot, method, timeout=None):  # noqa: ANN001
         name = type(method).__name__
         ProbeSession.calls[name] = ProbeSession.calls.get(name, 0) + 1
-        ProbeSession.inflight += 1
-        ProbeSession.peak_inflight = max(ProbeSession.peak_inflight, ProbeSession.inflight)
+        ProbeSession.inflight[name] = ProbeSession.inflight.get(name, 0) + 1
+        ProbeSession.peak[name] = max(ProbeSession.peak.get(name, 0), ProbeSession.inflight[name])
         ProbeSession.first_at.setdefault(name, time.perf_counter())
         delay = ProbeSession.rtt_s + (ProbeSession.longpoll_s if name == "GetUpdates" else 0.0)
         try:
@@ -180,7 +180,7 @@ class ProbeSession(FakeSession):
                 await asyncio.sleep(delay)
             return await super().make_request(bot, method, timeout)
         finally:
-            ProbeSession.inflight -= 1
+            ProbeSession.inflight[name] -= 1
             if name == "DeleteWebhook":
                 ProbeSession.ready_bots += 1
 
@@ -324,7 +324,7 @@ async def measure_startup(n: int, *, rtt_ms: float, longpoll_s: float, webhook_s
         out["load_all_s"] = round(time.perf_counter() - started, 3)
         out["all_ready_s"] = round(await wait_until(lambda: ProbeSession.ready_bots >= n, 120.0), 3)
         out["first_call_s"] = round(min(ProbeSession.first_at.values()) - started, 3) if ProbeSession.first_at else -1.0
-        out["peak_inflight"] = ProbeSession.peak_inflight
+        out["peak"] = dict(ProbeSession.peak)
         out["tasks"] = len(manager._polling_tasks)
         out["calls"] = dict(ProbeSession.calls)
         out["rss_mib"] = round(rss_mib(), 1)
@@ -442,7 +442,7 @@ async def measure_messages(n: int, levels: list[int], per_level: int) -> list[di
                 "p95_ms": round(percentile(latencies, 0.95), 1),
                 "max_ms": round(max(latencies), 1) if latencies else 0.0,
                 "errors": errors,
-                "top": window.top(3),
+                "top": window.top(14),
             }
         )
         if errors:
@@ -508,7 +508,7 @@ def show_startup(row: dict) -> None:
     )
     print(
         f"  startup[polling n={row['n']} rtt={row['rtt_ms']}ms] load_all={row['load_all_s']}s "
-        f"all_ready={row['all_ready_s']}s first_call={row['first_call_s']}s peak_inflight={row['peak_inflight']} "
+        f"all_ready={row['all_ready_s']}s first_call={row['first_call_s']}s peak={row['peak']} "
         f"tasks={row['tasks']} rss={row['rss_mib']}MiB fds={row['fds']}"
     )
     print(f"    telegram_calls_total={row['calls']} per_bot={per_bot}")

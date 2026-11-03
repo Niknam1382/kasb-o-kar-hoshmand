@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     db_max_overflow: int = 0
     db_pool_timeout: int = 15
     ai_max_concurrent_calls: int = 40
+    # P29 (MEASURED با scripts/scale_probe.py رویِ ۵۰۰ فروشگاه): در حالتِ polling همهٔ
+    # `delete_webhook`ها در یکِ لحظه می‌رفتند (اوجِ هم‌زمانی = ۵۰۰) و در حالتِ webhook ثبت
+    # ترتیبی بود (۲۰ ربات = ۵٫۰ ثانیه ⇒ ۵۰۰ ربات ≈ ۱۲۵ ثانیه). این عدد می‌گوید «چند فروشگاه
+    # هم‌زمان ثبت/شروعِ پولینگ کنند». فقط سرعتِ راه‌اندازی را عوض می‌کند؛ هیچ رباتی حذف یا ادغام
+    # نمی‌شود و هر فروشگاه همان یک تسکِ polling خودش را دارد.
+    bot_register_concurrency: int = 24
     main_bot_token: str
     admin_telegram_ids: str = ""
 
