@@ -256,6 +256,8 @@ async def cleanup_probe_rows() -> int:
             await session.execute(delete(ConversationMessage).where(ConversationMessage.customer_id.in_(customer_ids)))
             await session.execute(delete(Customer).where(Customer.id.in_(customer_ids)))
         if bot_ids:
+            # محصولاتِ سید هم باید حذف شوند: کلیدِ خارجیِ products.shop_bot_id جلویِ حذفِ shop_bots را می‌گیرد
+            await session.execute(delete(Product).where(Product.shop_bot_id.in_(bot_ids)))
             await session.execute(delete(ShopBot).where(ShopBot.id.in_(bot_ids)))
         if owner_ids:
             await session.execute(delete(WalletTransaction).where(WalletTransaction.shop_owner_id.in_(owner_ids)))
