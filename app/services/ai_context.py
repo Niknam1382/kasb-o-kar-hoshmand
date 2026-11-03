@@ -120,10 +120,18 @@ def build_system_prompt(
     )
 
     default_instructions = DEFAULT_CONSULTATION_INSTRUCTIONS if is_consultation else DEFAULT_SALES_INSTRUCTIONS
-    parts.append(shop_bot.ai_instructions or default_instructions)
+    custom_instructions = (shop_bot.ai_instructions or "").strip()
+    # جملهٔ فروشگاه *جایِ* دستورالعملِ پیش‌فرض را نمی‌گیرد: قبلاً «تو فقط مداد فروشی…» کلِ
+    # متنِ پایه را پاک می‌کرد و ربات محصولاتِ واقعیِ فروشگاه را انکار می‌شد.
+    parts.append(f"{default_instructions}\n{custom_instructions}" if custom_instructions else default_instructions)
 
     if products:
-        intro = "فهرستِ خدمات/بسته‌های این کسب‌وکار:" if is_consultation else "فهرست محصولات موجود در فروشگاه (موجودی رو جدی بگیر، چیزی که ناموجوده رو پیشنهاد نده):"
+        intro = (
+            "فهرستِ خدمات/بسته‌های این کسب‌وکار:"
+            if is_consultation
+            else "فهرست محصولات موجود در فروشگاه (این فهرست تمامِ محصولاتِ ثبت‌شده‌یِ فروشگاه است؛ هر چه در آن "
+            "هست را «نداریم» نگو و فقط مواردِ ناموجود را پیشنهاد نده):"
+        )
         lines = [intro]
         lines.extend(_product_line(product) for product in products)
         parts.append("\n".join(lines))

@@ -127,6 +127,7 @@ TEST_FILES = [
     "test_p28_docs_pdf_builder.py",
     "test_p29_bounded_bot_startup.py",
     "test_p29_job_query_bounds.py",
+    "test_p30_catalog_instruction_conflict.py",
 ]
 
 
