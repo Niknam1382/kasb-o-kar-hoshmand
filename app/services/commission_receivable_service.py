@@ -147,6 +147,23 @@ async def summary(session: AsyncSession) -> dict[str, int]:
     return {"open_count": int(row[0] or 0), "open_toman": int(row[1] or 0), "settled_count": int(row[2] or 0)}
 
 
+async def open_totals_by_owner(session: AsyncSession, owner_ids: set[int]) -> dict[int, int]:
+    """جمعِ بدهیِ باز به‌ازایِ هر فروشگاه، در یکِ کوئری (برایِ گزارشِ شبانه).
+
+    چرا جدا از `summary`: آن عدد *سراسری* است و مخصوصِ پنلِ ادمین؛ عددی که در گزارشِ خصوصیِ یک
+    فروشگاه می‌رود باید بدهیِ *همان* فروشگاه باشد. ضمناً داخلِ حلقهٔ «به‌ازایِ هر فروشگاه» صدا زده
+    نمی‌شود، وگرنه با ۵۰۰ فروشگاه یکِ aggregate رویِ کلِ جدول ۵۰۰ بار در یکِ پاس تکرار می‌شد.
+    """
+    if not owner_ids:
+        return {}
+    rows = await session.execute(
+        select(CommissionReceivable.shop_owner_id, func.sum(CommissionReceivable.amount_toman))
+        .where(CommissionReceivable.status == OPEN, CommissionReceivable.shop_owner_id.in_(owner_ids))
+        .group_by(CommissionReceivable.shop_owner_id)
+    )
+    return {int(owner_id): int(total or 0) for owner_id, total in rows.all()}
+
+
 async def open_report(session: AsyncSession, limit: int = 10) -> list[dict]:
     """بدهی‌هایِ باز با نامِ صاحبِ فروشگاه، بزرگ‌ترین اول (برایِ گزارشِ پنلِ ادمین)."""
     result = await session.execute(

@@ -320,10 +320,15 @@ async def sync_all(session: AsyncSession, bot_manager, main_bot: Bot, *, force: 
     interval_seconds = interval_of(admin_settings) * 60
     now = datetime.datetime.now(datetime.timezone.utc)
     shop_bot_ids = sorted(set(bot_manager.registered_shop_bot_ids()) | set(bot_manager.registered_bale_bot_ids()))
+    if not shop_bot_ids:
+        return counts
+    # P29: ردیف‌هایِ ربات‌ها در یکِ کوئری خوانده می‌شوند. پیش‌ازاین `session.get(ShopBot, id)` داخلِ
+    # حلقه بود ⇒ به‌ازایِ هر رباتِ ثبت‌شده یکِ SELECT در هر پاسِ ۳۰دقیقه‌ای، حتی وقتی نوبتِ بازرسی‌اش
+    # نرسیده (با ۵۰۰ فروشگاه: ۵۰۰ کوئریِ بی‌مصرف در هر پاس). ترتیبِ پردازش همان idِ صعودی است.
+    shop_bots = list((await session.execute(select(ShopBot).where(ShopBot.id.in_(shop_bot_ids)).order_by(ShopBot.id))).scalars().all())
 
-    for shop_bot_id in shop_bot_ids:
-        shop_bot = await session.get(ShopBot, shop_bot_id)
-        if shop_bot is None or not shop_bot.is_active:
+    for shop_bot in shop_bots:
+        if not shop_bot.is_active:
             continue
         if not force and not is_due_for(shop_bot, now):
             continue

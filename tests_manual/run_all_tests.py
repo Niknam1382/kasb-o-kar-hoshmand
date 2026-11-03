@@ -125,6 +125,8 @@ TEST_FILES = [
     "test_p27_invoice_persian_layout.py",
     "test_p27_receipt_one_click.py",
     "test_p28_docs_pdf_builder.py",
+    "test_p29_bounded_bot_startup.py",
+    "test_p29_job_query_bounds.py",
 ]
 
 

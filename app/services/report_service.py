@@ -27,6 +27,19 @@ def persian_weekday_to_python(index: int) -> int:
     return (_SATURDAY_PY_WEEKDAY + int(index)) % 7
 
 
+async def _owners_by_id(session: AsyncSession, shop_bots) -> dict[int, ShopOwner]:  # noqa: ANN001
+    """مالکِ همهٔ این فروشگاه‌ها در یکِ کوئری.
+
+    پیش‌ازاین هر حلقهٔ گزارش به‌ازایِ هر فروشگاه `session.get(ShopOwner, …)` می‌زد ⇒ با ۵۰۰ فروشگاه،
+    ۵۰۰ کوئری در هر پاسِ ۳۰دقیقه‌ای (و دو پاسِ گزارش). نتیجه همان ردیف‌هایِ ORM است، فقط یک‌بار خوانده می‌شوند.
+    """
+    owner_ids = {bot.shop_owner_id for bot in shop_bots}
+    if not owner_ids:
+        return {}
+    rows = (await session.execute(select(ShopOwner).where(ShopOwner.id.in_(owner_ids)))).scalars().all()
+    return {owner.id: owner for owner in rows}
+
+
 def latest_window_start(now_tehran: datetime.datetime, weekday_index: int, hour: int) -> datetime.datetime:
     """آغازِ تازه‌ترین بازه‌یِ مجازِ ارسال (aware، به وقتِ تهران).
 
@@ -61,6 +74,7 @@ async def send_due_reports(session: AsyncSession, main_bot: Bot, now: datetime.d
 
     result = await session.execute(select(ShopBot).where(ShopBot.is_active.is_(True)))
     active_bots = result.scalars().all()
+    owners = await _owners_by_id(session, active_bots)
 
     for shop_bot in active_bots:
         if not shop_bot.weekly_report_enabled or shop_bot.shop_owner_id in frozen_owner_ids:
@@ -70,7 +84,7 @@ async def send_due_reports(session: AsyncSession, main_bot: Bot, now: datetime.d
             continue  # همین بازه قبلاً فرستاده شده ⇒ دوباره نمی‌رود
 
         stats = await stats_service.get_shop_stats(session, shop_bot.id)
-        owner = await session.get(ShopOwner, shop_bot.shop_owner_id)
+        owner = owners[shop_bot.shop_owner_id]
         try:
             await main_bot.send_message(owner.telegram_id, texts.periodic_report_text(stats, admin_settings.periodic_report_frequency_days))
             shop_bot.last_report_sent_at = now
@@ -103,6 +117,12 @@ async def send_due_nightly_reports(session: AsyncSession, main_bot: Bot, now: da
 
     result = await session.execute(select(ShopBot).where(ShopBot.is_active.is_(True)))
     active_bots = result.scalars().all()
+    owners = await _owners_by_id(session, active_bots)
+    # P29: طلبِ کمیسیونِ *هر فروشگاه* در یکِ کوئریِ گروهی. پیش‌ازاین داخلِ همین حلقه
+    # `commission_receivable_service.summary(session)` صدا زده می‌شد که جمعِ سراسریِ پنلِ ادمین است
+    # ⇒ هم با ۵۰۰ فروشگاه پنجم passes یکِ aggregate رویِ کلِ جدول ۵۰۰ بار می‌خورد، هم فروشگاه‌دار
+    # عددِ بدهیِ بقیه را در گزارشِ خصوصیِ خودش می‌دید.
+    debts = await commission_receivable_service.open_totals_by_owner(session, set(owners))
 
     for shop_bot in active_bots:
         if shop_bot.last_nightly_report_date == today:
@@ -110,16 +130,15 @@ async def send_due_nightly_reports(session: AsyncSession, main_bot: Bot, now: da
 
         day_start = datetime.datetime.combine(today, datetime.time.min, tzinfo=datetime.timezone.utc)
         stats = await stats_service.get_shop_daily_stats(session, shop_bot.id, day_start, now)
-        owner = await session.get(ShopOwner, shop_bot.shop_owner_id)
+        owner = owners.get(shop_bot.shop_owner_id)
         if owner is None:
             continue
-        # P21-D (F1): «چند سفارش آمد» بدونِ «پولِ من چه شد» نصفِ گزارش است. موجودی، قابل‌صرف،
-        # اعتبارِ در آستانهٔ انقضا و طلبِ کمیسیونِ وصول‌نشده به همان پیام اضافه می‌شوند.
+        # P21-D (F1): موجودی، قابل‌صرف، اعتبارِ در آستانهٔ انقضا و طلبِ کمیسیونِ وصول‌نشده به همان پیام اضافه می‌شوند.
         usable, expiring, expiring_days = await wallet_service.credit_summary(session, owner)
-        debt = await commission_receivable_service.summary(session)
+        debt = debts.get(shop_bot.shop_owner_id, 0)
         message = texts.nightly_report_text(stats, consultation=shop_bot.tenant_mode == TenantMode.CONSULTATION)
         message += "\n" + texts.digest_wallet_line(
-            int(owner.wallet_balance_toman or 0), usable, expiring if expiring_days is not None else 0, expiring_days, debt["open_toman"]
+            int(owner.wallet_balance_toman or 0), usable, expiring if expiring_days is not None else 0, expiring_days, debt
         )
         try:
             await main_bot.send_message(owner.telegram_id, message)
