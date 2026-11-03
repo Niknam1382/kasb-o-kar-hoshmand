@@ -178,6 +178,14 @@ async def get_platform_stats(session: AsyncSession) -> dict:
         select(func.coalesce(func.sum(WalletTransaction.amount_toman), 0)).where(WalletTransaction.reason.in_(giveaway_reasons))
     )
 
+    # P30: کمیسیونِ سفارشِ موفق هم از کیف‌پول کسر می‌شود (reason=commission؛ settle منفی،
+    # reverse مثبت) — برایِ همین جمعِ خالصِ آن جدا از مصرفِ هوش‌مصنوعی گزارش می‌شود.
+    commission_net = await session.scalar(
+        select(func.coalesce(func.sum(WalletTransaction.amount_toman), 0)).where(
+            WalletTransaction.reason == WalletTransactionReason.COMMISSION
+        )
+    )
+
     return {
         "total_owners": total_owners or 0,
         "total_active_bots": total_active_bots or 0,
@@ -187,4 +195,6 @@ async def get_platform_stats(session: AsyncSession) -> dict:
         "consultations_count": order_counts["consultation"],
         "total_wallet_consumed_toman": abs(total_consumed or 0),
         "total_given_away_toman": total_given_away or 0,
+        "commission_revenue_toman": abs(commission_net or 0),
+        "ai_api_revenue_toman": abs(total_consumed or 0),
     }

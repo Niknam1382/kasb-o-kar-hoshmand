@@ -733,7 +733,12 @@ def platform_stats_text(stats: dict) -> str:
         f"📥 مجموع درآمدِ واقعی (شارژهای تاییدشده): {format_toman(stats['total_revenue_toman'])}\n"
         f"🎁 مجموعِ اعتبارِ رایگان (تراِیل/معرفی/هدیه): {format_toman(stats['total_given_away_toman'])}\n"
         f"🔥 مجموعِ اعتبارِ مصرف‌شده (هوش‌مصنوعی): {format_toman(stats['total_wallet_consumed_toman'])}\n"
-        "(نکته: این هزینه‌ی واقعیِ ارزیِ ارائه‌دهنده‌ی هوش‌مصنوعی رو نشون نمی‌ده، فقط بر اساسِ قیمت‌گذاریِ خودِ پلتفرمه.)"
+        "(نکته: این هزینه‌ی واقعیِ ارزیِ ارائه‌دهنده‌ی هوش‌مصنوعی رو نشون نمی‌ده، فقط بر اساسِ قیمت‌گذاریِ خودِ پلتفرمه.)\n\n"
+        "— درآمد به تفکیکِ منبع —\n"
+        f"🧾 کمیسیونِ سفارش‌ها: {format_toman(stats['commission_revenue_toman'])}\n"
+        f"🧠 فروشِ اعتبارِ هوش‌مصنوعی (API): {format_toman(stats['ai_api_revenue_toman'])}\n"
+        f"🧮 جمعِ این دو: {format_toman(stats['commission_revenue_toman'] + stats['ai_api_revenue_toman'])}\n"
+        "(این سه رقم *اعتبارِ مصرف‌شده* است، نه پولی که همین امروز نقد وارد شده؛ پولِ نقدی همان خطِ «درآمدِ واقعی» بالاست.)"
     )
 
 
