@@ -120,7 +120,7 @@ async def send_due_nightly_reports(session: AsyncSession, main_bot: Bot, now: da
     owners = await _owners_by_id(session, active_bots)
     # P29: طلبِ کمیسیونِ *هر فروشگاه* در یکِ کوئریِ گروهی. پیش‌ازاین داخلِ همین حلقه
     # `commission_receivable_service.summary(session)` صدا زده می‌شد که جمعِ سراسریِ پنلِ ادمین است
-    # ⇒ هم با ۵۰۰ فروشگاه پنجم passes یکِ aggregate رویِ کلِ جدول ۵۰۰ بار می‌خورد، هم فروشگاه‌دار
+    # ⇒ هم با ۵۰۰ فروشگاه در هر پاسِ گزارش یکِ aggregate رویِ کلِ جدول ۵۰۰ بار می‌خورد، هم فروشگاه‌دار
     # عددِ بدهیِ بقیه را در گزارشِ خصوصیِ خودش می‌دید.
     debts = await commission_receivable_service.open_totals_by_owner(session, set(owners))
 
