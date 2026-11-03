@@ -124,6 +124,7 @@ TEST_FILES = [
     "test_p26_bale_handoff_and_ux.py",
     "test_p27_invoice_persian_layout.py",
     "test_p27_receipt_one_click.py",
+    "test_p28_docs_pdf_builder.py",
 ]
 
 
