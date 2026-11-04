@@ -593,8 +593,15 @@ async def _process_bale_update(request: Request) -> Response:
     return Response(status_code=200)
 
 
-async def _dispatch_bale_update(data: dict) -> None:
-    """مسیرِ مشترکِ webhook و getUpdates (B6): pre_checkout، successful_payment و P26 `/start`."""
+async def _dispatch_bale_update(data: dict, token: str | None = None) -> None:
+    """مسیرِ مشترکِ webhook و getUpdates (B6): pre_checkout، successful_payment و P26 `/start`.
+
+    P34: `token` توکنِ رباتی است که این آپدیت را دریافت کرده. خالی ⇒ رباتِ پرداختِ پلتفرم
+    (رفتارِ همیشگی، و همان چیزی که تست‌هایِ P18/P25/P26 با آن صدا می‌زنند). وقتی مشتری لینکِ
+    پرداخت را در چتِ **رباتِ بلهٔ خودِ فروشگاه** باز می‌کند، آپدیت از `bot_manager` با توکنِ همان
+    ربات اینجا می‌آید و صورتحساب/استعلام هم با همان توکن انجام می‌شود — چون توکنِ درگاه برایِ
+    همان ربات صادر شده و جفتِ سازگار باید بماند.
+    """
     if not isinstance(data, dict):
         return
     pre_checkout = data.get("pre_checkout_query")
@@ -603,7 +610,7 @@ async def _dispatch_bale_update(data: dict) -> None:
             "bale", "in", "pre_checkout_query", reference=pre_checkout.get("id"), raw=pre_checkout,
             group_ref=pre_checkout.get("invoice_payload"),
         )
-        await _handle_bale_pre_checkout(pre_checkout)
+        await _handle_bale_pre_checkout(pre_checkout, token)
         return
 
     message = data.get("message")
@@ -613,16 +620,21 @@ async def _dispatch_bale_update(data: dict) -> None:
             "bale", "in", "successful_payment", reference=successful_payment.get("telegram_payment_charge_id"),
             raw=successful_payment, group_ref=successful_payment.get("invoice_payload"),
         )
-        await _handle_bale_successful_payment(successful_payment)
+        await _handle_bale_successful_payment(successful_payment, token)
         return
 
     if isinstance(message, dict):
         text = (message.get("text") or "").strip()
         if text.startswith("/start"):
-            await _handle_bale_payment_handoff(message, text)
+            await _handle_bale_payment_handoff(message, text, token)
 
 
-async def _handle_bale_payment_handoff(message: dict, text: str) -> None:
+def _bale_surface_token(token: str | None) -> str:
+    """توکنِ رباتی که باید صورتِ مالی را بفرستد/استعلام کند؛ نداده ⇒ رباتِ پلتفرم (مثلِ قبل)."""
+    return token or bale_credentials_service.bot_token()
+
+
+async def _handle_bale_payment_handoff(message: dict, text: str, token: str | None = None) -> None:
     """P26: کاربر لینکِ `https://ble.ir/<ربات>?start=<payload>` را باز کرده است.
 
     بله هیچ آدرسِ پرداختی ندارد (MEASURED: `ble.ir/pay/…` ⇒ ۴۰۴) و خروجیِ `createInvoiceLink`
@@ -630,11 +642,16 @@ async def _handle_bale_payment_handoff(message: dict, text: str) -> None:
     می‌فرستیم: کاربر دکمهٔ «پرداخت» خودِ بله را می‌بیند، `pre_checkout_query` (که هندلرش همین
     فایل است) جواب می‌گیرد و بعدِ موفقیت، همان `invoice_payload` مسیرِ شارژِ کیف‌پول/سفارش را
     پیدا می‌کند. `payload` خودش رمزِ غیرقابل‌حدس است (nonce) و هیچ هویتِ دیگری لازم نیست.
+
+    P34: برایِ پرداختِ **سفارش** دیگر توکنِ پلتفرم فرض نمی‌شود؛ جفتِ سازگار از
+    `bale_credentials_service.shop_status` خوانده می‌شود. اگر آن جفت با رباتی که این `/start`
+    را دریافت کرده فرق داشت، لینکِ کهنه است و به‌جایِ فرستادنِ صورتحسابِ اشتباه (که پول را به
+    کیفِ دیگری می‌برد) به کاربر گفته می‌شود لینکِ تازه بگیرد.
     """
     parts = text.split(" ", 1)
     payload = parts[1].strip() if len(parts) == 2 else ""
     chat_id = ((message.get("chat") or {}).get("id")) or ((message.get("from") or {}).get("id"))
-    token = bale_credentials_service.bot_token()
+    token = _bale_surface_token(token)
     if not token or not isinstance(chat_id, int):
         return
     if not payload:
@@ -650,6 +667,7 @@ async def _handle_bale_payment_handoff(message: dict, text: str) -> None:
     title = description = ""
     amount_toman: int | None = None
     provider_token: str | None = None
+    surface_token: str | None = None
     note = ""
 
     async with session_scope() as session:
@@ -660,7 +678,9 @@ async def _handle_bale_payment_handoff(message: dict, text: str) -> None:
                 amount_toman = int(payment.final_amount)
                 title = "اشتراکِ سرویس" if payment.purpose == PaymentPurpose.SUBSCRIPTION else "شارژِ کیف‌پول"
                 description = f"{title} — کسب‌وکار هوشمند"
+                # این مسیر «فروشگاه‌دار به پلتفرم» است: جفتِ سراسریِ خودِ پلتفرم، هیچ‌وقت درگاهِ فروشگاه.
                 provider_token = (admin_settings.bale_provider_token or "").strip()
+                surface_token = bale_credentials_service.bot_token()
             elif payment is not None:
                 note = main_texts.BALE_PAY_ALREADY_SETTLED
             else:
@@ -689,14 +709,26 @@ async def _handle_bale_payment_handoff(message: dict, text: str) -> None:
                 if order is not None:
                     found = True
                     if order.bale_paid_at is None:
-                        amount_toman = int(order.total_toman or 0)
+                        # P34 (باگِ لو‌رفته در همین فاز): این ستونِ سفارش `estimated_value_toman`
+                        # است؛ `total_toman` رویِ این مدل وجود ندارد و خواندنش وسطِ صورتحساب
+                        # AttributeError می‌داد، یعنی لینکِ پرداختِ تک‌سفارش مرده بود.
+                        amount_toman = int(order.estimated_value_toman or 0)
                         shop_bot = await session.get(ShopBot, order.shop_bot_id)
                     else:
                         settled = True
             if amount_toman:
                 title = "پرداختِ سفارش"
                 description = "سفارش از فروشگاه کسب‌وکار هوشمند"
-                provider_token = await bale_credentials_service.provider_token(session, shop_bot)
+                pay_settings_row = await payment_settings_service.get_or_create(session, shop_bot.id)
+                status = await bale_credentials_service.shop_status(session, shop_bot, pay_settings_row)
+                if status.available:
+                    provider_token = status.provider_token
+                    surface_token = status.bot_token
+                else:
+                    # تنظیماتِ فروشگاه وسطِ کار عوض/ناقص شده (کلیدِ بله خاموش، درگاه حذف‌شده):
+                    # به‌جایِ ساختنِ صورتحسابی که پول را جایِ دیگری می‌برد، صادقانه می‌گوییم.
+                    amount_toman = None
+                    note = main_texts.BALE_PAY_NOT_CONFIGURED
             elif settled:
                 note = main_texts.BALE_PAY_ALREADY_SETTLED
             elif found:
@@ -713,6 +745,17 @@ async def _handle_bale_payment_handoff(message: dict, text: str) -> None:
                 await bale_service.send_text(token, chat_id, note)
             except bale_service.BaleError:
                 logger.exception("پاسخِ لینکِ پرداخت (chat %s) ناموفق بود.", chat_id)
+        return
+
+    if surface_token != token:
+        # لینکِ این پرداخت برایِ رباتِ دیگری ساخته شده است. فرستادنِ صورتحسابِ این ربات با
+        # توکنِ درگاهِ آن ربات یعنی «قاطی‌شدنِ جفت» و مقصدِ پول عوض می‌شود — همان باگِ
+        # گزارش‌شده. پس لینکِ تازه می‌خواهیم، نه پرداختِ به حسابِ اشتباه.
+        logger.warning("لینکِ پرداختِ %s با رباتِ دریافت‌کننده نمی‌خواند؛ صورتحساب ساخته نشد.", payload[:40])
+        try:
+            await bale_service.send_text(token, chat_id, main_texts.BALE_PAY_LINK_STALE)
+        except bale_service.BaleError:
+            logger.exception("پاسخِ لینکِ کهنه (chat %s) ناموفق بود.", chat_id)
         return
 
     try:
@@ -757,7 +800,7 @@ def _extract_cart_group_id(invoice_payload: str) -> str | None:
     return parts[1]
 
 
-async def _handle_bale_pre_checkout(pre_checkout: dict) -> None:
+async def _handle_bale_pre_checkout(pre_checkout: dict, token: str | None = None) -> None:
     query_id = pre_checkout.get("id")
     invoice_payload = pre_checkout.get("invoice_payload")
     if not query_id:
@@ -798,12 +841,12 @@ async def _handle_bale_pre_checkout(pre_checkout: dict) -> None:
         error_message = None if ok else "این سفارش دیگه معتبر نیست یا قبلاً پردازش شده."
 
     try:
-        await bale_service.answer_pre_checkout_query(bale_credentials_service.bot_token(), query_id, ok=ok, error_message=error_message)
+        await bale_service.answer_pre_checkout_query(_bale_surface_token(token), query_id, ok=ok, error_message=error_message)
     except bale_service.BaleError:
         logger.exception("پاسخ‌دادن به pre_checkout_query بله ناموفق بود (query_id=%s).", query_id)
 
 
-async def _handle_bale_successful_payment(successful_payment: dict) -> None:
+async def _handle_bale_successful_payment(successful_payment: dict, token: str | None = None) -> None:
     invoice_payload = successful_payment.get("invoice_payload")
     # طبقِ فایلِ ارائه‌شده این فیلد telegram_payment_charge_id نام داره؛ چون این
     # جزئیات مستقل تاییدنشده، هر دو نامِ محتمل رو امتحان می‌کنیم تا اگه بله
@@ -816,11 +859,11 @@ async def _handle_bale_successful_payment(successful_payment: dict) -> None:
         return
 
     if invoice_payload.startswith("cartgroup-"):
-        await _handle_bale_cartgroup_payment(invoice_payload, transaction_id)
+        await _handle_bale_cartgroup_payment(invoice_payload, transaction_id, token)
         return
 
     if invoice_payload.startswith("order-"):
-        await _handle_bale_order_payment(invoice_payload, transaction_id)
+        await _handle_bale_order_payment(invoice_payload, transaction_id, token)
         return
 
     async with session_scope() as session:
@@ -835,7 +878,7 @@ async def _handle_bale_successful_payment(successful_payment: dict) -> None:
         # همیشه قبل از اعتبارکردنِ کیف‌پول، مستقل از خودِ سرورِ بله استعلام
         # می‌گیریم — این مهم‌ترین محافظت در برابرِ یه وب‌هوکِ جعلیه.
         try:
-            transaction = await bale_service.inquire_transaction(bale_credentials_service.bot_token(), transaction_id)
+            transaction = await bale_service.inquire_transaction(_bale_surface_token(token), transaction_id)
         except bale_service.BaleError:
             logger.exception("استعلامِ تراکنشِ بله ناموفق بود (transaction_id=%s) — کیف‌پول شارژ نشد.", transaction_id)
             return
@@ -859,7 +902,7 @@ async def _handle_bale_successful_payment(successful_payment: dict) -> None:
 _BALE_RETRY_DELAYS = (5, 20, 60, 180)  # B3: استعلامِ «در انتظار» با backoff دوباره تلاش می‌شه
 
 
-async def _handle_bale_new_flow(payment_id: int, shop_bot_id: int, transaction_id: str, attempt: int = 0) -> None:
+async def _handle_bale_new_flow(payment_id: int, shop_bot_id: int, transaction_id: str, attempt: int = 0, token: str | None = None) -> None:
     """W4 (C7): پرداختِ بله‌پیِ جریانِ تازه. فقط بعد از استعلامِ سمتِ سرور + تطبیقِ مبلغ ⇒ `paid`؛
     وضعیتِ «در انتظار» با backoff دوباره پرسیده می‌شه؛ نامشخص/ناموفق ⇒ هیچ تغییری (لاگ در payment_event_logs)."""
     notify = None
@@ -868,7 +911,7 @@ async def _handle_bale_new_flow(payment_id: int, shop_bot_id: int, transaction_i
         if payment is None or payment.status == order_payment_service.P_PAID:
             return
         try:
-            transaction = await bale_service.inquire_transaction(bale_credentials_service.bot_token(), transaction_id)
+            transaction = await bale_service.inquire_transaction(_bale_surface_token(token), transaction_id)
         except bale_service.BaleError:
             logger.exception("استعلامِ تراکنشِ بله ناموفق بود (transaction_id=%s) — سفارش پرداخت‌شده علامت نخورد.", transaction_id)
             return
@@ -878,7 +921,7 @@ async def _handle_bale_new_flow(payment_id: int, shop_bot_id: int, transaction_i
                 shop_bot_id=shop_bot_id, group_ref=payment.provider_ref,
             )
             if attempt < len(_BALE_RETRY_DELAYS):
-                asyncio.create_task(_retry_bale_new_flow(payment_id, shop_bot_id, transaction_id, attempt))
+                asyncio.create_task(_retry_bale_new_flow(payment_id, shop_bot_id, transaction_id, attempt, token))
             return
         if not await _bale_outcome_ok(
             transaction, payment.amount_toman, "cart", shop_bot_id=shop_bot_id, group_ref=payment.provider_ref
@@ -899,15 +942,15 @@ async def _handle_bale_new_flow(payment_id: int, shop_bot_id: int, transaction_i
         )
 
 
-async def _retry_bale_new_flow(payment_id: int, shop_bot_id: int, transaction_id: str, attempt: int) -> None:
+async def _retry_bale_new_flow(payment_id: int, shop_bot_id: int, transaction_id: str, attempt: int, token: str | None = None) -> None:
     await asyncio.sleep(_BALE_RETRY_DELAYS[attempt])
     try:
-        await _handle_bale_new_flow(payment_id, shop_bot_id, transaction_id, attempt + 1)
+        await _handle_bale_new_flow(payment_id, shop_bot_id, transaction_id, attempt + 1, token)
     except Exception:
         logger.exception("تلاشِ مجددِ استعلامِ بله ناموفق بود (transaction_id=%s).", transaction_id)
 
 
-async def _handle_bale_cartgroup_payment(invoice_payload: str, transaction_id: str) -> None:
+async def _handle_bale_cartgroup_payment(invoice_payload: str, transaction_id: str, token: str | None = None) -> None:
     """فازِ ۳: پرداختِ آنلاینِ کلِ یه سبدِ خرید (مشتری → فروشگاه‌دار). مثلِ
     _handle_bale_order_payment پایین، ولی رویِ همه‌ی ردیف‌هایِ یه گروه: همه رو
     با هم پرداخت‌شده علامت می‌زنه و یه اطلاع‌رسانیِ ترکیبی (نه یکی به‌ازایِ هر
@@ -932,14 +975,14 @@ async def _handle_bale_cartgroup_payment(invoice_payload: str, transaction_id: s
                 # وب‌هوکِ تکراری — قبلاً پردازش شده.
                 return
     if new_flow is not None:
-        await _handle_bale_new_flow(new_flow[0], new_flow[1], transaction_id)
+        await _handle_bale_new_flow(new_flow[0], new_flow[1], transaction_id, token=token)
         return
 
     async with session_scope() as session:
         orders = await order_service.get_by_cart_checkout_group(session, group_id)
 
         try:
-            transaction = await bale_service.inquire_transaction(bale_credentials_service.bot_token(), transaction_id)
+            transaction = await bale_service.inquire_transaction(_bale_surface_token(token), transaction_id)
         except bale_service.BaleError:
             logger.exception("استعلامِ تراکنشِ بله ناموفق بود (transaction_id=%s) — سبد پرداخت‌شده علامت نخورد.", transaction_id)
             return
@@ -984,7 +1027,7 @@ async def _handle_bale_cartgroup_payment(invoice_payload: str, transaction_id: s
             logger.exception("اطلاع‌رسانیِ تاییدِ پرداخت به مشتری %s ناموفق بود.", customer_telegram_id)
 
 
-async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str) -> None:
+async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str, token: str | None = None) -> None:
     """فازِ ۳: پرداختِ آنلاینِ یه سفارشِ محصول (مشتری → فروشگاه‌دار، نه
     فروشگاه‌دار → پلتفرم). عمداً از payment_service استفاده نمی‌کنه چون اون
     سرویس کاملاً حولِ Payment (پرداختِ فروشگاه‌دار به پلتفرم — تخفیف، پاداشِ
@@ -1002,7 +1045,7 @@ async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str) 
         # همینجا هم، دقیقاً مثلِ مسیرِ بالا، مستقل از خودِ سرورِ بله استعلام
         # می‌گیریم — این مهم‌ترین محافظت در برابرِ یه وب‌هوکِ جعلیه.
         try:
-            transaction = await bale_service.inquire_transaction(bale_credentials_service.bot_token(), transaction_id)
+            transaction = await bale_service.inquire_transaction(_bale_surface_token(token), transaction_id)
         except bale_service.BaleError:
             logger.exception("استعلامِ تراکنشِ بله ناموفق بود (transaction_id=%s) — سفارش پرداخت‌شده علامت نخورد.", transaction_id)
             return

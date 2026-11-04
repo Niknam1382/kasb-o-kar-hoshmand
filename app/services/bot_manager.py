@@ -132,6 +132,12 @@ class ShopBotManager:
         # فهرستِ نوعِ آپدیت‌هایِ مصرف‌شونده یک‌بار حساب می‌شود: این کوئری رویِ گرافِ روترهاست
         # و در هر گردشِ حلقه (یعنی هر ~۲۰ ثانیه به‌ازایِ هر ربات) همان نتیجه را می‌دهد.
         used_updates = self._dispatcher.resolve_used_update_types()
+        if bale:
+            # P34: اگر فروشگاه هر دو ورودیِ بله‌اش را گذاشته باشد، صورتحسابِ سفارش در چتِ *همین*
+            # ربات باز می‌شود، پس `pre_checkout_query` هم باید به ما برسد. هیچ روترِ فروشگاهی
+            # آن را هندل نمی‌کند، بنابراین `resolve_used_update_types` بیرونش می‌گذارد و بله
+            # هرگز می‌فرستدش ⇒ پرداختِ بی‌صاحب. اینجا صریح اضافه‌اش می‌کنیم.
+            used_updates = list(dict.fromkeys([*used_updates, "pre_checkout_query"]))
         while True:
             try:
                 updates = await bot.get_updates(offset=offset, timeout=20, allowed_updates=used_updates)
@@ -157,10 +163,55 @@ class ShopBotManager:
 
             for update in updates:
                 offset = update.update_id + 1
+                if bale and await self._handle_bale_payment_update(bot, update):
+                    continue
                 try:
                     await self._dispatcher.feed_update(bot, update)
                 except Exception:
                     logger.exception("پردازشِ یک آپدیت برای ربات %s فروشگاهی %s با خطا مواجه شد.", label, shop_bot_id)
+
+    async def _handle_bale_payment_update(self, bot: Bot, update) -> bool:
+        """P34: آپدیتِ پرداختِ بله در رباتِ بلهٔ *خودِ فروشگاه*.
+
+        تا پیش از این، صورتحسابِ سفارش همیشه با رباتِ پلتفرم ساخته می‌شد؛ حالا که فروشگاه
+        می‌تواند توکنِ رباتِ بله و توکنِ درگاهِ خودش را با هم ثبت کند، `/start`،
+        `pre_checkout_query` و `successful_payment`ِ همان پرداخت در چتِ این ربات می‌آید و باید
+        به همان هندلرهایِ پرداختِ `app/main.py` برود — با توکنِ همین ربات، وگرنه استعلامِ
+        تراکنش و جوابِ pre_checkout رد می‌شوند.
+
+        `True` یعنی آپدیت مصرف شد و به روترهایِ گفت‌وگو نمی‌رود (پیش‌فرضِ `customer_message`
+        هر پیامِ متنی را به هوشِ مصنوعی می‌دهد؛ `/start order-…` نباید پاسخِ AI بگیرد).
+        """
+        try:
+            raw = update.model_dump(mode="json", exclude_none=True)
+        except Exception:  # noqa: BLE001 — آپدیتِ غیرمنتظره ⇒ همان مسیرِ قبل، نه خوابیدنِ حلقه
+            return False
+
+        pre_checkout = raw.get("pre_checkout_query")
+        message = raw.get("message") or {}
+        payload = ""
+        if isinstance(pre_checkout, dict):
+            payload = pre_checkout.get("invoice_payload") or ""
+        elif isinstance(message.get("successful_payment"), dict):
+            payload = message["successful_payment"].get("invoice_payload") or ""
+        else:
+            text = (message.get("text") or "").strip()
+            if text.startswith("/start"):
+                parts = text.split(" ", 1)
+                payload = parts[1].strip() if len(parts) == 2 else ""
+
+        # فقط پرداخت‌هایِ «مشتری ← فروشگاه». شارژِ کیف‌پولِ فروشگاه‌دار (`payment-`) همیشه با
+        # رباتِ پلتفرم است؛ لینکش اینجا باز نمی‌شود، پس دست‌نخورده به روترها می‌ماند.
+        if not payload.startswith(("order-", "cartgroup-")):
+            return False
+
+        from app import main as app_main  # import محلی: `app.main` خودِ این ماژول را وارد می‌کند
+
+        try:
+            await app_main._dispatch_bale_update(raw, token=bot.token)
+        except Exception:
+            logger.exception("پردازشِ آپدیتِ پرداختِ بله در رباتِ بلهٔ فروشگاه ناموفق بود (payload=%s).", payload[:40])
+        return True
 
     async def load_all(self, shop_bots: list[ShopBot], *, bale_enabled: bool = False) -> None:
         """ثبتِ همهٔ ربات‌ها، با حداکثر `BOT_REGISTER_CONCURRENCY` فروشگاه هم‌زمان (P29).

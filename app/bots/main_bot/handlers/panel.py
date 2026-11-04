@@ -201,8 +201,11 @@ async def _own_shop_bot_cb(callback: CallbackQuery, session: AsyncSession):
     return shop_bot
 
 
-async def _bale_screen(target, shop_bot) -> None:
-    text = texts.bale_shop_bot_status_text(shop_bot)
+async def _bale_screen(target, shop_bot, session: AsyncSession) -> None:
+    """صفحهٔ «بله‌یِ فروشگاه» — هر دو ورودی + وضعیتی که *همین* ملاکِ پرداخت را نشان می‌دهد (P34)."""
+    pay_settings = await payment_settings_service.get(session, shop_bot.id)
+    status = await bale_credentials_service.shop_status(session, shop_bot, pay_settings)
+    text = texts.bale_shop_bot_status_text(shop_bot, status)
     markup = keyboards.bale_shop_bot_keyboard(shop_bot)
     if isinstance(target, CallbackQuery):
         await target.message.edit_text(text, reply_markup=markup)
@@ -221,7 +224,7 @@ async def open_bale_shop_bot(message: Message, session: AsyncSession, state: FSM
         await message.answer(texts.SHOP_BOT_NOT_SET_UP)
         return
     await state.clear()
-    await _bale_screen(message, shop_bot)
+    await _bale_screen(message, shop_bot, session)
 
 
 @router.callback_query(F.data == "bale_edit")
@@ -262,7 +265,7 @@ async def bale_turn_on(callback: CallbackQuery, session: AsyncSession, bot_manag
         await callback.answer(texts.BALE_SHOP_BOT_NO_TRANSPORT, show_alert=True)
         return
     await callback.answer(texts.BALE_SHOP_BOT_ENABLED_AGAIN)
-    await _bale_screen(callback.message, shop_bot)
+    await _bale_screen(callback.message, shop_bot, session)
 
 
 @router.callback_query(F.data == "bale_off")
@@ -274,7 +277,7 @@ async def bale_turn_off(callback: CallbackQuery, session: AsyncSession, bot_mana
     await session.flush()
     await bot_manager.unregister_bale(shop_bot.id)
     await callback.answer(texts.BALE_SHOP_BOT_DISABLED_BY_OWNER)
-    await _bale_screen(callback.message, shop_bot)
+    await _bale_screen(callback.message, shop_bot, session)
 
 
 @router.callback_query(F.data == "bale_clear")
@@ -285,7 +288,7 @@ async def bale_clear_token(callback: CallbackQuery, session: AsyncSession, bot_m
     await bale_bot_service.clear_token(session, shop_bot)
     await bot_manager.unregister_bale(shop_bot.id)
     await callback.answer(texts.BALE_SHOP_BOT_REMOVED)
-    await _bale_screen(callback.message, shop_bot)
+    await _bale_screen(callback.message, shop_bot, session)
 
 
 @router.message(BaleShopBotStates.waiting_token, F.text)
@@ -320,7 +323,48 @@ async def save_bale_shop_bot_token(message: Message, state: FSMContext, session:
         await bot_manager.register_bale(shop_bot)
     except Exception:
         logger.exception("ثبتِ اتصالِ بله‌یِ فروشگاه %s در ShopBotManager ناموفق بود.", shop_bot.id)
-    await _bale_screen(message, shop_bot)
+    await _bale_screen(message, shop_bot, session)
+
+
+@router.callback_query(F.data == "bale_provider_edit")
+async def bale_edit_provider_token(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    """P34: توکنِ درگاهِ بله‌پی در *همین* صفحه نوشته می‌شود، نه فقط در صفحهٔ جدا."""
+    shop_bot = await _own_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.clear()
+    await state.set_state(BaleShopBotStates.waiting_provider_token)
+    await callback.answer()
+    await callback.message.answer(texts.ASK_BALE_SHOP_PROVIDER_TOKEN)
+
+
+@router.message(BaleShopBotStates.waiting_provider_token, F.text)
+async def save_bale_shop_provider_token(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    owner = await _current_owner(message, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await state.clear()
+        await message.answer(texts.SHOP_BOT_NOT_SET_UP)
+        return
+
+    raw = message.text.strip()
+    if raw == "حذف":
+        await state.clear()
+        shop_bot.bale_provider_token = None
+        await session.flush()
+        await message.answer(texts.BALE_PROVIDER_TOKEN_REMOVED)
+        await _bale_screen(message, shop_bot, session)
+        return
+
+    if not bale_credentials_service.valid_token_input(raw):
+        await message.answer(texts.BALE_PROVIDER_TOKEN_INVALID)  # state می‌ماند تا درستش را بفرستد
+        return
+
+    await state.clear()
+    shop_bot.bale_provider_token = raw
+    await session.flush()
+    await message.answer(texts.bale_provider_saved_text(shop_bot))
+    await _bale_screen(message, shop_bot, session)
 
 
 # =============================================================================

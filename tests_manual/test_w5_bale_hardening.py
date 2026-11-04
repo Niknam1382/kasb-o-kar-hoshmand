@@ -113,10 +113,13 @@ async def test_dispatch_reuses_webhook_path() -> None:
     calls: list[tuple[str, dict]] = []
     original = (app_main._handle_bale_pre_checkout, app_main._handle_bale_successful_payment)
 
-    async def fake_pre(pc: dict) -> None:
+    # P34: `_dispatch_bale_update` توکنِ *سطحِ پرداخت* را هم به هندلرها می‌دهد (رباتِ پلتفرم یا
+    # رباتِ بلهٔ خودِ فروشگاه). fake هم همان امضا را دارد تا این تست تغییرِ امضا را بپوشاند، نه اینکه
+    # با آن بشکند.
+    async def fake_pre(pc: dict, token: str | None = None) -> None:
         calls.append(("pre", pc))
 
-    async def fake_paid(sp: dict) -> None:
+    async def fake_paid(sp: dict, token: str | None = None) -> None:
         calls.append(("paid", sp))
 
     app_main._handle_bale_pre_checkout, app_main._handle_bale_successful_payment = fake_pre, fake_paid
@@ -125,9 +128,11 @@ async def test_dispatch_reuses_webhook_path() -> None:
         await app_main._dispatch_bale_update({"update_id": 2, "message": {"successful_payment": {"invoice_payload": "p", "telegram_payment_charge_id": "c"}}})
         await app_main._dispatch_bale_update({"update_id": 3, "message": {"text": "hi"}})
         await app_main._dispatch_bale_update("garbage")  # type: ignore[arg-type]
+        # آپدیتِ داده‌شده از رباتِ فروشگاه ⇒ همان توکن باید به هندلر برسد
+        await app_main._dispatch_bale_update({"update_id": 4, "pre_checkout_query": {"id": "q4"}}, token="222222:SHOP-BALE-TOKEN")
     finally:
         app_main._handle_bale_pre_checkout, app_main._handle_bale_successful_payment = original
-    assert [c[0] for c in calls] == ["pre", "paid"]
+    assert [c[0] for c in calls] == ["pre", "paid", "pre"]
     print("✅ test_dispatch_reuses_webhook_path PASSED")
 
 

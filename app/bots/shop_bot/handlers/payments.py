@@ -200,13 +200,17 @@ async def pm_bale(callback: CallbackQuery, session: AsyncSession, main_bot: Bot)
         return
     total = order_transition_service.group_total_toman(rows)
     payload = f"cartgroup-{key}-{secrets.token_hex(8)}"
-    # P26: لینکِ پرداخت = چتِ **رباتِ پرداختِ پلتفرم** با `?start=<payload>`. صورتحسابِ بومیِ بله
-    # در آن چت فرستاده می‌شود و درگاهِ خودِ فروشگاه پول را به کیف‌پولِ او می‌ریزد؛ دیگر
-    # `createInvoiceLink` نمی‌خوانیم، چون خروجی‌اش فقط شناسهٔ مینی‌اپ است و آدرسِ پرداختی
-    # وجود ندارد (MEASURED: `ble.ir/pay/…` ⇒ ۴۰۴).
-    pay_url = bale_credentials_service.pay_link_for(payload)
+    # P26: لینکِ پرداخت = چتِ رباتِ پرداخت با `?start=<payload>`. صورتحسابِ بومیِ بله در آن چت
+    # فرستاده می‌شود و درگاهِ خودِ فروشگاه پول را به کیف‌پولِ او می‌ریزد؛ دیگر `createInvoiceLink`
+    # نمی‌خوانیم، چون خروجی‌اش فقط شناسهٔ مینی‌اپ است و آدرسِ پرداختی وجود ندارد
+    # (MEASURED: `ble.ir/pay/…` ⇒ ۴۰۴).
+    # P34: آن «رباتِ پرداخت» دیگر همیشه پلتفرم نیست. اگر فروشگاه هر دو ورودیِ خودش را ثبت کرده
+    # باشد، `status.username` رباتِ بلهٔ خودِ اوست و لینک به چتِ همان ربات می‌رود؛ همان ربات هم
+    # صورتحساب را می‌فرستد، پس جفتِ «ربات + درگاه» سازگار می‌ماند و پول به حسابِ خودِ فروشگاه
+    # می‌نشیند.
+    pay_url = bale_credentials_service.pay_link_for(payload, status.username)
     if pay_url is None:
-        logger.warning("رباتِ پرداختِ پلتفرم نامِ کاربریِ قابلِ استفاده ندارد (گروه %s) ⇒ لینکی ساخته نمی‌شود.", key)
+        logger.warning("رباتِ پرداخت نامِ کاربریِ قابلِ استفاده ندارد (گروه %s) ⇒ لینکی ساخته نمی‌شود.", key)
         await callback.answer(texts.PAY_ONLINE_LINK_FAILED, show_alert=True)
         return
     payment, expires = await order_payment_service.start_payment(session, rows, payment_settings_service.METHOD_BALE, settings_row)

@@ -1282,13 +1282,19 @@ def shop_branding_keyboard(shop_bot) -> InlineKeyboardMarkup:
 
 def bale_shop_bot_keyboard(shop_bot) -> InlineKeyboardMarkup:
     """P19: صفحه‌یِ مدیریتِ اتصالِ بله‌یِ همین فروشگاه (روشن/خاموش، توکن، حذف).
-    P22: فعل‌ها دونادونه؛ «بازگشت» تمام‌عرض و آخر می‌ماند تا همیشه پیدا باشد."""
+    P22: فعل‌ها دونادونه؛ «بازگشت» تمام‌عرض و آخر می‌ماند تا همیشه پیدا باشد.
+    P34: توکنِ درگاهِ بله‌پی هم همین‌جا نوشته می‌شود (مثلِ پنلِ ادمین، دو ورودیِ کنارِ هم)، چون
+    پرداختِ سفارش فقط با «رباتِ خودت + درگاهِ خودت» به کیفِ خودت می‌رسد."""
     has_token = bool(shop_bot.bale_encrypted_token)
+    has_provider = bool((shop_bot.bale_provider_token or "").strip())
     actions = []
     if has_token:
         toggle = switch_label("اتصالِ بله", shop_bot.bale_bot_enabled)
         actions.append(InlineKeyboardButton(text=toggle, callback_data="bale_off" if shop_bot.bale_bot_enabled else "bale_on"))
-    actions.append(InlineKeyboardButton(text="🔑 توکنِ تازه" if has_token else "🔑 ثبتِ توکن ربات بله", callback_data="bale_edit"))
+    actions.append(InlineKeyboardButton(text="🔑 توکنِ تازه" if has_token else "🔑 توکنِ ربات بله", callback_data="bale_edit"))
+    actions.append(
+        InlineKeyboardButton(text="🏦 توکنِ درگاهِ بله‌پی" if has_provider else "🏦 ثبتِ توکنِ درگاه", callback_data="bale_provider_edit")
+    )
     if has_token:
         actions.append(InlineKeyboardButton(text="🗑 حذفِ اتصالِ بله", callback_data="bale_clear"))
     rows = grid(actions, max_label=26)

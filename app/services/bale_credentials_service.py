@@ -5,21 +5,25 @@
 ۱) **توکنِ رباتِ بله** (`bale_bot_token`) — سراسری؛ همان چیزی که رباتِ بله با آن کار می‌کند
    (getUpdates / setWebhook / createInvoiceLink / inquireTransaction). اولویت: پنل ← `.env`.
 ۲) **توکنِ درگاه (provider_token)** — تعیین می‌کند پول در کیف‌پولِ چه کسی می‌نشیند.
-   اولویت: فروشگاه ← پنلِ ادمین (پشتیبانِ سراسری).
+   از P34 «سطحِ پرداخت» هم از همین خوانده می‌شود: توکنِ درگاه برایِ یک رباتِ خاص صادر می‌شود،
+   پس فروشگاهِ هر دو را با هم ثبت کند ⇒ «رباتِ خودِ او + درگاهِ خودِ او» (پول به کیفِ خودش).
+   فقط درگاه را ثبت کرده ⇒ مثلِ گذشته با رباتِ پلتفرم و یکِ هشدارِ روشن در پنل
+   (`SHOP_HAS_PROVIDER_WITHOUT_BOT`).
 ۳) **رازِ وب‌هوک** — فقط در `BALE_UPDATES_MODE=webhook` لازم است و **خودکار** ساخته می‌شود؛
    هرگز از ادمین پرسیده نمی‌شود (در `polling` که پیش‌فرض است اصلاً لازم نیست).
 ۴) **نامِ کاربریِ رباتِ پرداخت** — از `getMe` خوانده و کش می‌شود (هیچ‌وقت از ادمین پرسیده نمی‌شود).
    لینکِ پرداختِ بله از همین ساخته می‌شود: `https://ble.ir/<username>?start=<payload>`.
-   این همیشه رباتِ پلتفرم است، نه رباتِ بله‌یِ خودِ فروشگاه — آن ربات فقط پیام می‌فرستد و
-   آپدیت‌هایش را نمی‌خوانیم، پس `/start`ِ لینک هرگز به ما نمی‌رسید (`pay_link_username`).
+   پیش‌فرض رباتِ پلتفرم است؛ از P34 اگر فروشگاه هر دو ورودیِ خودش را ثبت کرده باشد، لینک به
+   چتِ **رباتِ بلهٔ خودِ فروشگاه** می‌رود و آپدیت‌هایِ آن را `bot_manager` می‌خواند
+   (`ShopBaleStatus.username`).
    از P26 دیگر ستونی به‌نامِ «قالبِ لینک» مصرف نمی‌شود: بله هیچ آدرسِ پرداختی ندارد
    (`ble.ir/pay/…` و `bale.ai/pay/<id>` هر دو ۴۰۴ — MEASURED) و خروجیِ `createInvoiceLink` فقط
    شناسهٔ مینی‌اپ است. ستونِ `bale_pay_link_template` در دیتابیس می‌ماند (قاعدهٔ «حذفِ ستون نه»)
    ولی هیچ کدی آن را نمی‌خواند و در پنل هم نیست.
 
 هیچ مقدارِ خامی در این ماژول لاگ یا برگردانده نمی‌شود؛ نمایش فقط ماسک‌شده (در `texts`).
-ملاکِ `shop_status` *تنها* معیاری است که هم «نمایشِ دکمه به مشتری» و هم «شروعِ پرداخت» از آن
-استفاده می‌کنند، پس این دو هیچ‌وقت با هم اختلاف پیدا نمی‌کنند (علتِ ریشه‌یِ B11).
+ملاکِ `shop_status` *تنها* معیاری است که هم «نمایشِ دکمه به مشتری»، هم «شروعِ پرداخت» و هم
+«سطحِ پرداخت» از آن خوانده می‌شوند، پس این سه هیچ‌وقت با هم اختلاف پیدا نمی‌کنند (علتِ ریشه‌یِ B11).
 """
 
 from __future__ import annotations
@@ -68,28 +72,35 @@ def remember_pay_bot_username(username: str) -> None:
 
 
 def pay_link_username() -> str:
-    """نامِ رباتی که لینکِ پرداخت به چتش می‌رود — همیشه رباتِ پرداختِ پلتفرم.
+    """نامِ رباتی که لینکِ پرداخت به چتش می‌رود — رباتِ پرداختِ پلتفرم، مگر اینکه خودِ
+    فروشگاه هر دو ورودیِ خودش را ثبت کرده باشد (P34؛ آن‌وقت `ShopBaleStatus.username`).
 
-    چرا رباتِ بله‌یِ خودِ فروشگاه نه؟ چون آن ربات فقط برایِ فرستادنِ پیام است: در `bot_manager` و
-    `app/main.py` فقط توکنِ پلتفرم `set_webhook`/`getUpdates` می‌شود، پس `/start`ِ لینکِ
-    پرداخت در چتِ رباتِ فروشگاه هیچ‌وقت به ما نمی‌رسید و لینک مرده می‌شد. جابه‌جاییِ پول
-    به نامِ کاربری وابسته نیست، به `provider_token` وابسته است (همین را صفحهٔ پنل هم می‌گوید).
+    تا پیش از P34 این همیشه پلتفرم بود، چون آپدیت‌هایِ رباتِ بله‌یِ فروشگاه را نمی‌خواندیم و
+    `/start`ِ لینک هرگز به ما نمی‌رسید. حالا همان آپدیت‌ها در `bot_manager` خوانده و به
+    هندلرهایِ پرداخت می‌روند، پس پرداخت می‌تواند در چتِ رباتِ خودِ فروشگاه انجام شود.
     """
     return _panel_bot_username
 
 
+def build_pay_link(username: str, payload: str) -> str | None:
+    """لینکِ `ble.ir/<username>?start=<payload>` برایِ هر رباتِ داده‌شده (P34)."""
+    from app.services import bale_service  # لازیم؛ چرخه‌یِ import را می‌شکند
+
+    return bale_service.pay_chat_link(username, payload)
+
+
 def pay_link_available() -> bool:
     """P26 (قاعدهٔ B11): دکمه فقط وقتی ساخته می‌شود که لینکِ پرداخت هم ساخته‌شدنی باشد."""
-    from app.services import bale_service  # لازیم؛ چرخه‌یِ import را می‌شکند
-
-    return bale_service.pay_chat_link(pay_link_username(), "payment-0-0") is not None
+    return build_pay_link(pay_link_username(), "payment-0-0") is not None
 
 
-def pay_link_for(payload: str) -> str | None:
-    """لینکِ «برو به پرداختِ بله» برایِ این پرداخت. None ⇒ چیزی نساز و پیامِ صادقانه بده."""
-    from app.services import bale_service  # لازیم؛ چرخه‌یِ import را می‌شکند
+def pay_link_for(payload: str, username: str | None = None) -> str | None:
+    """لینکِ «برو به پرداختِ بله» برایِ این پرداخت. None ⇒ چیزی نساز و پیامِ صادقانه بده.
 
-    return bale_service.pay_chat_link(pay_link_username(), payload)
+    `username` را `shop_status` می‌دهد تا لینک با همان جفتِ سازگارِ صورتحساب برود؛ خالی بماند
+    مثلِ گذشته رباتِ پرداختِ پلتفرم است.
+    """
+    return build_pay_link((username or pay_link_username()), payload)
 
 
 MAX_TOKEN_LENGTH = 512
@@ -151,7 +162,12 @@ async def refresh(session: AsyncSession) -> str:
 
 
 async def provider_token(session: AsyncSession, shop_bot: ShopBot | None) -> str | None:
-    """توکنِ درگاه: اولِ خودِ فروشگاه، بعدِ پنلِ ادمین به‌عنوانِ پشتیبانِ سراسری."""
+    """توکنِ درگاهی که *در دسترس* است: اولِ خودِ فروشگاه، بعدِ پنلِ ادمین به‌عنوانِ پشتیبانِ سراسری.
+
+    ⚠️ از P34 این دیگر برایِ ساختنِ صورتحساب استفاده **نمی‌شود** (جفتِ سازگارِ «ربات + درگاه» را
+    فقط `shop_status` می‌دهد). اینجا مصرفش دیدنِ این است که «آیا اصلاً درگاهی وجود دارد» — برایِ
+    متنِ وضعیت و هشدارها، نه برایِ فرستادنِ پول.
+    """
     own = ((shop_bot.bale_provider_token if shop_bot is not None else None) or "").strip()
     if own:
         return own
@@ -160,41 +176,108 @@ async def provider_token(session: AsyncSession, shop_bot: ShopBot | None) -> str
 
 
 class ShopBaleStatus:
-    """نتیجه‌یِ بررسیِ پیش‌نیازهایِ بله‌پی برایِ یک فروشگاه."""
+    """نتیجه‌یِ بررسیِ پیش‌نیازهایِ بله‌پی برایِ یک فروشگاه.
 
-    __slots__ = ("bot_token", "provider_token", "missing")
+    P34: این دیگر فقط «آیا بله‌پی فعال است» نیست، **سطحِ پرداخت** را هم تعیین می‌کند: با کدام
+    توکنِ ربات صورتحساب ساخته می‌شود، پول به کدام کیف می‌رود و لینکِ پرداخت به چتِ کدام ربات
+    می‌رود (`username`). توکنِ درگاه برایِ یک رباتِ خاص صادر می‌شود، پس وقتی فروشگاه هر دو
+    ورودیِ خودش را دارد، جفتِ «رباتِ او + درگاهِ او» استفاده می‌شود و دیگر هیچ‌گاه با رباتِ
+    پلتفرم قاطی نمی‌شود.
+    """
 
-    def __init__(self, bot_token: str, provider_token: str | None, missing: tuple[str, ...]) -> None:
+    __slots__ = ("bot_token", "provider_token", "missing", "username", "uses_own_bot", "shop_bot_id", "warnings")
+
+    def __init__(
+        self,
+        bot_token: str,
+        provider_token: str | None,
+        missing: tuple[str, ...],
+        *,
+        username: str = "",
+        uses_own_bot: bool = False,
+        shop_bot_id: int | None = None,
+        warnings: tuple[str, ...] = (),
+    ) -> None:
         self.bot_token = bot_token
         self.provider_token = provider_token
         self.missing = missing
+        self.username = username
+        self.uses_own_bot = uses_own_bot
+        self.shop_bot_id = shop_bot_id
+        self.warnings = warnings
 
     @property
     def available(self) -> bool:
         return not self.missing
 
 
+# هشدارها (برخلافِ `missing`) پرداخت را خاموش نمی‌کنند، فقط می‌گویند مقصدِ پول عوض شده است.
+SHOP_HAS_PROVIDER_WITHOUT_BOT = "shop_provider_without_bale_bot"
+SHOP_HAS_BOT_WITHOUT_PROVIDER = "shop_bale_bot_without_provider"
+
+
 async def shop_status(
     session: AsyncSession, shop_bot: ShopBot | None, row: ShopPaymentSettings | None
 ) -> ShopBaleStatus:
-    """*تنها* ملاکِ بله‌پی برایِ یک فروشگاه. هر دو مصرف‌کننده (کیبوردِ مشتری و `pm_bale`) از این استفاده می‌کنند."""
+    """*تنها* ملاکِ بله‌پی برایِ یک فروشگاه **و** تنها منبعِ سطحِ پرداخت.
+
+    هر سه مصرف‌کننده (کیبوردِ مشتری، `pm_bale` و ساختِ صورتحساب) از این می‌خوانند، پس «دکمه‌ای
+    که نشان داده می‌شود»، «پرداختی که ساخته می‌شود» و «مقصدِ پول» هیچ‌وقت از هم جدا نمی‌شوند
+    (علتِ ریشه‌یِ B11).
+
+    قاعدهٔ P34 — افزودنی، تا هیچ فروشگاهِ فعلی بدونِ پرداخت نماند:
+    • فروشگاه **هر دو** ورودی را ثبت کرده (توکنِ رباتِ بله + توکنِ درگاه) ⇒ جفتِ *خودش*:
+      صورتحساب با رباتِ او و درگاهِ او ساخته می‌شود و لینک به چتِ همان ربات می‌رود، پس پول در
+      کیف‌پولِ خودِ فروشگاه می‌نشیند.
+    • فقط توکنِ درگاه ⇒ مثلِ گذشته با رباتِ پلتفرم (درگاهِ خودِ فروشگاه، و اگر نداشت سراسری)
+      + هشدارِ `SHOP_HAS_PROVIDER_WITHOUT_BOT` که همین را به فروشگاه‌دار می‌گوید.
+    • توکنِ درگاه از هیچ‌کدام ⇒ فعال نیست (علتِ `MISSING_PROVIDER_TOKEN`).
+    """
+    from app.services import bale_bot_service  # import محلی: چرخه‌یِ import نسازد
+
     missing: list[str] = []
-    token = bot_token()
-    if not token:
-        missing.append(MISSING_BOT_TOKEN)
+    warnings: list[str] = []
+    admin_row = await get_admin_settings(session)
+
+    own_provider = ((shop_bot.bale_provider_token if shop_bot is not None else None) or "").strip()
+    own_bot = bool(shop_bot is not None and bale_bot_service.connectable(shop_bot) and (shop_bot.bale_bot_username or "").strip())
+    platform_provider = (admin_row.bale_provider_token or "").strip()
+
+    uses_own_bot = bool(own_provider and own_bot)
+    if uses_own_bot:
+        token = bale_bot_service.raw_token(shop_bot)
+        username = (shop_bot.bale_bot_username or "").strip()
+        provider = own_provider
+    else:
+        token = bot_token()
+        username = _panel_bot_username
+        provider = own_provider or platform_provider or None
+        if not token:
+            missing.append(MISSING_BOT_TOKEN)
+        if own_provider and not own_bot:
+            warnings.append(SHOP_HAS_PROVIDER_WITHOUT_BOT)
+        if own_bot and not own_provider:
+            warnings.append(SHOP_HAS_BOT_WITHOUT_PROVIDER)
+
     if row is not None and not row.bale_enabled:
         # نبودِ ردیف یعنی فروشگاه‌دار هرگز تنظیماتِ پرداخت را باز نکرده ⇒ کلیدِ بله‌پی رویِ پیش‌فرضِ خودش (روشن) است.
         missing.append(SHOP_DISABLED)
-    admin_row = await get_admin_settings(session)
     if not admin_row.bale_pay_enabled:
         missing.append(ADMIN_DISABLED)
-    provider = await provider_token(session, shop_bot)
     if not provider:
         missing.append(MISSING_PROVIDER_TOKEN)
-    if not pay_link_available():
+    if not username or build_pay_link(username, "payment-0-0") is None:
         # B11/P26: دکمه‌ای که لینکش ساخته نمی‌شود، همان «دکمهٔ مرده»یِ گزارش‌شده است.
         missing.append(MISSING_PAY_BOT_USERNAME)
-    return ShopBaleStatus(token, provider, tuple(missing))
+    return ShopBaleStatus(
+        token,
+        provider,
+        tuple(missing),
+        username=username,
+        uses_own_bot=uses_own_bot,
+        shop_bot_id=(shop_bot.id if (shop_bot is not None and uses_own_bot) else None),
+        warnings=tuple(warnings),
+    )
 
 
 async def methods(
