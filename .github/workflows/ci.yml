@@ -2,8 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, p20-hardening]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -15,7 +16,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: kasbokar
+          POSTGRES_DB: kasbokar_test
         ports:
           - 5432:5432
         options: >-
@@ -25,7 +26,10 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kasbokar
+      # P31: `kasbokar_test`، نه `kasbokar`. سوئیت با گاردِ is_test_database() هر اجرایِ
+      # مستقیم رویِ دیتابیسِ کاری را متوقف می‌کند (reset_database همه‌چیز را TRUNCATE می‌کند)،
+      # پس این خطِ قبلی باعث می‌شد CI همان اولِ کار رد شود.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/kasbokar_test
       MAIN_BOT_TOKEN: "000000:CI_FAKE_TOKEN"
       ADMIN_TELEGRAM_IDS: "12345"
 
@@ -42,11 +46,22 @@ jobs:
       - name: Generate a throwaway encryption key for CI
         run: echo "ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> "$GITHUB_ENV"
 
-      # عمداً گزارشی‌ست، نه مسدودکننده: چون تا الان ruff هیچ‌وقت روی کدِ
-      # فعلی اجرا نشده، ممکنه اولین اجرا چندتا هشدارِ قدیمی نشون بده. بعدِ
-      # اینکه دیدیمشون و لازم بود پاک‌سازی کردیم، این خط رو بدونِ
-      # continue-on-error بذار تا واقعاً CI رو رد کنه.
-      - name: Lint (ruff) — reporting only for now
+      # پنج گیتِ ایستاییِ خودِ پروژه (ارجاع/ستون/نام/callback_data/بهداشتِ متن) — همان چیزی که
+      # AGENTS.md §۳ پیش از هر commit می‌خواهد؛ تا پیش از این CI آن‌ها را اصلاً اجرا نمی‌کرد.
+      - name: Project gates (check_gates.py)
+        run: python scripts/check_gates.py
+
+      # قاعدهٔ §۲-۴: همیشه فقط یکِ head. دو head یعنی مایگریشن شاخه‌ای شده و آپگریدِ سرور می‌شکند.
+      - name: Single alembic head
+        run: |
+          heads=$(alembic heads | grep -c '(head)')
+          if [ "$heads" != "1" ]; then echo "❌ تعداد headها: $heads (باید ۱ باشد)"; alembic heads; exit 1; fi
+
+      - name: Lint (ruff — the repo's own blocking rule)
+        run: ruff check app/ tests_manual/ scripts/ --select F,E9
+
+      # گزارشِ تاریخی (E501 و مانندش) هنوز مسدودکننده نیست؛ فقط نمایش داده می‌شود.
+      - name: Lint (full ruff report — non-blocking)
         run: ruff check .
         continue-on-error: true
 
