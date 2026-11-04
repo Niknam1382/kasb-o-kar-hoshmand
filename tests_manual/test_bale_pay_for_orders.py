@@ -53,7 +53,7 @@ from app.config import settings  # noqa: E402
 from app.database.models import OrderStatus, OrderType, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import bale_credentials_service, bale_service, customer_service, order_service, shop_bot_service, shop_owner_service  # noqa: E402
-from app.services.admin_settings_service import get_admin_settings, update_setting  # noqa: E402
+from app.services.admin_settings_service import update_setting  # noqa: E402
 
 OWNER_TG_ID = 999901
 SHOP_BOT_TG_ID = 999902

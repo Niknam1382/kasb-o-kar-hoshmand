@@ -32,7 +32,7 @@ from app.bots.main_bot import texts  # noqa: E402
 from app.bots.shop_bot.handlers import customer as customer_handlers  # noqa: E402
 from app.database.models import KnowledgeGap, KnowledgeGapStatus, LearnedAnswer  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
-from app.services import ai_context, knowledge_service, product_service, shop_bot_service  # noqa: E402
+from app.services import ai_context, knowledge_service  # noqa: E402
 
 OWNER_TG_ID = 992001
 SHOP_BOT_TG_ID = 992002

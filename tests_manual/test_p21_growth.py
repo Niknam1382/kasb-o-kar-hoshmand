@@ -34,7 +34,6 @@ from app.database.models import (  # noqa: E402
     Product,
     ScheduledBroadcast,
     ShopBot,
-    ShopOwner,
 )  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import notification_service, scheduled_broadcast_service, stock_alert_service  # noqa: E402
@@ -99,7 +98,7 @@ async def test_scheduled_broadcast_queues_into_the_outbox() -> None:
     await reset_database()
     await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
     shop_bot_id, owner_id = await _shop_ids()
-    customer_ids = await _add_customers(4)  # دو تلگرامی، دو بله‌ای
+    await _add_customers(4)  # دو تلگرامی، دو بله‌ای
 
     async with session_scope() as session:
         shop_bot = await session.get(ShopBot, shop_bot_id)

@@ -56,7 +56,7 @@ class _FakeAiService:
 
 async def test_rapid_messages_are_combined(shop_dp, main_bot) -> None:
     await reset_database()
-    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
 
     fake_ai = _FakeAiService()
     original_get_ai_service = ai_service.get_ai_service

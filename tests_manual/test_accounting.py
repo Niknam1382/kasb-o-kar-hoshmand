@@ -38,7 +38,6 @@ from app.database.models import (  # noqa: E402
     AuditLogEntry,
     OrderConsultation,
     OrderStatus,
-    OrderType,
     ShopOwner,
     WalletTransaction,
 )

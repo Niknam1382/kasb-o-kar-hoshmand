@@ -28,11 +28,11 @@ from sqlalchemy import select  # noqa: E402
 from harness import build_test_dispatchers, reset_database  # noqa: E402
 from phase4_helpers import Chat  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
-from test_orders_w2 import CUSTOMER, _Env, _seed  # noqa: E402
+from test_orders_w2 import _Env, _seed  # noqa: E402
 
 from app.bots.main_bot import texts as main_texts  # noqa: E402
 from app.bots.shop_bot import checkout_ui  # noqa: E402
-from app.database.models import OrderConsultation, ShopBot  # noqa: E402
+from app.database.models import ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import checkout_config_service as cfg, checkout_flow, product_service  # noqa: E402
 

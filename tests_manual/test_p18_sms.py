@@ -29,7 +29,7 @@ from shop_setup import seed_usable_shop  # noqa: E402
 from app.bots.main_bot import texts as main_texts  # noqa: E402
 from app.database.models import OtpCode, ShopOwner  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
-from app.services import otp_service, sms_service, shop_owner_service  # noqa: E402
+from app.services import otp_service, sms_service  # noqa: E402
 from app.services.admin_settings_service import get_admin_settings  # noqa: E402
 from app.utils.validators import fa_text  # noqa: E402
 
@@ -82,7 +82,7 @@ def _restore(monkey: dict) -> None:
 # ============================================================================= ۱ — منطقِ تحویلِ کد
 async def test_send_phone_code_paths() -> None:
     await reset_database()
-    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
     monkey: dict = {}
 
     async def owner_id() -> int:

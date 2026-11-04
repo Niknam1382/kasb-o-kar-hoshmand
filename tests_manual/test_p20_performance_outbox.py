@@ -43,7 +43,6 @@ from app.database.models import (
 from app.database.session import session_scope  # noqa: E402
 from app.services import (
     notification_service,
-    order_transition_service,
     platform_service,
     scheduler,
     shop_bot_service,
@@ -272,7 +271,7 @@ async def test_credit_summary_shows_usable_and_expiring() -> None:
         await session.flush()
         near_expiry = await wallet_service.add_charge(session, owner, 40_000, reason=WalletTransactionReason.TOPUP)
         near_expiry.expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=10)
-        far = await wallet_service.add_charge(session, owner, 60_000, reason=WalletTransactionReason.TOPUP)
+        await wallet_service.add_charge(session, owner, 60_000, reason=WalletTransactionReason.TOPUP)
         owner.commission_reserved_toman = 25_000
         await session.commit()
 

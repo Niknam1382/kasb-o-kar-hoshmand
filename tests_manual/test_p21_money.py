@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import sys
 
 sys.path.insert(0, ".")

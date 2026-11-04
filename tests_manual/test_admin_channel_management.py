@@ -80,7 +80,6 @@ async def test_second_primary_channel_unsets_first(main_dp) -> None:
 async def test_channel_proof_rejected_without_forward(main_dp) -> None:
     await reset_database()
     admin_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
-    session_obj: FakeSession = admin_bot.session  # type: ignore[assignment]
 
     await main_dp.feed_update(admin_bot, make_callback_update(1, data="admin_channel_add", user_id=ADMIN_TG_ID))
     await main_dp.feed_update(admin_bot, make_message_update(2, text="کانالِ بی‌مدرک", user_id=ADMIN_TG_ID))

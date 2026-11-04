@@ -123,9 +123,6 @@ async def test_operator_sees_only_scoped_owners(main_dp) -> None:
 async def test_scope_editor_lists_unknown_ids(main_dp) -> None:
     await reset_database()
     await seed_usable_shop(OWNER_A_TG_ID, 999_794)
-    async with session_scope() as session:
-        owner = (await session.execute(select(ShopOwner).where(ShopOwner.telegram_id == OWNER_A_TG_ID))).scalar_one()
-        owner_id = owner.id
     await _operator_with_scope([])
 
     admin = Chat(main_dp, ADMIN_TG_ID)

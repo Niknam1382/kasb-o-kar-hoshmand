@@ -17,7 +17,7 @@ from sqlalchemy import select  # noqa: E402
 
 from harness import build_test_dispatchers  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
-from test_orders_w2 import OTHER_OWNER, OTHER_SHOP_TG, OWNER, _Env, _seed  # noqa: E402
+from test_orders_w2 import OTHER_OWNER, OTHER_SHOP_TG, _Env, _seed  # noqa: E402
 from test_payments_w3w4 import _configure, _datas  # noqa: E402
 
 from app.bots.main_bot import keyboards  # noqa: E402

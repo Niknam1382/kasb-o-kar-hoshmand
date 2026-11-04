@@ -24,7 +24,6 @@ from shop_setup import seed_usable_shop  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 from app import main as app_main  # noqa: E402
-from app.config import settings  # noqa: E402
 from app.database.models import PaymentPurpose, PaymentStatus, ShopOwner  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import bale_service, payment_service  # noqa: E402
@@ -36,7 +35,7 @@ OWNER_TG_ID = 999701
 async def _seed_owner_and_settings() -> int:
     await seed_usable_shop(OWNER_TG_ID, 999702)
     async with session_scope() as session:
-        admin_settings = await get_admin_settings(session)
+        await get_admin_settings(session)
         await update_setting(session, "bale_pay_enabled", True)
         await update_setting(session, "bale_provider_token", "TEST-PROVIDER-TOKEN")
         result = await session.execute(select(ShopOwner).where(ShopOwner.telegram_id == OWNER_TG_ID))

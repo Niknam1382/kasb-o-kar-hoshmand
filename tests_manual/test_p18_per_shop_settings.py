@@ -26,13 +26,12 @@ sys.path.insert(0, "tests_manual")
 from aiogram import Bot  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
-from harness import FakeSession, build_test_dispatchers, make_callback_update, make_message_update, reset_database  # noqa: E402
+from harness import FakeSession, build_test_dispatchers, make_callback_update, reset_database  # noqa: E402
 from phase4_helpers import Chat  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
 
-from app.bots.main_bot import keyboards, texts as main_texts  # noqa: E402
+from app.bots.main_bot import texts as main_texts  # noqa: E402
 from app.bots.main_bot.handlers import admin as admin_handlers  # noqa: E402
-from app.bots.main_bot.states import ShopSettingsStates  # noqa: E402
 from app.database.models import (
     AdminSettings,
     ConversationMessage,
@@ -40,7 +39,6 @@ from app.database.models import (
     OrderConsultation,
     OrderStatus,
     OrderType,
-    Payment,
     Product,
     ShopBot,
     TenantMode,

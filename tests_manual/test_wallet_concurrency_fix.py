@@ -49,7 +49,7 @@ async def _deduct_in_own_session(owner_id: int, amount: int) -> None:
 
 async def test_two_concurrent_deductions_both_apply_no_lost_update() -> None:
     await reset_database()
-    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID, initial_balance_toman=1050)
+    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID, initial_balance_toman=1050)
     async with session_scope() as session:
         owner = await shop_owner_service.get_by_telegram_id(session, OWNER_TG_ID)
         owner_id = owner.id

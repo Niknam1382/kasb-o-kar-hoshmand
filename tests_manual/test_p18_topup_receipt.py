@@ -24,7 +24,7 @@ from shop_setup import seed_usable_shop  # noqa: E402
 
 from app.bots.main_bot import texts as main_texts  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.database.models import Payment, PaymentPurpose, PaymentStatus  # noqa: E402
+from app.database.models import Payment, PaymentStatus  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import payment_service  # noqa: E402
 from app.services.admin_settings_service import get_admin_settings  # noqa: E402

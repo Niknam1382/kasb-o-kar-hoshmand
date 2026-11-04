@@ -37,7 +37,7 @@ from app.bots.shop_bot import texts as shop_texts  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.database.models import Customer, OrderConsultation, OrderStatus, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
-from app.services import bale_credentials_service, bale_service, cart_service, order_service, product_service  # noqa: E402
+from app.services import bale_credentials_service, bale_service, cart_service, product_service  # noqa: E402
 from app.services.admin_settings_service import update_setting  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 

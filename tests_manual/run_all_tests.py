@@ -172,7 +172,7 @@ def main() -> int:
             elapsed = time.monotonic() - start
             stdout = exc.stdout.decode("utf-8", "replace") if exc.stdout else ""
             stderr = exc.stderr.decode("utf-8", "replace") if exc.stderr else ""
-            output = stdout + stderr + f"\n❌ TIMEOUT: بیش از ۶۰ ثانیه طول کشید و کشته شد.\n"
+            output = stdout + stderr + "\n❌ TIMEOUT: بیش از ۶۰ ثانیه طول کشید و کشته شد.\n"
             passed = False
         print(output.strip())
         results.append((filename, passed, elapsed, output))

@@ -346,7 +346,7 @@ async def test_undeliverable_reminder_is_not_retried_forever() -> None:
     from app.services import wallet_expiry_service
 
     await reset_database()
-    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, OWNER_BOT_TG_ID)
+    await seed_usable_shop(OWNER_TG_ID, OWNER_BOT_TG_ID)
     async with session_scope() as session:
         owner = (await session.execute(select(ShopOwner).where(ShopOwner.telegram_id == OWNER_TG_ID))).scalar_one()
         charge = WalletCharge(
