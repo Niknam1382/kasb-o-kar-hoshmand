@@ -135,6 +135,7 @@ TEST_FILES = [
     "test_p31_nightly_stats_batching.py",
     "test_p32_fsm_postgres.py",
     "test_p33_admin_settings_race.py",
+    "test_p33_cart_submit_idempotency.py",
 ]
 
 

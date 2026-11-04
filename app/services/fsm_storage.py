@@ -126,19 +126,13 @@ async def purge_stale_states(session: AsyncSession, *, hours: int = STATE_TTL_HO
 
 
 def build_storage() -> BaseStorage:
-    """پیش‌فرضِ ایمن: `memory` (رفتارِ همیشگی). با `FSM_STORAGE=postgres` حالت‌ها می‌مانند.
+    """پیش‌فرض `memory`؛ با `FSM_STORAGE=postgres` حالتِ چک‌اوت از ری‌استارت رد می‌شود.
 
-    ⚠️ مسیرِ postgres هنوز **آمادهٔ تولید نیست**: در تست‌هایِ واحد (۵ مورد) سبز است، ولی
-    در بازاجرایِ `test_checkout_c3.py` با `FSM_STORAGE=postgres` یکِ ادعایِ «دابل‌تپِ ثبتِ
-    نهایی = یکِ سفارش» شکست خورد (۱۴۰۵-۰۸-۱۲، MEASURED). علتِ دقیقش بررسیِ بعدی می‌خواهد؛
-    تا آن روز این کلید عمداً `memory` می‌ماند و اینجا هم هشدار می‌دهیم که کسی فکر نکند
-    با روشن‌کردنش چک‌اوت پایدار شده است.
-    """
+    P33-B: تکیهٔ ضمنیِ کد به اتمیک‌بودنِ `MemoryStorage` (مهارِ دابل‌تپِ «ثبتِ نهایی») شکسته
+    شد و همان مهار حالا رویِ دیتابیس است (`cart_service.claim_submit_token`). بعد ازِ آن رفع،
+    `test_checkout_c3` / `test_shopping_cart` / `test_cart_ai_editing` با هر دو نگهدارنده
+    سبز شدند (MEASURED: ۱۱ / ۱۱ / ۱۶ تست، exit=0)."""
     if (settings.fsm_storage or MEMORY).strip().lower() == POSTGRES:
-        logger.warning(
-            "FSM_STORAGE=postgres روشن است اما این مسیر هنوز در تستِ end-to-endِ چک‌اوت سبز "
-            "نشده؛ پیش ازِ استفاده رویِ سرورِ واقعی آن را با چک‌اوتِ دستی بسنج."
-        )
         return PostgresStorage()
     from aiogram.fsm.storage.memory import MemoryStorage
 

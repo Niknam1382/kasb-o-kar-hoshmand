@@ -778,6 +778,10 @@ class Cart(Base, CreatedAtMixin):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), index=True, nullable=False)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True, nullable=False)
+    # P33-B: نشانهٔ پیش‌نمایشی که ثبت شده. هر «🧾 نهایی‌کردن» با همین نشانه رویِ دیتابیس
+    # ادعا می‌شود، پس دابل‌تپ (یا دو پروسه، یا نگهدارندهٔ غیرهمزانِ FSM) فقط یکِ سفارش
+    # می‌سازد. به‌ازایِ هر پیش‌نمایشِ تازه نشانه عوض می‌شود، بنابراین سفارشِ بعدی قفل نمی‌ماند.
+    submit_token: Mapped[str | None] = mapped_column(String(64), nullable=True, server_default=None)
 
 
 class CartItem(Base, CreatedAtMixin):

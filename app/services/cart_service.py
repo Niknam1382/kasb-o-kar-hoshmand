@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Cart, CartItem, Product
@@ -117,3 +117,25 @@ async def get_cart_item_owned(session: AsyncSession, cart_item_id: int, cart_id:
     دیگه رو دستکاری کنه (همون الگویی که order_service.get_owned_by_id داره)."""
     result = await session.execute(select(CartItem).where(CartItem.id == cart_item_id, CartItem.cart_id == cart_id))
     return result.scalar_one_or_none()
+
+async def claim_submit_token(cart_id: int, nonce: str) -> bool:
+    """P33-B: ادعایِ «این پیش‌نمایش را من ثبت می‌کنم» — در تراکنشِ *کوتاهِ خودش*.
+
+    چرا سشنِ جدا: تلاشِ اول این ادعا را داخلِ همان تراکنشی گذاشت که بعداً ردیف‌هایِ محصول
+    را `FOR UPDATE` می‌گیرد؛ دو تپِ هم‌زمان یکی قفلِ سبد و دیگری قفلِ محصول را نگه داشتند و
+    PostgreSQL بن‌بست اعلام کرد (`DeadlockDetectedError`، §P33). این‌جا فقط یکِ سطرِ واحد با
+    کلیدِ اصلی قفل و فوراً commit می‌شود، پس هیچ چرخه‌ای ساخته نمی‌شود.
+    """
+    from app.database.session import session_scope
+
+    if not nonce:
+        return False
+    async with session_scope() as session:
+        result = await session.execute(
+            update(Cart)
+            .where(Cart.id == cart_id, Cart.submit_token.is_distinct_from(nonce))
+            .values(submit_token=nonce)
+        )
+        await session.commit()
+        return int(result.rowcount or 0) == 1
+

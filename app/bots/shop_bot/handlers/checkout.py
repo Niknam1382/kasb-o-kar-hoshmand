@@ -348,6 +348,9 @@ async def _prepare_checkout_preview(
         discount_code=kept_code,
         previewed_final_total=grand_total,
         ck_pos=checkout_flow.POS_PREVIEW,
+        # P33-B: هر پیش‌نمایش یکِ نشانهٔ تازه می‌گیرد؛ «ثبتِ نهایی» همین نشانه را رویِ دیتابیس
+        # ادعا می‌کند، پس دو تپِ هم‌زمانِ همین پیش‌نمایش فقط یکِ سفارش می‌سازد.
+        submit_nonce=secrets.token_hex(8),
     )
     await state.set_state(CheckoutStates.confirming)
     pairs = _qa_pairs(data, method, fee)
@@ -945,6 +948,14 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
             text = f"{texts.DISCOUNT_CODE_NO_LONGER_VALID}\n\n{text}"
         await callback.answer()
         await _safe_edit(callback, text, reply_markup=preview.keyboard)
+        return
+
+    submit_nonce = data.get("submit_nonce")
+    if not submit_nonce or not await cart_service.claim_submit_token(cart.id, str(submit_nonce)):
+        # این پیش‌نمایش همین حالا ثبت شده (دابل‌تپ یا تپِ دوباره رویِ پیامِ کهنه)؛ تپِ دوم
+        # بی‌اثر برمی‌گردد و سفارشِ تکراری ساخته نمی‌شود.
+        await callback.answer()
+        await callback.message.edit_text(texts.CHECKOUT_ALREADY_SUBMITTED)
         return
 
     qa_pairs = _qa_pairs(data, method, ship_fee)
