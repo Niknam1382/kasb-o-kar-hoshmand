@@ -883,6 +883,29 @@ class ConversationMessage(Base, CreatedAtMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class FsmState(Base):
+    """حالتِ مکالمهٔ (FSM) یکِ کاربر، رویِ دیتابیس (P32).
+
+    چرا: پیش‌از‌این `MemoryStorage` بود ⇒ هر ری‌استارتِ سرویس، چک‌اوتِ نیمه‌کارهٔ مشتری را
+    وسطِ آدرس/تلفن می‌انداخت و کیبوردِ مرحله‌ها بی‌پاسخ می‌ماند. این جدول همان حالت را نگه
+    می‌دارد تا «مرحلهٔ بعد» بعد ازِ ری‌استارت هم ادامه پیدا کند. هیچ داده‌ای جز شناسه‌ها و
+    وضعیتِ داخلیِ ربات اینجا نمی‌نشیند (متنِ چت در `conversation_messages` است).
+    """
+
+    __tablename__ = "fsm_states"
+    __table_args__ = (UniqueConstraint("bot_id", "chat_id", "user_id", name="uq_fsm_state_scope"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    bot_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    state: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    data_json: Mapped[str] = mapped_column(Text, nullable=False, server_default="{}", default="{}")
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
 class OrderConsultation(Base, CreatedAtMixin):
     __tablename__ = "orders_consultations"
     __table_args__ = (Index("ix_orders_consultations_shop_status_created", "shop_bot_id", "status", "created_at"),)

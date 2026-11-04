@@ -133,6 +133,7 @@ TEST_FILES = [
     "test_p30_concurrency_report.py",
     "test_p31_message_statement_bounds.py",
     "test_p31_nightly_stats_batching.py",
+    "test_p32_fsm_postgres.py",
 ]
 
 

@@ -133,6 +133,13 @@ async def _run_periodic_pass_locked(main_bot: Bot, bot_manager) -> None:
             await conversation_service.prune_old_messages_for_shops(session, retention_by_shop, default_days)
             # P21-B (O3): خودِ صفِ اعلان هم باید پاک‌سازی شود (در P20 ساخته شد و هیچ مهلتی نداشت).
             pruned = await notification_service.prune_aged(session)
+            # P32: حالت‌هایِ FSMِ رهاشده (مشتری که چک‌اوت را نیمه‌کاره گذاشت) هم باید پاک شوند؛
+            # فقط وقتی مسیرِ postgres روشن باشد ردیفی وجود دارد، وگرنه صفر برمی‌گردد.
+            from app.services import fsm_storage
+
+            fsm_pruned = await fsm_storage.purge_stale_states(session)
+            if fsm_pruned:
+                logger.info("پاک‌سازیِ FSM: %s حالتِ کهنه حذف شد.", fsm_pruned)
         if pruned:
             logger.info("پاک‌سازیِ صفِ اعلان‌ها: %s ردیفِ کهنه حذف شد.", pruned)
 

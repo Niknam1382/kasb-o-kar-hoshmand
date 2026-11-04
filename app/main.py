@@ -8,7 +8,7 @@ from collections import OrderedDict
 
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramAPIError
-from aiogram.fsm.storage.memory import MemoryStorage
+from app.services.fsm_storage import build_storage as build_fsm_storage  # P32: memory|postgres (FSM_STORAGE)
 from aiogram.types import Update
 from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_main_dispatcher(bot_manager: ShopBotManager) -> Dispatcher:
-    dispatcher = Dispatcher(storage=MemoryStorage())
+    dispatcher = Dispatcher(storage=build_fsm_storage())
     dispatcher.update.middleware(DbSessionMiddleware())
     dispatcher["bot_manager"] = bot_manager
     dispatcher.include_router(build_main_router())
@@ -70,7 +70,7 @@ def create_main_dispatcher(bot_manager: ShopBotManager) -> Dispatcher:
 
 
 def create_shop_dispatcher(main_bot: Bot) -> Dispatcher:
-    dispatcher = Dispatcher(storage=MemoryStorage())
+    dispatcher = Dispatcher(storage=build_fsm_storage())
     dispatcher.update.middleware(DbSessionMiddleware())
     dispatcher["main_bot"] = main_bot
     dispatcher.include_router(build_shop_router())
