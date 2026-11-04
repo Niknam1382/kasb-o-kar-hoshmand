@@ -100,7 +100,7 @@ commitِ میدل‌ور اجرا می‌شود). حذفشان یعنی «یکِ
 `.github/workflows/ci.yml` اضافه شد، در اولین اجرایِ واقعی CI را می‌شکست: `--select F,E9` رویِ
 `app/ tests_manual/ scripts/` ⇒ **۲۹ خطا**، همه در `tests_manual/` (۲۰ تا `F401/F541`، ۹ تا `F841`).
 `app/` و `scripts/` تمیز بودند؛ یعنی ادعایِ «CI سبز» هرگز سنجیده نشده بود، چون این شاخه push نشده
-و `AGENTS.md` §۳ هم فقط تمیزیِ `app/` را لازم می‌داند. جزئیات در `REMAINING_ISSUES.md` §P34.
+و `AGENTS.md` §۳ هم فقط تمیزیِ `app/` را لازم می‌داند. جزئیات در `REMAINING_ISSUES.md` §P33-E.
 
 رفع با یکِ قاعده: هر فراخوانی که اثرِ جانبی دارد می‌ماند و فقط نامِ بی‌مصرف می‌رود. پس
 `seed_usable_shop(...)`، `get_admin_settings(...)` (سازندۀ ردیفِ `id=1`)، `wallet_service.add_charge(...)`
