@@ -153,18 +153,14 @@ async def cb_admin_approve_payment(callback: CallbackQuery, session: AsyncSessio
         logger.exception("اطلاع‌رسانیِ تاییدِ پرداخت به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
 
     if reward_info:
+        # P35: پاداش فقط به معرف می‌رسد؛ پیامِ دوم به «معرفی‌شده» کلیدِ ناموجود می‌خواست (KeyError).
         try:
             await callback.bot.send_message(
-                reward_info["referrer_telegram_id"], texts.referrer_reward_notification(reward_info["amount_toman"])
+                reward_info["referrer_telegram_id"],
+                texts.referrer_reward_notification(reward_info["amount_toman"], reward_info["percent"]),
             )
         except TelegramAPIError:
             logger.exception("اطلاع‌رسانیِ پاداشِ معرف به %s ناموفق بود.", reward_info["referrer_telegram_id"])
-        try:
-            await callback.bot.send_message(
-                reward_info["referred_telegram_id"], texts.referred_reward_notification(reward_info["amount_toman"])
-            )
-        except TelegramAPIError:
-            logger.exception("اطلاع‌رسانیِ پاداشِ معرفی‌شده به %s ناموفق بود.", reward_info["referred_telegram_id"])
 
 
 @router.callback_query(F.data.startswith("admin_reject_payment:"))

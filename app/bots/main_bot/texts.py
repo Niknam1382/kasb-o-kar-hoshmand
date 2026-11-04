@@ -530,11 +530,35 @@ def topup_below_minimum_toast(minimum_toman: int) -> str:
 
 
 ASK_DISCOUNT_CODE = "اگه کد تخفیف داری بفرست، وگرنه روی «⏭ رد شدن از کد تخفیف» بزن."
-INVALID_DISCOUNT_CODE = "این کد تخفیف معتبر نیست، منقضی شده، یا قبلاً استفادش کردی."
+# P35: `validate_code` چهار علتِ رد دارد؛ متنِ قبلی سه‌تا را می‌گفت و «سقفِ استفاده» را نه،
+# پس فروشگاه‌دار با کدی که واقعاً موجود است هم گیج می‌شد.
+INVALID_DISCOUNT_CODE = (
+    "این کد تخفیف کار نمی‌کند. یکی از این‌ها:\n"
+    "• کد وجود ندارد، غیرفعال است یا منقضی شده\n"
+    "• سقفِ تعدادِ استفاده‌اش پر شده\n"
+    "• با همین کد قبلاً خرید کرده‌ای (هر کد برایِ هر فروشگاه یک‌بار قابلِ استفاده است)\n"
+    "دوباره امتحان کن یا «⏭ رد شدن از کد تخفیف» را بزن."
+)
 
 
-def discount_applied_text(discount, final_price: int) -> str:
-    return f"✅ کد تخفیف اعمال شد! مبلغ نهایی: {format_toman(final_price)}"
+def discount_applied_text(discount, final_price: int, base_price: int | None = None) -> str:
+    """P35: درصدِ واقعیِ کد گفته می‌شود، نه فقط «اعمال شد».
+
+    پنلِ ادمین از P25 فقط کدِ *درصدی* می‌سازد، ولی ردیف‌هایِ `FIXED` قدیمی ممکن است در دیتابیس
+    باشند و `apply_discount` هر دو نوع را مصرف می‌کند ⇒ متن هم باید هر دو را درست بگوید.
+    """
+    kind = getattr(getattr(discount, "type", None), "value", getattr(discount, "type", None))
+    try:
+        value = float(getattr(discount, "value", 0) or 0)
+    except (TypeError, ValueError):
+        value = 0.0
+    label = f"{_percent_label(value)} تخفیف" if kind == "percent" else f"{format_toman(int(value))} تخفیف"
+    saved = ""
+    if base_price:
+        difference = max(0, int(base_price) - int(final_price))
+        if difference:
+            saved = f" — {format_toman(difference)} کم شد"
+    return f"✅ کد «{discount.code}» اعمال شد ({label}{saved}).\nمبلغ نهایی: {format_toman(final_price)}"
 
 
 ASK_PAYMENT_METHOD = "روش پرداخت رو انتخاب کن:"
@@ -930,27 +954,50 @@ def order_reservation_expired_notification(product_name: str | None, summary: st
 # =============================================================================
 # کد معرف / رفرال (مرحله ۱۰)
 # =============================================================================
-def referral_code_text(code: str, stats: dict, bot_username: str, reward_wallet_toman: int = 0) -> str:
+def _percent_label(value) -> str:
+    """«۱۲٪» یا «۱۲٫۵۰٪» — بدونِ ممیزِ لاتینِ وسطِ رقمِ فارسی (`fa_number(10.00)` ⇒ «۱۰.۰۰»)."""
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        number = 0.0
+    return fa_percent(number, 0) if number == int(number) else fa_percent(number, 2)
+
+
+def referral_code_text(code: str, stats: dict, bot_username: str, reward_percent=0) -> str:
+    """P35: عددِ متن از تنظیمِ زندهٔ ادمین می‌آید، نه از ستونِ مردهٔ `referral_reward_wallet_toman`.
+
+    کدِ واقعی (`referral_service.process_referral_reward`) درصدی از *اولینِ پرداختِ تأییدشده* را
+    **فقط به معرف** می‌دهد؛ متنِ قبلی «۲۰٬۰۰۰ تومان به هر دوتون» می‌گفت که هم عددش ثابت بود هم
+    مقصدش. (ستونِ `referral_reward_wallet_toman` در دیتابیس مانده — قاعدهٔ «حذفِ ستون نه» — ولی
+    هیچ کدی آن را مصرف نمی‌کند.)
+    """
     lines = [f"🎁 کد معرف تو: {code}\n"]
-    if reward_wallet_toman > 0:
+    try:
+        percent = float(reward_percent or 0)
+    except (TypeError, ValueError):
+        percent = 0.0
+    if percent > 0:
         lines.append(
-            f"این کد رو با دیگران به اشتراک بذار! وقتی دعوت‌شده‌ت اولین خریدش رو انجام بده، "
-            f"هر دوتون {format_toman(reward_wallet_toman)} به کیف‌پولتون اضافه می‌شه.\n"
+            f"این کد رو با دیگران به اشتراک بذار! وقتی دعوت‌شده‌ت برایِ اولین بار کیف‌پولش رو شارژ کنه، "
+            f"{_percent_label(reward_percent)} از همون مبلغ به کیف‌پولِ *خودت* اضافه می‌شه. "
+            "این پاداش فقط به معرف می‌رسه، نه به هر دو طرف.\n"
         )
     else:
-        lines.append("این کد رو با دیگران به اشتراک بذار! از هر لینک دعوت که به خرید منجر بشه پاداش می‌گیری.\n")
+        lines.append(
+            "این کد رو با دیگران به اشتراک بذار؛ فعلاً مدیرِ سرویس درصدِ پاداشِ معرف را صفر گذاشته، "
+            "پس معرفی‌ای پاداش ندارد.\n"
+        )
     lines.append(f"مجموع معرفی‌ها: {fa_number(stats['total'])}")
     lines.append(f"پاداش‌های دریافتی: {fa_number(stats['rewarded'])}\n")
     lines.append(f"لینک دعوتت:\nhttps://t.me/{bot_username}?start={code}")
     return "\n".join(lines)
 
 
-def referrer_reward_notification(amount_toman: int) -> str:
-    return f"🎉 تبریک! یکی از دعوت‌شده‌های تو اولین خریدش رو انجام داد و {format_toman(amount_toman)} به کیف‌پولت اضافه شد."
-
-
-def referred_reward_notification(amount_toman: int) -> str:
-    return f"🎁 چون با کدِ معرف ثبت‌نام کرده بودی، به‌خاطرِ اولین خریدت {format_toman(amount_toman)} پاداش هم به کیف‌پولت اضافه شد!"
+def referrer_reward_notification(amount_toman: int, reward_percent=0) -> str:
+    return (
+        f"🎉 یکی از دعوت‌شده‌های تو برایِ اولین بار کیف‌پولش را شارژ کرد و "
+        f"{format_toman(amount_toman)} ({_percent_label(reward_percent)}) به کیف‌پولت اضافه شد."
+    )
 
 
 # =============================================================================
@@ -1073,39 +1120,29 @@ def customer_broadcast_sent_confirmation(sent: int, total: int) -> str:
 # پرداختِ آنلاینِ سفارش از طریقِ بله‌پیِ خودِ فروشگاه (فازِ ۳)
 # =============================================================================
 def bale_provider_token_current(shop_bot, missing=()) -> str:
-    """A1/B11: یک پیامِ واحد و عملی — هم وضعیتِ فعلی، هم اینکه دقیقاً چه چیزی کم است و چه باید بفرستی."""
-    lines = [
-        "💳 پرداختِ آنلاینِ سفارش‌ها (بله‌پی)",
-        "",
-        f"توکنِ درگاهِ فروشگاهِ تو: {_mask_secret(shop_bot.bale_provider_token)}",
-    ]
+    """A1/B11 → P35: یک پیامِ کوتاه و درست.
+
+    نسخهٔ قبلی ~۱٬۱۰۰ نویسه بود (سه پاراگرافِ توضیحیِ تکراری) و جمله‌یِ آخرش از فازِ بعد غلط شد:
+    «توکنِ *ربات* اینجا پرسیده نمی‌شود و لازم نیست» — برایِ این‌که پول به حسابِ خودِ فروشگاه
+    برود، هر دو ورودی لازم‌اند، چون توکنِ درگاه به یک رباتِ خاص بسته است.
+    """
+    lines = ["🏦 توکنِ درگاهِ بله‌پی", "", f"توکنِ درگاهِ فروشگاهِ تو: {_mask_secret(shop_bot.bale_provider_token)}"]
     if missing:
-        lines += ["", "⚠️ بله‌پی الان برایِ مشتریِ تو فعال نیست:"]
-        lines += bale_missing_lines(missing)
+        lines += ["", "⚠️ بله‌پی الان برایِ مشتریِ تو فعال نیست:", *bale_missing_lines(missing)]
     else:
         lines += ["", "✅ بله‌پی برایِ مشتری‌هایِ تو فعال است."]
     own_provider = bool((shop_bot.bale_provider_token or "").strip())
     lines += [
         "",
-        "«توکنِ درگاه» همان کدی است که از پنلِ پذیرندگانِ بله‌پی (یا @botfather در بله) می‌گیری و "
-        "مشخص می‌کند پول در کیف‌پولِ چه کسی بنشیند. اگر مدیرِ پلتفرم توکنِ سراسری گذاشته باشد، بدونِ آن هم کار می‌کند.",
+        "توکنِ درگاه را از پنلِ پذیرندگانِ بله‌پی می‌گیری و مشخص می‌کند پولِ مشتری در کیف‌پولِ چه کسی بنشیند.",
         (
-            "پول مستقیم به کیف‌پولِ بله‌پیِ **خودت** می‌رود؛ پلتفرم نقشی در آن ندارد."
+            "پول مستقیم به کیف‌پولِ بله‌پیِ خودت می‌رود؛ پلتفرم نقشی در آن ندارد."
             if own_provider
-            else
-            "⚠️ توکنِ درگاهِ خودت را نگذاشته‌ای، پس پولِ مشتری در کیف‌پولِ **پلتفرم** می‌نشیند (سفارش در "
-            "سیستم تایید می‌شود، ولی برایِ گرفتنِ پول با پشتیبانی هماهنگ کن یا همین‌جا توکنِ خودت را بگذار)."
+            else "⚠️ توکنِ درگاهِ خودت را نگذاشته‌ای، پس پولِ مشتری در کیف‌پولِ پلتفرم می‌نشیند (برایِ گرفتنش با پشتیبانی هماهنگ کن)."
         ),
-        "مسیرِ مشتری از P26 این‌طور است: دکمهٔ «پرداخت با بله‌پی» را می‌زند ← یکِ لینک به او داده "
-        "می‌شود که در اپِ بله، چتِ رباتِ پرداخت را باز می‌کند ← **صورتحسابِ خودِ بله** همان‌جا می‌آید و "
-        "با کیف‌پول پرداخت می‌کند. هیچ آدرسِ وبی برایِ پرداخت وجود ندارد (بله چنین چیزی نمی‌دهد).",
-        "توکنِ *ربات* اینجا پرسیده نمی‌شود و لازم نیست: لینک همیشه به چتِ رباتِ پرداختِ پلتفرم می‌رود "
-        "و صورتحساب را همان ربات می‌فرستد. رباتِ بله‌یِ خودت (P19) برایِ گفت‌وگویِ مشتری است، نه برایِ "
-        "پرداخت — آپدیت‌هایِ آن را این سیستم نمی‌خواند، پس لینکِ پرداخت به آن نمی‌رود.",
+        "این توکن به یک رباتِ خاص بسته است؛ پس «توکنِ رباتِ بله» هم باید ثبت باشد تا پرداخت در چتِ خودت انجام شود و پول به حسابِ خودت بنشیند — هر دو در «🟢 رباتِ بله‌یِ فروشگاه».",
         "",
         "👈 توکنِ درگاهِ خودت را بفرست، یا برایِ حذف بنویس «حذف».",
-        "✅ این مسیر با یکِ پرداختِ واقعیِ بسیار کوچک آزموده شده و سفارش درست «پرداخت‌شده» شد؛ "
-        "با این حال برایِ فروشگاهِ خودت هم اول با مبلغِ کوچک امتحانش کن.",
     ]
     return "\n".join(lines)
 
@@ -1792,7 +1829,7 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         # P18 · A2: متنِ اجباریِ بیویِ ربات‌هایِ فروشگاهی + دکمه‌یِ همگام‌سازیِ فوری.
         ("branding_text", f"🪪 بیوگرافیِ اجباریِ ربات‌ها: {admin_settings.branding_text or 'تنظیم‌نشده'}"),
         ("branding_check_minutes", f"⏱ فاصلهِ بازرسیِ بیو: هر {fa_number(admin_settings.branding_check_minutes)} دقیقه"),
-        ("referral_reward_value", f"🎁 پورسانتِ معرف: {fa_number(admin_settings.referral_reward_value)}٪ از اولین شارژ"),
+        ("referral_reward_value", f"🎁 پورسانتِ معرف: {_percent_label(admin_settings.referral_reward_value)} از اولین شارژ (فقط به معرف)"),
         ("grace_period_hours", f"⏳ مهلت گریس‌پیریود: {admin_settings.grace_period_hours} ساعت"),
         (
             "rate_limit",

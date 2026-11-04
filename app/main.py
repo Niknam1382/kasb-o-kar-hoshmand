@@ -137,18 +137,16 @@ async def _notify_payment_result(main_bot: Bot, owner_telegram_id: int, is_topup
     if not reward_info:
         return
 
+    # P35: پاداشِ معرفی **فقط به معرف** می‌رسد (`referral_service`). این مسیر قبلاً سعی می‌کرد
+    # پیامِ دومی به «معرفی‌شده» هم بفرستد و کلیدِ `referred_telegram_id` را از همان dict
+    # می‌خواند که هیچ‌وقت ساخته نمی‌شد ⇒ هر پاداشِ واقعی با KeyErrorِ بی‌لاگ تمام می‌شد.
     try:
         await main_bot.send_message(
-            reward_info["referrer_telegram_id"], main_texts.referrer_reward_notification(reward_info["amount_toman"])
+            reward_info["referrer_telegram_id"],
+            main_texts.referrer_reward_notification(reward_info["amount_toman"], reward_info["percent"]),
         )
     except TelegramAPIError:
         logger.exception("اطلاع‌رسانیِ پاداشِ معرف به %s ناموفق بود.", reward_info["referrer_telegram_id"])
-    try:
-        await main_bot.send_message(
-            reward_info["referred_telegram_id"], main_texts.referred_reward_notification(reward_info["amount_toman"])
-        )
-    except TelegramAPIError:
-        logger.exception("اطلاع‌رسانیِ پاداشِ معرفی‌شده به %s ناموفق بود.", reward_info["referred_telegram_id"])
 
 
 # =============================================================================

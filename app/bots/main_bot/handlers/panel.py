@@ -693,7 +693,7 @@ async def payment_discount_code(message: Message, state: FSMContext, session: As
     # payment_service از روی base_amount محاسبه می‌شه (نه از این مقدار).
     final_amount = discount_service.apply_discount(data["base_amount"], discount)
     await state.update_data(discount_code_id=discount.id, final_amount=final_amount)
-    await message.answer(texts.discount_applied_text(discount, final_amount))
+    await message.answer(texts.discount_applied_text(discount, final_amount, data["base_amount"]))
     admin_settings = await get_admin_settings(session)
     # P23: نمایشِ دکمه و شروعِ پرداخت باید یکِ ملاک داشته باشند (همان درسِ B11).
     bale_ready = bale_credentials_service.platform_status(admin_settings)[0]
@@ -975,7 +975,7 @@ async def open_referral(message: Message, session: AsyncSession) -> None:
     stats = await referral_service.get_referral_stats(session, owner.id)
     me = await message.bot.get_me()
     admin_settings = await get_admin_settings(session)
-    await message.answer(texts.referral_code_text(owner.referral_code, stats, me.username, admin_settings.referral_reward_wallet_toman))
+    await message.answer(texts.referral_code_text(owner.referral_code, stats, me.username, admin_settings.referral_reward_value))
 
 
 # =============================================================================
