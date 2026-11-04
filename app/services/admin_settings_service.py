@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from sqlalchemy import event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session as SyncSession
 
 from app.database.models import AdminSettings
+
+logger = logging.getLogger(__name__)
 
 # P31: کشِ فقط‌خواندنیِ تنظیماتِ سراسری.
 # چرا لازم بود: یکِ پیامِ متنیِ مشتری این سطر را در سه سشنِ جدا (میدل‌ور ← تسکِ پاسخِ AI ←
@@ -48,9 +52,23 @@ def _invalidate_read_cache_on_flush(session: SyncSession, flush_context: Any) ->
 async def get_admin_settings(session: AsyncSession) -> AdminSettings:
     settings_row = await session.get(AdminSettings, 1)
     if settings_row is None:
-        settings_row = AdminSettings(id=1)
-        session.add(settings_row)
-        await session.flush()
+        # P33-1: «اولینِ خواندن» را دو جریانِ هم‌زمان نمی‌توانند با هم بسازند. دو تسکِ مستقل
+        # (مثلاً میدل‌ور و تسکِ پاسخِ AI با نگهدارندهٔ FSMِ دیتابیسی، یا هر مسیرِ هم‌زمانِ
+        # دیگرِ بعدِ reset) هر دو None می‌دیدند و هر دو INSERT id=1 می‌زدند ⇒ رویِ دومی
+        # UniqueViolationErrorِ pk_admin_settings (MEASURED در test_checkout_c3 با
+        # FSM_STORAGE=postgres). درج داخلِ savepoint است تا در صورتِ باختنِ رقابت،
+        # تراکنشِ اصلیِ خواننده (که شاید نوشتهٔ دیگری هم دارد) زنده بماند.
+        try:
+            async with session.begin_nested():
+                session.add(AdminSettings(id=1))
+        except IntegrityError:
+            logger.info("ردیفِ تنظیمات هم‌زمان ساخته شد؛ همان ردیف خوانده می‌شود.")
+        settings_row = await session.get(AdminSettings, 1, populate_existing=True)
+        if settings_row is None:
+            # رقیب rollback کرد (نه commit) ⇒ حالا خودِ ما می‌سازیمش.
+            settings_row = AdminSettings(id=1)
+            session.add(settings_row)
+            await session.flush()
     return settings_row
 
 
@@ -59,8 +77,8 @@ async def cached_admin_settings(session: AsyncSession) -> AdminSettings:
 
     سطر از سشن جدا (detached) می‌شود تا هیچ‌کس نتواند رویِ نسخهٔ کش‌شده بنویسد و فکر کند
     ذخیره شده است؛ نوشتن همیشه باید از `get_admin_settings` / `update_setting` انجام شود.
-    تازه‌ماندنِ داده دوجا تضمین می‌شود: باطل‌سازیِ رویداد-محورِ بالا، و TTLِ دو ثانیه برایِ
-    حالتِ چندپروسه‌ای (روشن‌شدنِ «حالتِ تعمیر» در بدترین حالت دو ثانیه طول می‌کشد).
+    تازه‌ماندنِ داده دوجا تضمین می‌شود: باطل‌سازیِ رویداد-محورِ پایین، و TTLِ
+    `READ_CACHE_TTL_SECONDS` فقط به‌عنوانِ سقفِ کهنه‌ماندن در حالتِ چندپروسه‌ای.
     """
     global _cached_row, _cached_at
     now = time.monotonic()
