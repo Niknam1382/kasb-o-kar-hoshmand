@@ -78,11 +78,20 @@ def create_shop_dispatcher(main_bot: Bot) -> Dispatcher:
     return dispatcher
 
 
-async def _load_active_shop_bots(bot_manager: ShopBotManager, main_bot: Bot) -> None:
+async def _load_active_shop_bots(
+    bot_manager: ShopBotManager, main_bot: Bot, *, bale_polling_owner: bool = True
+) -> None:
     async with session_scope() as session:
         shop_bots = await shop_bot_service.get_all_active(session)
         # P19: اتصالِ بله فقط وقتی شروع می‌شود که ادمین ویژگی را رونمایی کرده باشد (پیش‌فرض پنهان).
         bale_enabled = bale_bot_service.enabled(await get_admin_settings(session))
+    if bale_enabled and not bale_polling_owner:
+        # P36: در حالتِ webhook هر رونوشت این‌جا را اجرا می‌کند، ولی pollingِ بله فقط باید رویِ
+        # یکی باشد؛ وگرنه پاسخِ AI دوبار می‌رود و کیف‌پول دوبار کم می‌شود.
+        logger.warning(
+            "اتصالِ بله‌یِ فروشگاه‌ها در این رونوشت شروع نمی‌شود؛ رونوشتِ دیگری قفلِ pollingِ بله را دارد."
+        )
+        bale_enabled = False
     # P20 · B2: رازِ وب‌هوکِ هر رباتِ فروشگاهی باید رمزنگاری‌شده در دیتابیس بماند؛ ردیف‌هایِ
     # قدیمیِ خام یک‌بار در بوت‌آپ بازنویسی می‌شوند (کلیدِ رمزنگاری فقط این‌جا در دسترس است، نه در مایگریشن).
     try:
@@ -153,9 +162,14 @@ async def _notify_payment_result(main_bot: Bot, owner_telegram_id: int, is_topup
 # حالت polling (RUN_MODE=polling)
 # =============================================================================
 POLLING_LOCK_KEY = 20261103  # جدا از قفلِ جابها؛ شماره‌اش بخشی از قرارداد است
+# P36: pollingِ رباتِ بلهٔ هر فروشگاه *مستقل از* run_mode است (بله رازِ وب‌هوک نمی‌فرستد)،
+# پس در حالتِ webhook هم هر رونوشت آن را شروع می‌کند. دو رونوشت ⇒ یکِ پیامِ بله‌ای دو بار به
+# هوشِ مصنوعی و **دو بار کسرِ کیف‌پول**. این قفلِ جدا مالکیتِ آن polling را به یکِ رونوشت می‌دهد
+# بدونِ آن‌که به قفلِ pollingِ اصلی (که فقط تلگرام را نگه می‌دارد) دست ببرد.
+BALE_POLLING_LOCK_KEY = 20261104
 
 
-async def acquire_polling_lock():
+async def acquire_polling_lock(key: int = POLLING_LOCK_KEY):
     """دی(دیپلوی): نگهبانِ «فقط یکِ نسخه polling».
 
     دو نسخة هم‌زمان (`--scale bot=2`، یا deployِ تازه‌ای که بالا آمد ولی قدیمی نمُرده) هر دو
@@ -171,7 +185,7 @@ async def acquire_polling_lock():
     connection = await engine.connect()
     try:
         held = bool(
-            (await connection.execute(sql_text("SELECT pg_try_advisory_lock(:key)"), {"key": POLLING_LOCK_KEY})).scalar()
+            (await connection.execute(sql_text("SELECT pg_try_advisory_lock(:key)"), {"key": key})).scalar()
         )
     except Exception:  # noqa: BLE001 - نبودِ قفل نباید جلویِ بالا آمدنِ ربات را بگیرد
         await connection.close()
@@ -182,13 +196,13 @@ async def acquire_polling_lock():
     return connection
 
 
-async def release_polling_lock(connection) -> None:
+async def release_polling_lock(connection, key: int = POLLING_LOCK_KEY) -> None:
     from sqlalchemy import text as sql_text
 
     if connection is None:
         return
     try:
-        await connection.execute(sql_text("SELECT pg_advisory_unlock(:key)"), {"key": POLLING_LOCK_KEY})
+        await connection.execute(sql_text("SELECT pg_advisory_unlock(:key)"), {"key": key})
     except Exception:  # noqa: BLE001 - بستنِ اتصال قفل را هم آزاد می‌کند
         logger.warning("آزادکردنِ قفلِ polling ناموفق بود؛ با بستنِ اتصال آزاد می‌شود.")
     await connection.close()
@@ -298,7 +312,14 @@ async def on_startup() -> None:
     _state["bot_manager"] = bot_manager
     _state["stop_event"] = asyncio.Event()
 
-    await _load_active_shop_bots(bot_manager, main_bot)
+    # P36: pollingِ رباتِ بلهٔ فروشگاه‌ها مستقل از run_mode است، پس مالکیتش را با قفلِ جدا نگه
+    # می‌داریم تا در دیپلویِ چندرونشتی یکِ پیامِ بله‌ای دو بار پاسخ نگیرد و دو بار کم نشود.
+    try:
+        _state["bale_polling_lock"] = await acquire_polling_lock(BALE_POLLING_LOCK_KEY)
+    except Exception:  # noqa: BLE001 - اگر دیتابیس قفل را نشناسد، این رونوشت را صاحب بدان
+        logger.exception("قفلِ pollingِ بله خوانده نشد؛ این رونوشت صاحبِ pollingِ بله در نظر گرفته می‌شود.")
+        _state["bale_polling_lock"] = None
+    await _load_active_shop_bots(bot_manager, main_bot, bale_polling_owner=_state["bale_polling_lock"] is not None)
 
     if settings.run_mode == RunMode.WEBHOOK:
         webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/main"
@@ -358,6 +379,10 @@ async def on_shutdown() -> None:
     # P29: بستنِ اتصال‌ها با همان سقفِ همزمانیِ راه‌اندازی (قبلاً ترتیبی بود ⇒ ۵۰۰ فروشگاه ≈ ۵۰۰ × RTT
     # خاموش‌شدن، بیشتر از stop_grace_period داکر ⇒ هر دیپلوی با SIGKILL تمام می‌شد).
     await _state["bot_manager"].shutdown()
+
+    # P36: قفلِ مالکیتِ pollingِ بله هم آزاد می‌شود (رونوشتِ بعدی بلافاصله می‌تواند صاحب شود).
+    await release_polling_lock(_state.get("bale_polling_lock"), BALE_POLLING_LOCK_KEY)
+    _state["bale_polling_lock"] = None
 
     # جلسه‌ی HTTP مشترکِ سرویسِ هوش مصنوعی رو هم می‌بندیم تا سوکت باز نمونه
     await ai_service.close_http_session()

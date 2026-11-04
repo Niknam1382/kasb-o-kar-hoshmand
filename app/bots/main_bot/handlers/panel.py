@@ -186,6 +186,14 @@ async def save_shop_bot_token(message: Message, state: FSMContext, session: Asyn
     except Exception:
         logger.warning("اعمالِ بیوگرافی رویِ رباتِ تازه ثبت‌شده ناموفق بود.", exc_info=True)
 
+    # P36: «علاوه بر توکنِ رباتِ تلگرام، توکنِ رباتِ بله را هم بفرست» — همان صفحه‌یِ دو ورودی،
+    # درست بعد ازِ موفقیت‌آمیز‌ترین لحظه‌یِ اتصالِ تلگرام. اگر فروشگاه توکنِ بله دارد، مزاحم نمی‌شویم.
+    if bale_bot_service.enabled(await get_admin_settings(session)) and not bale_bot_service.raw_token(shop_bot):
+        try:
+            await message.answer(texts.BALE_SMARTEN_OFFER, reply_markup=keyboards.bale_shop_bot_keyboard(shop_bot))
+        except TelegramAPIError:
+            logger.exception("پیشنهادِ اتصالِ بله پس ازِ ثبتِ توکنِ تلگرام ناموفق بود.")
+
 
 
 # =============================================================================

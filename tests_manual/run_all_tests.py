@@ -139,6 +139,7 @@ TEST_FILES = [
     "test_p33_ai_usage_debt.py",
     "test_p34_bale_own_payment_surface.py",
     "test_p35_text_accuracy.py",
+    "test_p36_bale_smarten_flow.py",
 ]
 
 

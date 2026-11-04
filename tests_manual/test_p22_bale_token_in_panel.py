@@ -72,7 +72,9 @@ async def test_owner_can_store_and_remove_token_from_the_payments_screen(main_dp
     # ۱) ورودیِ تازه: همان صفحه را نشان می‌دهد (وضعیت + آنچه کم است) و منتظرِ توکن می‌نشیند
     await owner.tap("pays_bale_token")
     screen = owner.last_text
-    assert "💳 پرداختِ آنلاینِ سفارش‌ها" in screen, screen
+    # P35: سرتیترِ صفحه از «💳 پرداختِ آنلاینِ سفارش‌ها» به «🏦 توکنِ درگاهِ بله‌پی» عوض شد
+    # (متنِ کوتاه و درست شد؛ دکمهٔ منو همان نامِ قبلی را نگه داشته است).
+    assert "🏦 توکنِ درگاهِ بله‌پی" in screen, screen
     assert "توکنِ درگاهِ فروشگاهِ تو" in screen, screen
     assert "بفرست" in screen, "راهنمایِ صریحِ مرحلهٔ بعد"
 
