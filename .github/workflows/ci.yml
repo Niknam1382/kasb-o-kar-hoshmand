@@ -68,5 +68,10 @@ jobs:
       - name: Run database migrations
         run: alembic upgrade head
 
+      # P31-C: مسیرِ برگشتِ مایگریشن تا پیش از این هیچ‌وقت اجرا نشده بود. رویِ دیتابیسِ
+      # یک‌بارمصرف آزمایش می‌شود و به kasbokar_test دست نمی‌زند.
+      - name: Migration roundtrip (upgrade -> downgrade base -> upgrade)
+        run: python scripts/check_migration_roundtrip.py
+
       - name: Run test suite
         run: python3 tests_manual/run_all_tests.py
