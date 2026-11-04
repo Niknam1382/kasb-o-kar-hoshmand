@@ -87,9 +87,13 @@ async def test_sent_once_when_due_then_not_duplicated_same_day(main_bot) -> None
     report_text = main_bot.session.sent_messages[0]["text"]
     assert "سفارش‌های جدید: ۱" in report_text, f"باید تعدادِ ۱ سفارشِ امروز رو نشون بده؛ متنِ گزارش: {report_text!r}"
 
-    # شبیه‌سازیِ تیکِ ۳۰-دقیقه‌ایِ بعدیِ همون روزِ زمان‌بند:
+    # شبیه‌سازیِ تیکِ ۳۰-دقیقه‌ایِ بعدیِ *همان روز*. چرا clamp لازم است: اگر ساعتِ واقعی به پایانِ
+    # روزِ UTC نزدیک باشد، `now + ۳۰دقیقه` به روزِ بعد می‌افتد، «امروز» عوض می‌شود و گزارش دوباره
+    # فرستاده می‌شود ⇒ این تست فقط در ۳۰ دقیقهٔ آخرِ شبِ UTC می‌شکست (نقصِ خودِ تست، نه کد).
+    day_end = datetime.datetime.combine(now.date(), datetime.time(23, 59, 59), tzinfo=datetime.timezone.utc)
+    later = min(now + datetime.timedelta(minutes=30), day_end)
     async with session_scope() as session:
-        await report_service.send_due_nightly_reports(session, main_bot, now=now + datetime.timedelta(minutes=30))
+        await report_service.send_due_nightly_reports(session, main_bot, now=later)
 
     assert len(main_bot.session.sent_messages) == 1, "توی همون روز نباید دوباره فرستاده بشه"
     print("✅ test_sent_once_when_due_then_not_duplicated_same_day PASSED")
