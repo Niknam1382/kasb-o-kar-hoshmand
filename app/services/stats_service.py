@@ -9,6 +9,8 @@ from app.database.models import (
     BotErrorEvent,
     ConversationMessage,
     Customer,
+    KnowledgeGap,
+    KnowledgeGapStatus,
     OrderConsultation,
     OrderStatus,
     Payment,
@@ -60,6 +62,82 @@ async def _get_success_rate(session: AsyncSession, shop_bot_id: int, days: int =
     if total == 0:
         return None
     return successful / total * 100
+
+
+async def get_shops_daily_stats(
+    session: AsyncSession, shop_bot_ids: set[int], day_start: datetime.datetime, now: datetime.datetime
+) -> dict[int, dict]:
+    """P31-B: همان شش عددِ `get_shop_daily_stats` برایِ *همهٔ* فروشگاه‌ها در پنج کوئریِ گروهی.
+
+    چرا: گزارشِ شبانه به‌ازایِ هر فروشگاه پنج‌کوئری می‌زد (با N فروشگاه ⇒ ۵N و رشدِ خطیِ محض).
+    این همان الگویِ `commission_receivable_service.open_totals_by_owner` است که در P29 برایِ
+    رفعِ همین بیماری ساخته شد. قاعدهٔ امنیتیِ P29 هم رعایت شده: هر عدد **per-shop** با کلیدِ
+    `shop_bot_id` برمی‌گردد، نه جمعِ سراسری، وگرنه فروشگاه‌دار عددِ بقیه را در گزارشِ خودش
+    می‌بیند (باگی که در P29 همین‌جا گرفته شد).
+    """
+    empty = {
+        "new_orders_today": 0, "new_consultations_today": 0, "confirmed_revenue_today_toman": 0,
+        "new_customers_today": 0, "pending_orders_count": 0, "new_knowledge_gaps": 0,
+    }
+    if not shop_bot_ids:
+        return {}
+    out = {int(sid): dict(empty) for sid in shop_bot_ids}
+
+    in_ids = OrderConsultation.shop_bot_id.in_(shop_bot_ids)
+    types = await session.execute(
+        select(OrderConsultation.shop_bot_id, OrderConsultation.type, func.count())
+        .where(
+            in_ids,
+            OrderConsultation.created_at >= day_start,
+            OrderConsultation.created_at < now,
+        )
+        .group_by(OrderConsultation.shop_bot_id, OrderConsultation.type)
+    )
+    for shop_id, raw_type, count in types.all():
+        key = raw_type.value if hasattr(raw_type, "value") else raw_type
+        if key == "order":
+            out[int(shop_id)]["new_orders_today"] = int(count)
+        elif key == "consultation":
+            out[int(shop_id)]["new_consultations_today"] = int(count)
+
+    revenue = await session.execute(
+        select(OrderConsultation.shop_bot_id, func.coalesce(func.sum(OrderConsultation.estimated_value_toman), 0))
+        .where(in_ids, OrderConsultation.confirmed.is_(True), OrderConsultation.confirmed_at >= day_start, OrderConsultation.confirmed_at < now)
+        .group_by(OrderConsultation.shop_bot_id)
+    )
+    for shop_id, total in revenue.all():
+        out[int(shop_id)]["confirmed_revenue_today_toman"] = int(total or 0)
+
+    customers = await session.execute(
+        select(Customer.shop_bot_id, func.count())
+        .where(Customer.shop_bot_id.in_(shop_bot_ids), Customer.first_seen_at >= day_start, Customer.first_seen_at < now)
+        .group_by(Customer.shop_bot_id)
+    )
+    for shop_id, count in customers.all():
+        out[int(shop_id)]["new_customers_today"] = int(count)
+
+    pending = await session.execute(
+        select(OrderConsultation.shop_bot_id, func.count())
+        .where(in_ids, OrderConsultation.status == OrderStatus.PENDING)
+        .group_by(OrderConsultation.shop_bot_id)
+    )
+    for shop_id, count in pending.all():
+        out[int(shop_id)]["pending_orders_count"] = int(count)
+
+    gaps = await session.execute(
+        select(KnowledgeGap.shop_bot_id, func.count())
+        .where(
+            KnowledgeGap.shop_bot_id.in_(shop_bot_ids),
+            KnowledgeGap.status == KnowledgeGapStatus.OPEN,
+            KnowledgeGap.first_seen_at >= day_start,
+            KnowledgeGap.first_seen_at < now,
+        )
+        .group_by(KnowledgeGap.shop_bot_id)
+    )
+    for shop_id, count in gaps.all():
+        out[int(shop_id)]["new_knowledge_gaps"] = int(count)
+
+    return out
 
 
 async def get_shop_daily_stats(

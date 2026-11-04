@@ -124,14 +124,17 @@ async def send_due_nightly_reports(session: AsyncSession, main_bot: Bot, now: da
     # عددِ بدهیِ بقیه را در گزارشِ خصوصیِ خودش می‌دید.
     debts = await commission_receivable_service.open_totals_by_owner(session, set(owners))
 
-    for shop_bot in active_bots:
-        if shop_bot.last_nightly_report_date == today:
-            continue
+    # P31-B: آمارِ روزانهٔ همهٔ فروشگاه‌هایِ نوبت‌دار در پنج کوئریِ گروهی. پیش‌ازاین داخلِ همین
+    # حلقه پنج‌کوئری به‌ازایِ هر فروشگاه زده می‌شد (۵۰۰ فروشگاه ⇒ ~۲٬۵۰۰ کوئری در یکِ پاس).
+    # `day_start` برایِ همه یکی است (نیمه‌شبِ UTCِ همان روز)، پس بیرون از حلقه حساب می‌شود.
+    day_start = datetime.datetime.combine(today, datetime.time.min, tzinfo=datetime.timezone.utc)
+    due_bots = [bot for bot in active_bots if bot.last_nightly_report_date != today]
+    daily_stats = await stats_service.get_shops_daily_stats(session, {bot.id for bot in due_bots}, day_start, now)
 
-        day_start = datetime.datetime.combine(today, datetime.time.min, tzinfo=datetime.timezone.utc)
-        stats = await stats_service.get_shop_daily_stats(session, shop_bot.id, day_start, now)
+    for shop_bot in due_bots:
+        stats = daily_stats.get(shop_bot.id)
         owner = owners.get(shop_bot.shop_owner_id)
-        if owner is None:
+        if owner is None or stats is None:
             continue
         # P21-D (F1): موجودی، قابل‌صرف، اعتبارِ در آستانهٔ انقضا و طلبِ کمیسیونِ وصول‌نشده به همان پیام اضافه می‌شوند.
         usable, expiring, expiring_days = await wallet_service.credit_summary(session, owner)
