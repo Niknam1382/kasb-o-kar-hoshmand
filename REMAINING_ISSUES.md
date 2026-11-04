@@ -493,3 +493,25 @@
    `logger.warning` گذاشته شد؛ راهنماهایِ `.env.example` هم «آمادهٔ تولید نیست» می‌گویند.
 ۳. **PyPI در این محیط نصب نمی‌کند:** `pypi.org` نام‌حل می‌شود و ۲۰۰ می‌دهد، ولی
    `files.pythonhosted.org` نام‌حل نمی‌کند ⇒ Redis، `coverage` و `pip-audit` همچنان NOT RUN.
+
+
+### §P33 — تلاشِ نافرجامِ ایدبمپوتنتیِ سبد←سفارش (۲۰۲۶-۱۱-۰۴، MEASURED و برگردانده‌شده)
+
+یکِ نسخه پیاده شد و رویِ همان تستی که قبلاً fail می‌شد آزمایش شد؛ **دو نقصِ جدید لو رفت** و چون
+هر دو رویِ مسیرِ پول‌ساز بودند، تغییر کاملاً به حالتِ سبز برگردانده شد (`git checkout` +
+`alembic downgrade f2a6c8d3b9e5`؛ سوئیتِ هدفمند بعدش: `test_shopping_cart` ۱۱/۱۱ و
+`test_checkout_c3` ۱۱/۱۱ سبز):
+
+۱. **بن‌بستِ قفل:** ادعای `UPDATE carts SET submit_token=…` داخلِ همان تراکنشی که بعداً
+   ردیف‌هایِ محصول را `FOR UPDATE` می‌گیرد ⇒ دو تپِ هم‌زمان (تست با `asyncio.gather`) یکی
+   قفلِ سبد و دیگری قفلِ محصول را می‌گیرد و حلقه می‌سازد:
+   `DeadlockDetectedError` در همان اجرا. طرحِ درست: ادعا *بیرون* از تراکنشِ کارِ اصلی و
+   بدونِ قفلِ سطر — `SELECT pg_try_advisory_xact_lock(hashtext(nonce))` (بی‌قفلِ دیتابیسی،
+   فقط یکِ برنده) و ستونِ `submit_token` صرفاً به‌عنوانِ محافظِ replayِ دور‌باز.
+۲. **تازیدگیِ `admin_settings`:** با `FSM_STORAGE=postgres` و دو جریانِ هم‌زمان، `get_admin_settings`
+   دو بار `None` می‌بیند و دو بار `INSERT (id=1)` می‌زند ⇒ `UniqueViolationError` رویِ
+   `pk_admin_settings`. راهِ رفعِ یک‌خطی: `INSERT … ON CONFLICT DO NOTHING` و بعد خواندن.
+   این باگِ واقعیِ مستقل از FSM است (هر مسیرِ هم‌زمانِ اولینِ بعدِ reset).
+۳. **نکتهٔ عملیاتیِ دیپلوی:** اگر مایگریشنی را رویِ سرورِ توسعه لغو کنی، باید دیتابیسِ تست را هم
+   `alembic stamp` برگردانی، وگرنه `run_one.py` در «Can't locate revision» می‌ماند و
+   `reset_database()` سرِ قفلِ TRUNCATE به بن‌بست می‌خورد (همین‌جا اتفاق افتاد و اصلاح شد).
