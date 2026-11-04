@@ -33,6 +33,7 @@ from app.database.models import AiKeyCapability, AuditEventType, DiscountType, P
 from app.services import (
     admin_role_service,
     admin_settings_service,
+    ai_debt_service,
     ai_pool_service,
     ai_service,
     audit_log_service,
@@ -45,6 +46,7 @@ from app.services import (
     credit_batch_service,
     discount_service,
     excel_export_service,
+    identity_service,
     moderation_service,
     notification_service,
     otp_service,
@@ -52,7 +54,6 @@ from app.services import (
     payment_service,
     prompt_defaults,
     shop_bot_service,
-    identity_service,
     shop_owner_service,
     sms_service,
     stats_service,
@@ -1001,28 +1002,51 @@ async def cb_payment_events(callback: CallbackQuery, session: AsyncSession) -> N
 
 @super_router.callback_query(F.data == "admin_commission_debt")
 async def cb_commission_debt(callback: CallbackQuery, session: AsyncSession) -> None:
-    """P21-C (F4): «پلتفرم چقدر کمیسیونِ نگرفته‌شده دارد؟» — تا پیش‌ازاین فقط در لاگ دیده می‌شد."""
+    """P21-C (F4): طلبِ کمیسیون + P33-C: بدهیِ مصرفِ AI (تا پیش‌ازاین فقط در لاگ بودند)."""
     await callback.answer()
     totals = await commission_receivable_service.summary(session)
-    if not totals["open_count"]:
+    ai_totals = await ai_debt_service.summary(session)
+    if not totals["open_count"] and not ai_totals["open_count"]:
         await callback.message.answer(texts.COMMISSION_DEBT_EMPTY)
         return
-    items = [
-        fa_text(texts.COMMISSION_DEBT_ITEM, 
-            owner=row["owner_label"],
-            toman=format_toman(row["amount_toman"]),
-            note=row["note"] or "بدونِ یادداشت",
+    if totals["open_count"]:
+        items = [
+            fa_text(
+                texts.COMMISSION_DEBT_ITEM,
+                owner=row["owner_label"],
+                toman=format_toman(row["amount_toman"]),
+                note=row["note"] or "بدونِ یادداشت",
+            )
+            for row in await commission_receivable_service.open_report(session)
+        ]
+        await callback.message.answer(
+            fa_text(
+                texts.COMMISSION_DEBT_REPORT,
+                count=totals["open_count"],
+                toman=format_toman(totals["open_toman"]),
+                settled_count=totals["settled_count"],
+                items="\n".join(items),
+            )
         )
-        for row in await commission_receivable_service.open_report(session)
-    ]
-    await callback.message.answer(
-        fa_text(texts.COMMISSION_DEBT_REPORT, 
-            count=totals["open_count"],
-            toman=format_toman(totals["open_toman"]),
-            settled_count=totals["settled_count"],
-            items="\n".join(items),
+    if ai_totals["open_count"]:
+        ai_items = [
+            fa_text(
+                texts.AI_DEBT_ITEM,
+                owner=row["owner_label"],
+                toman=format_toman(row["amount_toman"]),
+                reason=row["reason"],
+            )
+            for row in await ai_debt_service.open_report(session)
+        ]
+        await callback.message.answer(
+            fa_text(
+                texts.AI_DEBT_REPORT,
+                count=ai_totals["open_count"],
+                toman=format_toman(ai_totals["open_toman"]),
+                waived_count=ai_totals["waived_count"],
+                items="\n".join(ai_items),
+            )
         )
-    )
 
 
 @super_router.callback_query(F.data == "admin_notification_queue")

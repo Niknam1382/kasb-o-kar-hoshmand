@@ -35,6 +35,7 @@ from app.services import (
     customer_service,
     digital_service,
     knowledge_service,
+    ai_debt_service,
     moderation_service,
     prompt_defaults,
     order_access_service,
@@ -188,10 +189,21 @@ async def _deduct_and_notify(
     این تابع هیچ‌وقت به مشتری خطا نشون نمی‌ده؛ فقط خودِ فروشگاه‌دار (از طریقِ ربات اصلی) مطلع می‌شه."""
     success = await wallet_service.deduct(session, owner, amount_toman, reason)
     if not success:
-        # موجودی در لحظه‌ی کسر کافی نبوده (مثلاً دقیقاً همین چند تومنِ آخر رو یه پیامِ هم‌زمانِ دیگه مصرف کرده).
-        # چون جوابِ هوش مصنوعی از قبل تولید و برای مشتری فرستاده شده، این کمبودِ جزئی رو نادیده می‌گیریم
-        # و اجازه نمی‌دیم تجربه‌ی مشتری خراب بشه؛ فقط لاگ می‌کنیم.
-        logger.warning("کسرِ کیف‌پول برای فروشگاه‌دار %s ناموفق بود (موجودیِ ناکافی در لحظه‌ی کسر).", owner.id)
+        # موجودی در لحظه‌یِ کسر کافی نبوده (مثلاً دقیقاً همین چندِ تومنِ آخر رو یه پیامِ هم‌زمانِ
+        # دیگه مصرف کرده). چون جوابِ هوش مصنوعی از قبل تولید و برای مشتری فرستاده شده، این
+        # کمبودِ جزئی رو نادیده می‌گیریم و اجازه نمی‌دیم تجربه‌ی مشتری خراب بشه؛ فقط لاگ می‌کنیم.
+        logger.warning("کسرِ کیف‌پول برای فروشگاه‌دار %s ناموفق بود (موجودیِ ناکافی در لحظه‌یِ کسر).", owner.id)
+        # P33-C: اگر سوییچِ «ادامهٔ سفارش با اعتبارِ صفر» روشن باشد، همین مبلغ به‌عنوانِ
+        # بدهیِ مصرفِ AI ثبت می‌شود تا هم ادمین ببیند و هم سقفِ بدهی کلِ درَک را ببیند.
+        if admin_settings.orders_allowed_when_wallet_empty:
+            reason_value = getattr(reason, "value", reason)
+            await ai_debt_service.record(
+                session,
+                owner_id=owner.id,
+                amount_toman=amount_toman,
+                reason=str(reason_value),
+                note="مصرفِ AI با اعتبارِ صفر (سوییچِ ادامهٔ سفارش روشن)",
+            )
 
     if owner.wallet_balance_toman <= 0:
         if await wallet_service.try_claim_empty_notification(session, owner):

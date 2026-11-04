@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services import shop_bot_service, shop_owner_service
+from app.services import ai_debt_service, shop_bot_service, shop_owner_service
 from app.services.admin_settings_service import get_admin_settings
 from app.services.commission_receivable_service import open_totals_by_owner
 
@@ -28,9 +28,13 @@ DEBT_CEILING = "debt_ceiling"
 
 
 async def open_debt_toman(session: AsyncSession, owner_id: int) -> int:
-    """جمعِ بدهیِ وصول‌نشدهٔ کمیسیونِ یکِ فروشگاه‌دار (ردیف‌های `open`)."""
-    totals = await open_totals_by_owner(session, {owner_id})
-    return int(totals.get(owner_id, 0) or 0)
+    """مجموعِ بدهیِ بازِ یکِ فروشگاه: کمیسیونِ وصول‌نشده + مصرفِ AIِ پرداخت‌نشده (P33-C).
+
+    سقفِ ادمین باید کلِ درَکِ پلتفرم از یکِ فروشگاه را مهار کند؛ اگر فقط کمیسیون شمرده
+    می‌شد، سوییچِ «ادامهٔ سفارش با اعتبارِ صفر» راهِ فرارِ بی‌سقفِ هزینهٔ AI می‌شد."""
+    commission = await open_totals_by_owner(session, {owner_id})
+    ai = await ai_debt_service.open_total_for_owner(session, owner_id)
+    return int(commission.get(owner_id, 0) or 0) + int(ai)
 
 
 async def evaluate(session: AsyncSession, owner, admin_settings) -> str:

@@ -1350,6 +1350,32 @@ class ScheduledBroadcast(Base):
     sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class AiUsageDebt(Base):
+    """مصرفِ هوش مصنوعی‌ای که پولِ آن کسر نشد، به‌عنوانِ بدهی ثبت می‌شود (P33-C).
+
+    چرا لازم بود: سوییچِ «ادامهٔ سفارش با اعتبارِ صفر» (P30-C) مسیرِ فروش را باز می‌گذارد،
+    ولی `wallet_service.deduct` در آن حالت فقط لاگِ هشدار می‌زد — یعنی هزینه‌یِ واقعیِ AI
+    بی‌ثبت می‌ماند و سقفِ بدهی هم فقط کمیسیون را می‌دید. حالا هر دو در یکِ جمعِ «بدهیِ باز»
+    می‌آیند و سقف، مجموعِ درَکِ فروشگاه را مهار می‌کند.
+
+    وصولِ خودکار عمداً اینجا نیست (تصمیمِ محصولی است؛ §P33-C): ادمین می‌بیند، خشمال می‌کند
+    (`waive`) و ردیف‌ها هرگز حذف نمی‌شوند.
+    """
+
+    __tablename__ = "ai_usage_debts"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_ai_usage_debt_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
+    amount_toman: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(12), default="open", server_default="open", nullable=False, index=True)
+    note: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    settled_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class CommissionReceivable(Base):
     """P21-C (F4): «پلتفرم از این فروشگاه چقدر طلبِ کمیسیون دارد».
 
