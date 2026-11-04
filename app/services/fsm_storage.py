@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 from typing import Any, Mapping
 
 from aiogram.fsm.storage.base import BaseStorage, StorageKey
@@ -33,6 +34,7 @@ from app.database.session import session_scope
 STATE_TTL_HOURS = 24
 MEMORY = "memory"
 POSTGRES = "postgres"
+logger = logging.getLogger(__name__)
 
 
 def _key_parts(key: StorageKey) -> tuple[int, int, int]:
@@ -124,8 +126,19 @@ async def purge_stale_states(session: AsyncSession, *, hours: int = STATE_TTL_HO
 
 
 def build_storage() -> BaseStorage:
-    """پیش‌فرضِ ایمن: `memory` (رفتارِ همیشگی). با `FSM_STORAGE=postgres` حالت‌ها می‌مانند."""
+    """پیش‌فرضِ ایمن: `memory` (رفتارِ همیشگی). با `FSM_STORAGE=postgres` حالت‌ها می‌مانند.
+
+    ⚠️ مسیرِ postgres هنوز **آمادهٔ تولید نیست**: در تست‌هایِ واحد (۵ مورد) سبز است، ولی
+    در بازاجرایِ `test_checkout_c3.py` با `FSM_STORAGE=postgres` یکِ ادعایِ «دابل‌تپِ ثبتِ
+    نهایی = یکِ سفارش» شکست خورد (۱۴۰۵-۰۸-۱۲، MEASURED). علتِ دقیقش بررسیِ بعدی می‌خواهد؛
+    تا آن روز این کلید عمداً `memory` می‌ماند و اینجا هم هشدار می‌دهیم که کسی فکر نکند
+    با روشن‌کردنش چک‌اوت پایدار شده است.
+    """
     if (settings.fsm_storage or MEMORY).strip().lower() == POSTGRES:
+        logger.warning(
+            "FSM_STORAGE=postgres روشن است اما این مسیر هنوز در تستِ end-to-endِ چک‌اوت سبز "
+            "نشده؛ پیش ازِ استفاده رویِ سرورِ واقعی آن را با چک‌اوتِ دستی بسنج."
+        )
         return PostgresStorage()
     from aiogram.fsm.storage.memory import MemoryStorage
 
