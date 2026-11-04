@@ -72,6 +72,9 @@ MAX_BUFFER_WAIT_SECONDS = 10.0
 _pending_buffers: dict[tuple[int, int, str], list[str]] = {}
 _pending_tasks: dict[tuple[int, int, str], asyncio.Task] = {}
 _pending_started_at: dict[tuple[int, int, str], float] = {}
+# P33-D: شناسه‌ای که میدل‌ور ساخته، تسکِ پاسخ دوباره «مشتریِ جدید» نمی‌سازد (یکِ درجِ
+# ON CONFLICT به‌ازایِ هر پیام کمتر). بافرها in-process‌اند، پس این هم همان‌جا می‌ماند.
+_pending_customer_ids: dict[tuple[int, int, str], int] = {}
 
 # فازِ ۶-الف: برایِ هر (فروشگاه، مشتری، پلتفرم) *فقط یه پردازش* هم‌زمان اجرا می‌شه. بدونِ این قفل، پیامی که وسطِ پردازشِ
 # دسته‌یِ قبلی (فراخوانیِ AI چند ثانیه‌ای) می‌رسید یه چرخه‌یِ debounceِ جدا شروع می‌کرد و هم‌زمان با اولی
@@ -515,14 +518,23 @@ async def customer_message(message: Message, session: AsyncSession, main_bot: Bo
         return
 
     _schedule_debounced_processing(
-        shop_bot.id, message.from_user.id, message.text, message.bot, main_bot, window=_batch_window(shop_bot)
+        shop_bot.id, message.from_user.id, message.text, message.bot, main_bot,
+        window=_batch_window(shop_bot), customer_id=customer.id,
     )
 
 
 def _schedule_debounced_processing(
-    shop_bot_id: int, customer_tg_id: int, text: str, shop_bot_instance: Bot, main_bot: Bot, window: float | None = None
+    shop_bot_id: int,
+    customer_tg_id: int,
+    text: str,
+    shop_bot_instance: Bot,
+    main_bot: Bot,
+    window: float | None = None,
+    customer_id: int | None = None,
 ) -> None:
     key = (shop_bot_id, customer_tg_id, platform_service.platform_of(shop_bot_instance))
+    if customer_id is not None:
+        _pending_customer_ids[key] = int(customer_id)
     window = DEBOUNCE_SECONDS if window is None else window
     _pending_buffers.setdefault(key, []).append(text)
 
@@ -569,6 +581,7 @@ async def _wait_then_process(key: tuple[int, int, str], delay: float, shop_bot_i
         async with _get_customer_lock(key):
             messages = _pending_buffers.pop(key, [])
             _pending_started_at.pop(key, None)
+            known_customer_id = _pending_customer_ids.pop(key, None)
             if _pending_tasks.get(key) is asyncio.current_task():
                 _pending_tasks.pop(key, None)  # از اینجا به بعد پیامِ تازه نباید این تسکِ در حالِ پردازش رو لغو کنه
             if not messages:
@@ -578,7 +591,10 @@ async def _wait_then_process(key: tuple[int, int, str], delay: float, shop_bot_i
             shop_bot_id, customer_tg_id, _ = key  # پلتفرم از خودِ shop_bot_instance خوانده می‌شود
             try:
                 async with session_scope() as session:
-                    await _generate_and_send_reply(session, shop_bot_id, customer_tg_id, combined_text, shop_bot_instance, main_bot)
+                    await _generate_and_send_reply(
+                        session, shop_bot_id, customer_tg_id, combined_text, shop_bot_instance, main_bot,
+                        known_customer_id=known_customer_id,
+                    )
             except Exception:
                 logger.exception("پردازشِ پیام‌هایِ جمع‌شده‌یِ مشتری %s در فروشگاه %s با خطا مواجه شد.", customer_tg_id, shop_bot_id)
     except asyncio.CancelledError:
@@ -586,7 +602,13 @@ async def _wait_then_process(key: tuple[int, int, str], delay: float, shop_bot_i
 
 
 async def _generate_and_send_reply(
-    session: AsyncSession, shop_bot_id: int, customer_tg_id: int, combined_text: str, shop_bot_instance: Bot, main_bot: Bot
+    session: AsyncSession,
+    shop_bot_id: int,
+    customer_tg_id: int,
+    combined_text: str,
+    shop_bot_instance: Bot,
+    main_bot: Bot,
+    known_customer_id: int | None = None,
 ) -> None:
     shop_bot = await shop_bot_service.get_by_id(session, shop_bot_id)
     if shop_bot is None or not shop_bot.is_active:
@@ -624,14 +646,23 @@ async def _generate_and_send_reply(
             details=f"الگو: {matched_rule.pattern} | اکشن: warn | دسته: {matched_rule.category or '-'}",
         )
 
-    customer = await customer_service.get_or_create_customer(
-        session,
-        shop_bot_id,
-        customer_tg_id,
-        None,
-        None,
-        platform=platform_service.platform_of(shop_bot_instance),
-    )
+    # P33-D: اگر میدل‌ور مشتری را حل کرده بود، همین‌جا فقط خوانده می‌شود (یکِ درجِ
+    # ON CONFLICT کمتر). شناسه فقط وقتی معتبر است که به همین فروشگاه بماند؛ وگرنه به
+    # مسیرِ «ساختن» برمی‌گردیم.
+    customer = None
+    if known_customer_id is not None:
+        candidate = await customer_service.get_by_id(session, int(known_customer_id))
+        if candidate is not None and candidate.shop_bot_id == shop_bot_id:
+            customer = candidate
+    if customer is None:
+        customer = await customer_service.get_or_create_customer(
+            session,
+            shop_bot_id,
+            customer_tg_id,
+            None,
+            None,
+            platform=platform_service.platform_of(shop_bot_instance),
+        )
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
 
     if not order_access_service.chat_continues(await order_access_service.evaluate(session, owner, admin_settings)):
@@ -921,6 +952,7 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
     cost = wallet_service.estimate_voice_cost(admin_settings, getattr(message.voice, "duration", None))
     await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.VOICE_TRANSCRIPTION, main_bot)
 
+    # مسیرِ صوت شناسه را در دسترس ندارد (مشتری را میدل‌ور حل می‌کند) ⇒ مثلِ قبل ساخته می‌شود.
     _schedule_debounced_processing(
         shop_bot.id, message.from_user.id, transcript, message.bot, main_bot, window=_batch_window(shop_bot)
     )

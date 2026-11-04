@@ -41,8 +41,9 @@ OWNER_TG_ID = 999331
 SHOP_BOT_TG_ID = 999332
 CUSTOMER_TG_ID = 999333
 
-# سقفِ statementهایِ یکِ پیامِ تنها — اندازه گرفته شده در §۲۱ِ TEST_RESULTS با یکِ واحدِ بخشودگی
-MAX_STATEMENTS_PER_MESSAGE = 30
+# سقفِ statementهایِ یکِ پیامِ تنها: ۳۰ پیش ازِ P33-D (MEASURED)، ۲۹ بعد ازِ پاس‌دادنِ
+# شناسۀ مشتری از میدل‌ور به تسکِ پاسخ. عددِ سنجیده‌شده با همین تست، نه برآورد.
+MAX_STATEMENTS_PER_MESSAGE = 29
 MAINTENANCE_WORD = "به‌روزرسانی"
 
 
