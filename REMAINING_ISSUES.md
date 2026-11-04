@@ -491,5 +491,5 @@
    storage. این کار مسیرِ پول را عوض می‌کند و چون خواستهٔ صریح نبود، انجام نشد.
 ۲. **`FSM_STORAGE` عمداً `memory` ماند** و در `build_storage()` برایِ `postgres` یکِ
    `logger.warning` گذاشته شد؛ راهنماهایِ `.env.example` هم «آمادهٔ تولید نیست» می‌گویند.
-۳. **PyPI در این محیط نصب نمی‌کند:** `pypi.org`Resolver می‌شود و ۲۰۰ می‌دهد، ولی
+۳. **PyPI در این محیط نصب نمی‌کند:** `pypi.org` نام‌حل می‌شود و ۲۰۰ می‌دهد، ولی
    `files.pythonhosted.org` نام‌حل نمی‌کند ⇒ Redis، `coverage` و `pip-audit` همچنان NOT RUN.
