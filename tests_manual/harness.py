@@ -339,6 +339,13 @@ async def reset_database() -> None:
             quoted = ", ".join(f'"{t}"' for t in tables)
             await session.execute(text(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE"))
 
+    # P31: TRUNCATE یکِ DDLِ دسته‌ای است و رویدادِ after_flush را روشن نمی‌کند، پس کشِ
+    # فقط‌خواندنیِ تنظیمات خودبه‌خود باطل نمی‌شود. بدونِ این خط، سطرِ تنظیماتِ اجرایِ قبلی
+    # (مثلاً maintenance_mode=True یا قیمتِ آزمایشی) به تستِ بعدی نشت می‌کرد.
+    from app.services.admin_settings_service import reset_read_cache
+
+    reset_read_cache()
+
     # E2 (P1-S2): پیش‌فرضِ محصول ۸ثانیه شد، ولی تست‌هایِ قدیمیِ debounce برایِ ۳ثانیه نوشته شدن؛ هر تست که
     # reset_database می‌زنه با ۳ثانیه شروع می‌کنه (تستِ ۶-الف خودش پیش‌فرضِ کد رو قبلِ هر reset چک می‌کنه).
     from app.bots.shop_bot.handlers import customer as _customer_handlers

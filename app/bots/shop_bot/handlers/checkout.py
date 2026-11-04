@@ -50,7 +50,7 @@ from app.services import (
     shop_owner_service,
     shop_prefs_service,
 )
-from app.services.admin_settings_service import get_admin_settings
+from app.services.admin_settings_service import cached_admin_settings
 from app.utils import validators
 
 logger = logging.getLogger(__name__)
@@ -375,7 +375,7 @@ async def cart_checkout_start(callback: CallbackQuery, session: AsyncSession, st
     if shop_bot is None:
         await callback.answer()
         return
-    if (await get_admin_settings(session)).maintenance_mode:
+    if (await cached_admin_settings(session)).maintenance_mode:
         # P24: درِ «حالتِ تعمیر» باید رویِ چک‌اوت هم بسته باشد؛ قبلاً فقط متنِ عادیِ مشتری می‌رفت
         # و مشتریِ اهلِ دکمه‌ها می‌توانست وسطِ تعمیر سفارش ثبت کند.
         await callback.answer(texts.PLATFORM_MAINTENANCE_REPLY, show_alert=True)
@@ -991,7 +991,7 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
         order_payment_service.set_group_deadline(
             orders,
             shop_prefs_service.resolve(
-                shop_prefs_service.ORDER_RESERVATION, shop_bot, await get_admin_settings(session)
+                shop_prefs_service.ORDER_RESERVATION, shop_bot, await cached_admin_settings(session)
             ),
         )
         await order_transition_service.record_event(

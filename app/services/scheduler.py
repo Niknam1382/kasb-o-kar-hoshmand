@@ -27,7 +27,7 @@ from app.services import (
     wallet_expiry_service,
     wallet_service,
 )
-from app.services.admin_settings_service import get_admin_settings
+from app.services.admin_settings_service import cached_admin_settings
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ async def _run_periodic_pass_locked(main_bot: Bot, bot_manager) -> None:
     async with session_scope() as session:
         await time_freeze_service.auto_resume_due(session)  # حتی با جاب‌هایِ متوقف؛ تاریخ‌ها باید جبران بشن
     async with session_scope() as session:
-        admin_settings = await get_admin_settings(session)
+        admin_settings = await cached_admin_settings(session)
     if not job_gate_service.is_paused(admin_settings, "grace"):
         async with session_scope() as session:
             await grace_period_service.process_grace_transitions(session, main_bot)
@@ -208,7 +208,7 @@ async def run_notification_loop(
     while not stop_event.is_set():
         try:
             async with session_scope() as session:
-                paused = job_gate_service.is_paused(await get_admin_settings(session), "notifications")
+                paused = job_gate_service.is_paused(await cached_admin_settings(session), "notifications")
             if not paused:
                 async with session_scope() as session:
                     queued_broadcast = await scheduled_broadcast_service.queue_due(session)
@@ -234,7 +234,7 @@ async def run_payment_expiry_loop(
     while not stop_event.is_set():
         try:
             async with session_scope() as session:
-                paused = job_gate_service.is_paused(await get_admin_settings(session), "orders")  # K4
+                paused = job_gate_service.is_paused(await cached_admin_settings(session), "orders")  # K4
             if not paused:
                 await payment_expiry_service.process_payment_expiry(main_bot, bot_manager)
         except Exception:

@@ -131,6 +131,7 @@ TEST_FILES = [
     "test_p30_platform_revenue_split.py",
     "test_p30_zero_credit_orders.py",
     "test_p30_concurrency_report.py",
+    "test_p31_message_statement_bounds.py",
 ]
 
 

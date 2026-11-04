@@ -21,6 +21,7 @@ import logging
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.event import listens_for
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.database.models import ShopOwner, WalletCharge, WalletTransaction, WalletTransactionReason
 from app import observability
@@ -77,7 +78,12 @@ async def _apply_balance_delta(session: AsyncSession, owner: ShopOwner, delta_to
         .values(wallet_balance_toman=func.greatest(0, ShopOwner.wallet_balance_toman + delta_toman))
         .returning(ShopOwner.wallet_balance_toman)
     )
-    owner.wallet_balance_toman = result.scalar_one()
+    # P31: عددِ بازگشتی با `set_committed_value` نوشته می‌شود، نه با انتسابِ معمولی.
+    # انتسابِ معمولی ستون را «تغییرکرده» علامت می‌زند و flushِ پایِ همین تراکنش یکِ
+    # UPDATEِ دوم با همان عدد رویِ همان سطر می‌فرستد (۱۲ statement به‌ازایِ هر پیامِ مشتری
+    # که یکی‌اش دقیقاً همین بود). مقدارِ درِ حافظه و درِ دیتابیس یکی است، فقط نویسهٔ
+    # «کثیف» حذف می‌شود ⇒ رفتارِ مالی هیچ تغییری نمی‌کند.
+    set_committed_value(owner, "wallet_balance_toman", result.scalar_one())
 
 
 async def add_charge(

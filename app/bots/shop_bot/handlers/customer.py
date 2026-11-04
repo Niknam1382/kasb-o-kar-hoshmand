@@ -51,7 +51,7 @@ from app.services import (
 )
 from app.bots.shop_bot.handlers import payments as payment_handlers
 from app.bots.shop_bot.handlers import product_photos as product_photo_handlers
-from app.services.admin_settings_service import get_admin_settings
+from app.services.admin_settings_service import cached_admin_settings
 from app.services.rate_limiter import rate_limiter
 
 logger = logging.getLogger(__name__)
@@ -150,13 +150,13 @@ async def _in_maintenance(session: AsyncSession) -> bool:
     می‌کند؛ چکِ موجودیِ کیف‌پول و محدودیتِ نرخ عمداً اینجا تکرار نمی‌شود تا شمارشِ مصرفِ AI
     (که در `_check_access` ثبت می‌شود) با بُرش‌هایِ فهرست دستکاری نشود.
     """
-    return bool((await get_admin_settings(session)).maintenance_mode)
+    return bool((await cached_admin_settings(session)).maintenance_mode)
 
 
 
 async def _check_access(message: Message, session: AsyncSession, shop_bot, main_bot: Bot) -> bool:
     """چک‌های مشترکِ همه‌ی انواعِ پیام (متن/عکس/صدا): حالتِ تعمیر + موجودیِ کیف‌پول + محدودیتِ نرخ."""
-    admin_settings = await get_admin_settings(session)
+    admin_settings = await cached_admin_settings(session)
     if admin_settings.maintenance_mode:
         await message.answer(texts.PLATFORM_MAINTENANCE_REPLY)
         return False
@@ -260,7 +260,7 @@ async def cart_open_products(message: Message, session: AsyncSession) -> None:
     if _is_consultation(shop_bot):
         await _stale_button_reply(message, shop_bot)
         return
-    admin_settings = await get_admin_settings(session)
+    admin_settings = await cached_admin_settings(session)
     if admin_settings.maintenance_mode:
         await message.answer(texts.PLATFORM_MAINTENANCE_REPLY)
         return
@@ -580,7 +580,7 @@ async def _generate_and_send_reply(
     if shop_bot is None or not shop_bot.is_active:
         return
 
-    admin_settings = await get_admin_settings(session)
+    admin_settings = await cached_admin_settings(session)
 
     matched_rule = await moderation_service.check_text(session, combined_text)
     if matched_rule is not None and matched_rule.action != ModerationAction.WARN:
@@ -874,7 +874,7 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
         platform=platform_service.of_event(message),
     )
 
-    admin_settings = await get_admin_settings(session)
+    admin_settings = await cached_admin_settings(session)
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
     if not order_access_service.chat_continues(await order_access_service.evaluate(session, owner, admin_settings)):
         await message.answer(texts.SHOP_UNAVAILABLE)
@@ -948,7 +948,7 @@ async def _detect_and_notify_order(
                 # مشتری همین الان جوابِ اصلیِ چت رو گرفته، این فقط یه قابلیتِ جانبیِ تشخیصِ سفارشه.
                 return
 
-            admin_settings = await get_admin_settings(session)
+            admin_settings = await cached_admin_settings(session)
             products = await product_service.get_active_by_shop_bot(session, shop_bot_id)
 
             ai = await ai_pool_service.build_ai_service(session, admin_settings, "chat")

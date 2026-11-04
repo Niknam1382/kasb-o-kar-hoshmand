@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.main_bot import texts
 from app.database.models import ShopBot, ShopOwner, TenantMode
 from app.services import commission_receivable_service, stats_service, time_freeze_service, wallet_service
-from app.services.admin_settings_service import get_admin_settings
+from app.services.admin_settings_service import cached_admin_settings
 from app.utils.jalali import to_tehran
 
 logger = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ async def send_due_reports(session: AsyncSession, main_bot: Bot, now: datetime.d
     `admin_settings.periodic_report_frequency_days` فقط بازه‌یِ پوششِ متنِ گزارش است، نه زمان‌بندی.
     `now` اختیاری است و فقط برایِ تست پاس داده می‌شود (مثلِ `send_due_nightly_reports`).
     """
-    admin_settings = await get_admin_settings(session)
+    admin_settings = await cached_admin_settings(session)
     now = now or datetime.datetime.now(datetime.timezone.utc)
     now_tehran = to_tehran(now)
 
@@ -106,7 +106,7 @@ async def send_due_nightly_reports(session: AsyncSession, main_bot: Bot, now: da
     رو دقیق تست کرد). توی اجرایِ واقعی (scheduler.py) همیشه None پاس داده
     می‌شه و ساعتِ واقعی استفاده می‌شه.
     """
-    admin_settings = await get_admin_settings(session)
+    admin_settings = await cached_admin_settings(session)
     if not admin_settings.nightly_report_enabled:
         return
 
