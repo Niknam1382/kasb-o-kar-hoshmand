@@ -81,6 +81,11 @@ TERMINAL: frozenset[str] = frozenset({COMPLETED, CANCELLED, REJECTED, EXPIRED, R
 # تحویلِ خودکارِ دیجیتال برایِ این وضعیت‌ها مجازه (ایدمپوتنت؛ digital_service.deliver_order)
 DELIVERABLE: frozenset[str] = frozenset({CONFIRMED, PAID, PROCESSING, SHIPPED, COMPLETED})
 
+# سقفِ هر دورِ جابِ انقضا (P40): بدونِ LIMIT، یکِ انباشتِ ناگهانی (مثلاً آپدیتی که چند ساعت
+# جاب را خوابانده) همه‌یِ ردیف‌ها را در یکِ تراکنش ردِ می‌کند و اتصال/قفل‌ها را نگه می‌دارد.
+# ردیف‌هایِ نمانده در دورِ بعدی (≈۶۰ ثانیه بعد) منقضی می‌شوند؛ گذارها ایدبمپوتنت‌اند.
+EXPIRY_SCAN_BATCH = 200
+
 # ── گذارهایِ مجاز ───────────────────────────────────────────────────────
 TRANSITIONS: dict[str, frozenset[str]] = {
     AWAITING_CUSTOMER_CONFIRMATION: frozenset({PENDING, CANCELLED, EXPIRED}),

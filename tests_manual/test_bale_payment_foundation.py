@@ -152,20 +152,27 @@ async def test_webhook_secret_in_path() -> None:
 
         return types.SimpleNamespace(headers=headers or {}, json=_json)
 
-    saved = (settings.bale_bot_token, settings.bale_webhook_secret)
+    saved = (settings.bale_bot_token, settings.bale_webhook_secret, settings.bale_updates_mode)
     try:
         settings.bale_bot_token = ""
         assert (await app_main.webhook_bale_with_secret("s3cret", request())).status_code == 404, "بدونِ توکن: غیرفعال"
         settings.bale_bot_token, settings.bale_webhook_secret = "tok", "s3cret"
         assert (await app_main.webhook_bale_with_secret("s3cret", request())).status_code == 200, "رازِ درست در مسیر"
         assert (await app_main.webhook_bale_with_secret("wrong", request())).status_code == 403
-        assert (await app_main.webhook_bale(request())).status_code == 403, "مسیرِ قدیمی بدونِ هدر رد"
-        assert (await app_main.webhook_bale(request({"X-Telegram-Bot-Api-Secret-Token": "s3cret"}))).status_code == 200, "مسیرِ قدیمی با هدرِ درست هنوز کار می‌کنه"
+        # P40 (امنیت): مسیرِ بدونِ رازِ مسیری فقط وقتی سرویس می‌شود که بله واقعاً وب‌هوک
+        # بفرستد. در پیش‌فرضِ `.env` (polling) هیچ رازی ساخته نمی‌شود، پس مسیر باید بسته
+        # باشد — رفتارِ قبلی (سرویسِ بی‌احراز) عمداً عوض شده است.
+        settings.bale_updates_mode = "polling"
+        assert (await app_main.webhook_bale(request())).status_code == 404, "polling ⇒ مسیرِ بی‌راز سرویس نمی‌شود"
+        assert (await app_main.webhook_bale(request({"X-Telegram-Bot-Api-Secret-Token": "s3cret"}))).status_code == 404
+        settings.bale_updates_mode = "webhook"
+        assert (await app_main.webhook_bale(request())).status_code == 403, "حالتِ webhook بدونِ هدر رد می‌شود"
+        assert (await app_main.webhook_bale(request({"X-Telegram-Bot-Api-Secret-Token": "s3cret"}))).status_code == 200, "هدرِ درست قبول"
         settings.bale_webhook_secret = ""
         assert (await app_main.webhook_bale_with_secret("anything", request())).status_code == 403, "رازِ تنظیم‌نشده ← مسیرِ دارایِ راز هیچ‌وقت باز نیست"
-        assert (await app_main.webhook_bale(request())).status_code == 200
+        assert (await app_main.webhook_bale(request())).status_code == 404, "رازِ ناساخته‌شده ⇒ حالتِ webhook هم بسته است"
     finally:
-        settings.bale_bot_token, settings.bale_webhook_secret = saved
+        settings.bale_bot_token, settings.bale_webhook_secret, settings.bale_updates_mode = saved
     print("✅ test_webhook_secret_in_path PASSED")
 
 

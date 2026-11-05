@@ -386,12 +386,15 @@ async def expire_stale_reservations(session: AsyncSession) -> list[OrderConsulta
     """
     now = datetime.datetime.now(datetime.timezone.utc)
     result = await session.execute(
-        select(OrderConsultation).where(
+        select(OrderConsultation)
+        .where(
             OrderConsultation.status == OrderStatus.PENDING,
             OrderConsultation.stock_reserved.is_(True),
             OrderConsultation.reservation_expires_at.is_not(None),
             OrderConsultation.reservation_expires_at < now,
         )
+        .order_by(OrderConsultation.reservation_expires_at.asc())
+        .limit(order_state.EXPIRY_SCAN_BATCH)
     )
     expired = list(result.scalars().all())
     for order in expired:

@@ -912,7 +912,23 @@ class FsmState(Base):
 
 class OrderConsultation(Base, CreatedAtMixin):
     __tablename__ = "orders_consultations"
-    __table_args__ = (Index("ix_orders_consultations_shop_status_created", "shop_bot_id", "status", "created_at"),)
+    # P40: دو اسکنِ پرتکرار این جدول را *بدونِ* فیلترِ shop_bot_id می‌خوانند — جابِ مهلتِ رزرو
+    # (هر ~۶۰ ثانیه، هر دو وضعیتِ «منتظرِ پرداخت» و «pending») و پرس‌وجویِ «این تراکنشِ بله
+    # جای دیگری مصرف شده؟» در هر وب‌هوکِ پرداخت. ایندکسِ ترکیبیِ پایین با shop_bot_id شروع
+    # می‌شود و به هیچ‌یک نمی‌خورد ⇒ sequential scan رویِ سریع‌ترین جدولِ در حالِ رشد.
+    __table_args__ = (
+        Index("ix_orders_consultations_shop_status_created", "shop_bot_id", "status", "created_at"),
+        Index(
+            "ix_orders_reservation_expires",
+            "reservation_expires_at",
+            postgresql_where=text("reservation_expires_at IS NOT NULL"),
+        ),
+        Index(
+            "ix_orders_bale_transaction",
+            "bale_transaction_id",
+            postgresql_where=text("bale_transaction_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), index=True, nullable=False)

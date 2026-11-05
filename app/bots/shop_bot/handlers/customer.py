@@ -66,6 +66,10 @@ ORDER_DEDUP_WINDOW_MINUTES = 10
 # مشتری ۳ تا پیامِ جدا فرستاد، ربات ۳ بار جدا جواب نده (مثلاً ۳ بار سلام نکنه).
 DEBOUNCE_SECONDS = float(shop_bot_service.DEFAULT_MESSAGE_BATCH_SECONDS)
 MAX_BUFFER_WAIT_SECONDS = 10.0
+# P40 (هزینه): هر پیامِ تلگرام/بله تا ۴۰۹۶ نویسه است و مشتری می‌تواند ۱۵ پیامِ پشتِ‌سرهم
+# بفرستد؛ بدونِ سقف، یکِ نفر پرامپتِ ~۶۰هزارنویسه‌ای می‌سازد که خرجش از کیف‌پولِ صاحبِ
+# فروشگاه کم می‌شود. این سقف فقط برشِ ایمنی است، نه تغییرِ رفتارِ عادی.
+COMBINED_TEXT_MAX_CHARS = 8000
 
 # کلید سه‌تایی است چون شناسه‌یِ عددیِ مشتری فقط داخلِ یک سرویسِ پیام‌رسان یکتاست: اگر پلتفرم نبود،
 # یک مشتریِ تلگرامی و یک مشتریِ بله‌ای با عددِ یکسان در یک فروشگاه، بافرِ تجمیع و قفلِ مشترک می‌گرفتند
@@ -588,7 +592,7 @@ async def _wait_then_process(key: tuple[int, int, str], delay: float, shop_bot_i
             if not messages:
                 return
 
-            combined_text = "\n".join(messages)
+            combined_text = text_limits.clip("\n".join(messages), COMBINED_TEXT_MAX_CHARS)
             shop_bot_id, customer_tg_id, _ = key  # پلتفرم از خودِ shop_bot_instance خوانده می‌شود
             try:
                 async with session_scope() as session:
@@ -725,10 +729,13 @@ async def _generate_and_send_reply(
     # مدل‌ها معمولاً با Markdown جواب می‌دهند و هیچ پیامی این‌جا با parse_mode فرستاده نمی‌شود ⇒
     # «**قیمت**» عیناً در چتِ مشتری می‌نشیند (شکایتِ مستقیمِ مالکِ محصول؛ P39).
     reply = text_limits.strip_markdown(reply)
+    # P40: تنها متنِ خروجیِ این پروژه که سقفِ سرویس را رعایت نمی‌کرد همین پاسخِ AI بود؛
+    # >۴۰۹۶ نویسه ⇒ TelegramBadRequest ⇒ مشتری هیچ نمی‌دید. برش *پیش ازِ ارسال* تا چیزی که
+    # مشتری می‌بیند، چیزی که در تاریخچه می‌رود و چیزی که برایِ پیشنهادِ سبد خوانده می‌شود یکی باشد.
+    reply = text_limits.clip(reply, text_limits.TELEGRAM_TEXT_LIMIT)
     if not reply:
         reply = texts.GAP_FALLBACK_REPLY
 
-    await conversation_service.save_turn(session, customer.id, combined_text, reply)
     if gap_flagged and admin_settings.knowledge_gap_enabled:
         await knowledge_service.record_gap(session, shop_bot_id, combined_text)
     suggest_markup = None
@@ -738,7 +745,16 @@ async def _generate_and_send_reply(
             cart = await cart_service.get_cart(session, shop_bot.id, customer.id)
             cart_items = await cart_service.get_items_with_products(session, cart.id) if cart else []
             suggest_markup = keyboards.cart_suggest_keyboard(suggested, show_cart_row=bool(cart_items))
-    await shop_bot_instance.send_message(customer_tg_id, reply, reply_markup=suggest_markup)
+    try:
+        await shop_bot_instance.send_message(customer_tg_id, reply, reply_markup=suggest_markup)
+    except TelegramAPIError:
+        # راهنمایِ کاربر («هزینه فقط اگر جواب بده»): پاسخِ نرسیده هزینه‌یِ صاحبِ فروشگاه نمی‌شود
+        # و تشخیصِ سفارش رویِ گفتگویی که مشتری هرگز ندیده اجرا نمی‌شود.
+        logger.exception("ارسالِ پاسخِ AI به مشتری %s در فروشگاه %s ناموفق بود؛ بدونِ کسرِ هزینه.", customer_tg_id, shop_bot_id)
+        return
+    # P40: تاریخچه *بعد ازِ ارسالِ موفق* نوشته می‌شود؛ پاسخِ نرسیده باعث می‌شد مدلِ دورِ بعد
+    # فکر کند قبلاً جواب داده است.
+    await conversation_service.save_turn(session, customer.id, combined_text, reply)
 
     cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
     await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot)

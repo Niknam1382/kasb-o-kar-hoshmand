@@ -598,10 +598,15 @@ async def webhook_bale(request: Request) -> Response:
         return limited
     if not bale_credentials_service.bot_token():
         return Response(status_code=404)
-    if bale_credentials_service.webhook_secret():
-        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-        if not _secrets_equal(secret, bale_credentials_service.webhook_secret()):
-            return _forbidden("webhook/bale: رازِ وب‌هوکِ نامعتبر")
+    secret = bale_credentials_service.webhook_secret()
+    # P40 (امنیت): این مسیرِ بدونِ رازِ مسیری فقط وقتی معنا دارد که بله واقعاً وب‌هوک بفرستد.
+    # رازِ بله تنها در `BALE_UPDATES_MODE=webhook` ساخته می‌شود، پس در پیش‌فرضِ `.env`
+    # (polling) هیچ رازی وجود ندارد و بدونِ این گارد هر کسی رویِ :8000 می‌توانست آپدیتِ
+    # جعلی به رباتِ پرداخت بفرستد (صورتحسابِ واقعیِ بله در چتِ دلخواه + پاسخِ pre_checkout).
+    if settings.bale_updates_mode != "webhook" or not secret:
+        return Response(status_code=404)
+    if not _secrets_equal(request.headers.get("X-Telegram-Bot-Api-Secret-Token"), secret):
+        return _forbidden("webhook/bale: رازِ وب‌هوکِ نامعتبر")
     return await _process_bale_update(request)
 
 

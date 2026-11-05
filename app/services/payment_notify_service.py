@@ -49,7 +49,11 @@ async def notify_online_payment(main_bot: Bot, bot_manager, shop_bot_id: int, ro
                 logger.exception("اطلاعِ پرداختِ آنلاین به فروشگاه‌دار ناموفق بود.")
 
         shop_bot_instance = bot_manager.customer_bot(shop_bot_id, customer.platform) if (bot_manager is not None and customer is not None) else None
-        if shop_bot_instance is not None and customer_tid is not None:
+        # P40: «سفارشت پرداخت شد» فقط وقتی به مشتری می‌رود که گروه واقعاً جلو رفته باشد. اگر
+        # پرچمِ نیازِ بررسی روی ردیف‌هاست (پول دوباره آمده، گروه لغو/پرداخت‌شده بوده، گذار
+        # رد شده) مشتری چیزی نمی‌شنود و فروشگاه‌دار همان خطِ «نیازِ بررسیِ دستی» را می‌بیند —
+        # قبلاً مشتری تایید می‌خواند در حالی که سفارشش جلو نرفته بود.
+        if shop_bot_instance is not None and customer_tid is not None and not needs_review:
             try:
                 await shop_bot_instance.send_message(customer_tid, shop_texts.payment_approved_message(code))
             except TelegramAPIError:
@@ -65,10 +69,9 @@ async def notify_online_payment(main_bot: Bot, bot_manager, shop_bot_id: int, ro
                     dedupe_key=f"paid:{rows[0].id}:{customer_tid}",
                 )
                 logger.exception("اعلامِ پرداخت به مشتری ناموفق بود؛ در صفِ تلاشِ دوباره.")
-            if not needs_review:
-                from app.bots.shop_bot.handlers.orders import send_invoice_to_customer
+            from app.bots.shop_bot.handlers.orders import send_invoice_to_customer
 
-                await send_invoice_to_customer(session, shop_bot, rows, customer, shop_bot_instance, customer_tid)
+            await send_invoice_to_customer(session, shop_bot, rows, customer, shop_bot_instance, customer_tid)
 
         if not needs_review and order_state.value_of(rows[0].status) in order_state.PAID_OR_LATER:
             from app.bots.main_bot.handlers import panel

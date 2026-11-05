@@ -143,6 +143,7 @@ TEST_FILES = [
     "test_p37_hardening.py",
     "test_p39_no_markdown_markers.py",
     "test_p39_wallet_per_charge_expiry.py",
+    "test_p40_inspection_fixes.py",
 ]
 
 

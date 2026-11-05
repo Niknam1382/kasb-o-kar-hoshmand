@@ -355,11 +355,14 @@ async def expire_stale_payment_groups(session: AsyncSession) -> list[list[OrderC
     + پرداختِ فعالشون `expired`. گروه‌هایی که تغییر کردن برمی‌گردن (تا هندلر اطلاع بده). ایدمپوتنت."""
     now = now_utc()
     result = await session.execute(
-        select(OrderConsultation).where(
+        select(OrderConsultation)
+        .where(
             OrderConsultation.status.in_((OrderStatus.AWAITING_PAYMENT, OrderStatus.RECEIPT_SUBMITTED)),
             OrderConsultation.reservation_expires_at.is_not(None),
             OrderConsultation.reservation_expires_at < now,
         )
+        .order_by(OrderConsultation.reservation_expires_at.asc())
+        .limit(order_state.EXPIRY_SCAN_BATCH)
     )
     seen: set[tuple[int, str]] = set()
     expired_groups: list[list[OrderConsultation]] = []

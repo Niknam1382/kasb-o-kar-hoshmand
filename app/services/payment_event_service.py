@@ -23,6 +23,10 @@ _BOT_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
 # الگویِ بالا فقط شکلِ «رقم‌ها:دنباله» را می‌گیرد؛ این یکی هر `/bot…/` را می‌بندد، حتی اگر شکلِ
 # توکنِ سرویسِ دیگری بعداً عوض شود یا رقم‌هایش کمتر از شش باشد.
 _BOT_URL_RE = re.compile(r"/bot[^/\s]{1,200}/")
+# P40 (دفاعِ لایه‌ای): `setWebhook` و `getWebhookInfo` آدرسِ `/webhook/main|bale/<راز>` را در
+# payload/پاسخ دارند و همان‌ها در `payment_event_logs.raw` می‌نشیند (و در هر pg_dump).
+# بخشِ عددیِ `/webhook/shop/<id>` عمداً ماسک نمی‌شود؛ فقط چیزی که شبیهِ راز است.
+_WEBHOOK_SECRET_RE = re.compile(r"(/webhook/(?:main|bale)/)([^/?#\s\"']{6,})")
 _PAN_RE = re.compile(r"(?<!\d)\d{16}(?!\d)")
 MAX_RAW_LENGTH = 4000
 # د(و): وضعیتی که «شکستِ پرداخت» حساب می‌شود و شمارنده‌یِ هشدارِ ادمین را بالا می‌برد.
@@ -30,7 +34,7 @@ FAILURE_STATUSES = frozenset({"failed", "unknown", "no_ref", "net_error", "error
 
 
 def _mask_text(text: str) -> str:
-    return _PAN_RE.sub("****", _BOT_URL_RE.sub("/bot***/", _BOT_TOKEN_RE.sub("***", text)))
+    return _PAN_RE.sub("****", _WEBHOOK_SECRET_RE.sub(r"\1***", _BOT_URL_RE.sub("/bot***/", _BOT_TOKEN_RE.sub("***", text))))
 
 
 def _scrub(value: Any) -> Any:
