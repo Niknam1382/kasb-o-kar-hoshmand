@@ -19,10 +19,18 @@ logger = logging.getLogger(__name__)
 
 _SENSITIVE_KEYS = {"token", "provider_token", "provider_token_value", "merchant_id", "authorization", "secret", "secret_token", "password", "api_key"}
 _BOT_TOKEN_RE = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
+# P36 (دفاعِ لایه‌ای): آدرس‌هایِ Bot API توکن را در مسیر جا می‌دهند (`…/bot<token>/getUpdates`).
+# الگویِ بالا فقط شکلِ «رقم‌ها:دنباله» را می‌گیرد؛ این یکی هر `/bot…/` را می‌بندد، حتی اگر شکلِ
+# توکنِ سرویسِ دیگری بعداً عوض شود یا رقم‌هایش کمتر از شش باشد.
+_BOT_URL_RE = re.compile(r"/bot[^/\s]{1,200}/")
 _PAN_RE = re.compile(r"(?<!\d)\d{16}(?!\d)")
 MAX_RAW_LENGTH = 4000
 # د(و): وضعیتی که «شکستِ پرداخت» حساب می‌شود و شمارنده‌یِ هشدارِ ادمین را بالا می‌برد.
 FAILURE_STATUSES = frozenset({"failed", "unknown", "no_ref", "net_error", "error"})
+
+
+def _mask_text(text: str) -> str:
+    return _PAN_RE.sub("****", _BOT_URL_RE.sub("/bot***/", _BOT_TOKEN_RE.sub("***", text)))
 
 
 def _scrub(value: Any) -> Any:
@@ -31,7 +39,7 @@ def _scrub(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_scrub(v) for v in value]
     if isinstance(value, str):
-        return _PAN_RE.sub("****", _BOT_TOKEN_RE.sub("***", value))
+        return _mask_text(value)
     return value
 
 
@@ -40,8 +48,8 @@ def sanitize(raw: Any) -> str:
     try:
         text = json.dumps(_scrub(raw), ensure_ascii=False, default=str)
     except (TypeError, ValueError):
-        text = _PAN_RE.sub("****", _BOT_TOKEN_RE.sub("***", str(raw)))
-    text = _PAN_RE.sub("****", _BOT_TOKEN_RE.sub("***", text))  # توکنِ داخلِ URL/متنِ آزاد
+        text = _mask_text(str(raw))
+    text = _mask_text(text)  # توکنِ داخلِ URL/متنِ آزاد
     return text[:MAX_RAW_LENGTH]
 
 

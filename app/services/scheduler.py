@@ -37,13 +37,17 @@ CHECK_INTERVAL_SECONDS = 30 * 60
 # PHASE 5E: همسنجیِ دفتر گران‌تر از بقیه است؛ ساعتی یک‌بار کافی است تا یک اختلافِ
 # حسابداری حداکثر یک ساعت بعد به ادمین بگوید، بدونِ اینکه کوئریِ گروهی در هر دورِ جاب بزنیم.
 RECONCILE_INTERVAL_SECONDS = 60 * 60
-_last_reconcile_at = 0.0
+# P37 (باگِ تولیدی): «۰.۰» یعنی «آخرین همسنجی در مبدأِ زمانِ یکتا». چون `time.monotonic()` رویِ
+# لینوکس از بوتِ ماشین می‌شمارد، رویِ سرور/کانتینرِ تازه‌بوت‌شده شرطِ «یک ساعت گذشته» تا یک ساعت
+# اول برقرار نیست و همسنجیِ دفتر — تنها نگهبانِ اختلافِ حسابداری — در همان ساعتِ اول اجرا
+# نمی‌شد. «هنوز اجرا نشده» باید None باشد.
+_last_reconcile_at: float | None = None
 
 
 def reset_reconcile_clock_for_tests() -> None:
     """فقط برایِ تست: دوربعدِ همسنجی بلافاصله مجاز باشد."""
     global _last_reconcile_at
-    _last_reconcile_at = 0.0
+    _last_reconcile_at = None
 
 
 async def run_periodic_pass(main_bot: Bot, bot_manager=None) -> None:
@@ -155,7 +159,7 @@ async def reconcile_wallet_ledgers() -> int:
     """
     global _last_reconcile_at
     now = time.monotonic()
-    if now - _last_reconcile_at < RECONCILE_INTERVAL_SECONDS:
+    if _last_reconcile_at is not None and now - _last_reconcile_at < RECONCILE_INTERVAL_SECONDS:
         return 0
     _last_reconcile_at = now
     try:

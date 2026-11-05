@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import re
 import secrets
+import socket
 from decimal import Decimal, InvalidOperation
 
 from aiogram import Bot, F, Router
@@ -933,6 +935,32 @@ _INTERNAL_HOST_RE = re.compile(
 )
 
 
+def _host_is_internal(host: str) -> bool:
+    """True ⇒ این میزبان به شبکهٔ داخلی می‌رسد و باید رد شود.
+
+    P36 (امنیت): regexِ تنها کافی نبود — شکل‌هایِ مبدّلِ همان آدرس (۱۷۷_octal، هگز، عددِ واحدِ
+    دسیمال مثلِ `2130706433`، یا `127.1`) از آن رد می‌شدند و به `aiohttp.post` با هدرِ
+    `Authorization: Bearer <کلید AI>` می‌رفتند. `socket.inet_aton` همان چیزی است که glibc قبول
+    می‌کند، پس آن‌ها را هم به IPv4ِ واقعی برمی‌گرداند و بعد خصیصه‌هایِ `ipaddress` را می‌سنجیم.
+    DNS عمداً حل نمی‌شود: «آدرسِ سرویسِ AIِ بیرونی» باید بدونِ وابستگی به DNSِ سرور ذخیره شود
+    (ریسکِ باقی‌مانده: DNS rebinding — راهِ بستنش در راهنمایِ دیپلوی، با محدودکردنِ egress).
+    """
+    clean = host.strip().strip("[]").rstrip(".").lower()
+    if not clean or _INTERNAL_HOST_RE.match(clean):
+        return True
+    try:
+        address = ipaddress.IPv4Address(socket.inet_aton(clean))
+    except (OSError, ValueError):
+        try:
+            address = ipaddress.ip_address(clean)
+        except ValueError:
+            return False
+    return (
+        address.is_private or address.is_loopback or address.is_link_local
+        or address.is_reserved or address.is_multicast or address.is_unspecified
+    )
+
+
 def _url_value_error(raw: str) -> str | None:
     """None ⇒ معتبر. آدرسِ سرویس باید httpsِ خالص باشد و به شبکهٔ داخلی نزند."""
     text = (raw or "").strip()
@@ -940,7 +968,7 @@ def _url_value_error(raw: str) -> str | None:
         return texts.ADMIN_INVALID_AI_URL
     host = text[len("https://") :].split("/", 1)[0]
     host = host.rsplit("@", 1)[-1].split(":", 1)[0]
-    if not host or _INTERNAL_HOST_RE.match(host):
+    if _host_is_internal(host):
         return texts.ADMIN_INVALID_AI_URL
     return None
 

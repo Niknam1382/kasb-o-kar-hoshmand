@@ -127,6 +127,28 @@ async def close_http_session() -> None:
     await _drop_http_session()
 
 
+def _safe_error(value: object) -> str:
+    """هر رشته‌ای که از سرویسِ بله یا از استثناهایِ شبکه می‌آید، پیش ازِ رفتن داخلِ پیام/لاگ ماسک می‌شود.
+
+    `payment_event_service.sanitize` همان چیزی است که ردیف‌هایِ `payment_event_logs` را امن
+    می‌کند (کلیدهایِ حساس + الگویِ `123456:token` + شماره‌کارت)؛ اینجا هم دقیقاً همان لازم است،
+    چون متنِ خطاهایِ aiohttp آدرسِ درخواست را دارد و آدرسِ بله **توکنِ ربات** را در خودش دارد.
+    """
+    from app.services import payment_event_service  # لازیم: importِ دایره‌ای نشکند
+
+    return payment_event_service.sanitize(str(value))[:200]
+
+
+async def _read_json(resp, method: str) -> dict:
+    """`resp.json()` بدونِ بررسیِ وضعیت، رویِ هر پاسخِ غیرJSON (صفحهٔ ۵۰۰ِ HTML، پورتالِ captive و…)
+    `ContentTypeError` می‌دهد که متنش آدرسِ کاملِ درخواستِ دارایِ توکن است ⇒ اول وضعیت و نوعِ محتوا.
+    """
+    if resp.status != 200 or "json" not in (resp.content_type or "").lower():
+        body = _safe_error((await resp.text())[:200])
+        raise BaleError(f"پاسخِ غیرJSONِ بله در {method}: HTTP {resp.status} · {body}")
+    return await resp.json()
+
+
 async def _call(bot_token: str, method: str, payload: dict) -> dict:
     from app.services import payment_event_service  # لازیم: جلوگیریِ importِ دایره‌ای
 
@@ -134,16 +156,23 @@ async def _call(bot_token: str, method: str, payload: dict) -> dict:
     http = await _http(API_REQUEST_TIMEOUT_SECONDS)
     try:
         async with http.post(url, json=payload) as resp:
-            data = await resp.json()
-    except Exception as exc:
-        await payment_event_service.log_event("bale", "out", method, status="net_error", raw={"request": payload, "error": str(exc)})
+            data = await _read_json(resp, method)
+    except BaleError:
         await _drop_http_session()
-        raise BaleError(f"ارتباط با بله برقرار نشد ({method}): {exc}") from exc
+        raise
+    except Exception as exc:
+        # P36 (امنیت): متنِ خطاهایِ aiohttp آدرسِ کاملِ درخواست را دارد و آدرسِ بله
+        # توکنِ ربات را داخلِ خودش جا می‌دهد (`…/bot<token>/method`). بدونِ ماسک، این رشته
+        # در `logger.exception` همه‌جا و در گزارشِ «🧪 آزمایشِ بله‌پی» به ادمین می‌رسید.
+        safe = _safe_error(exc)
+        await payment_event_service.log_event("bale", "out", method, status="net_error", raw={"request": payload, "error": safe})
+        await _drop_http_session()
+        raise BaleError(f"ارتباط با بله برقرار نشد ({method}): {safe}") from exc
 
     ok = bool(data.get("ok", False))
     await payment_event_service.log_event("bale", "out", method, status="ok" if ok else "error", raw={"request": payload, "response": data})
     if not ok:
-        raise BaleError(f"درخواستِ {method} به بله ناموفق بود: {data.get('description') or data}")
+        raise BaleError(f"درخواستِ {method} به بله ناموفق بود: {_safe_error(data.get('description') or data)}")
     return data.get("result")
 
 
@@ -177,7 +206,7 @@ async def create_invoice_link(
     }
     result = await _call(bot_token, "createInvoiceLink", body)
     if not isinstance(result, str) or not result:
-        raise BaleError(f"پاسخِ createInvoiceLink فرمتِ منتظره رو نداشت: {result!r}")
+        raise BaleError(f"پاسخِ createInvoiceLink فرمتِ منتظره رو نداشت: {_safe_error(result)!r}")
     return result
 
 
@@ -297,13 +326,19 @@ async def get_updates(
         async with http.post(
             _api_url(bot_token, "getUpdates"), json=payload, timeout=aiohttp.ClientTimeout(total=timeout + 15)
         ) as resp:
-            data = await resp.json()
-    except Exception as exc:
+            data = await _read_json(resp, "getUpdates")
+    except BaleError:
         await _drop_http_session()
-        raise BaleError(f"ارتباط با بله برقرار نشد (getUpdates): {exc}") from exc
+        raise
+    except Exception as exc:
+        # P36 (امنیت): همین محافظتِ `_call` — آدرسِ getUpdates توکنِ ربات را در خودش دارد.
+        safe = _safe_error(exc)
+        await payment_event_service.log_event("bale", "out", "getUpdates", status="net_error", raw={"error": safe})
+        await _drop_http_session()
+        raise BaleError(f"ارتباط با بله برقرار نشد (getUpdates): {safe}") from exc
     if not data.get("ok", False):
         await payment_event_service.log_event("bale", "out", "getUpdates", status="error", raw={"response": data})
-        raise BaleError(f"getUpdates ناموفق بود: {data.get('description') or data}")
+        raise BaleError(f"getUpdates ناموفق بود: {_safe_error(data.get('description') or data)}")
     result = data.get("result")
     return result if isinstance(result, list) else []
 

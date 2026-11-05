@@ -101,7 +101,12 @@ def record_event(kind: str, detail: str) -> bool:
         _details[key] = clean
         if len(bucket) < threshold:
             return False
-        if now - _last_alert.get(key, 0.0) < ALERT_COOLDOWN_SECONDS:
+        # P37 (باگِ تولیدی): مقایسه با ۰.0 یعنی «آخرین هشدار سی دقیقه پیش ازِ شروعِ زمانِ یکتا
+        # زده شده». `time.monotonic()` رویِ لینوکس از بوتِ ماشین شمرده می‌شود، پس در سرور/کانتینری
+        # که تازه بوت شده، اولین هشدارِ هر نوع تا ۳۰ دقیقه خاموش می‌ماند — دقیقاً همان ۳۰ دقیقه‌ای
+        # که دیپلوی/بوت نو به هشدار نیاز دارد. «هنوز ارسال نشده» باید None باشد، نه ۰.
+        last = _last_alert.get(key)
+        if last is not None and now - last < ALERT_COOLDOWN_SECONDS:
             return False
         if not _budget_allows(now):
             return False

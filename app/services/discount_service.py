@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,11 +44,19 @@ async def validate_code(session: AsyncSession, raw_code: str, shop_owner_id: int
 
 
 def apply_discount(base_amount: int, discount: DiscountCode) -> int:
+    """P36: جمعِ درصدی با `Decimal`، بدونِ `float`.
+
+    `value` رویِ ستونِ `Numeric(10,2)` نشسته و همین قدرِ پول را باید درست قطع کند؛ مسیرِ قبلی
+    (`int(base * float(value) / 100)`) ممیزِ دودویی داشت و در مرزها یکِ ریال کم یا زیاد می‌کرد.
+    همان truncationِ قبلی نگه داشته شده (گردِ رو به پایینِ مبلغِ تخفیف) تا هیچ عددِ موجودی
+    بی‌دلیل جابه‌جا نشود.
+    """
+    base = Decimal(base_amount)
     if discount.type == DiscountType.PERCENT:
-        final_price = base_amount - int(base_amount * float(discount.value) / 100)
+        off = (base * Decimal(discount.value) / Decimal(100)).to_integral_value(rounding=ROUND_DOWN)
     else:
-        final_price = base_amount - int(discount.value)
-    return max(final_price, 0)
+        off = Decimal(discount.value).to_integral_value(rounding=ROUND_DOWN)
+    return max(int(base - off), 0)
 
 
 async def create_code(
