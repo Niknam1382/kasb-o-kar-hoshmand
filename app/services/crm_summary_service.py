@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 
+from app.utils.text_limits import strip_markdown
 from app.utils.validators import fa_number, format_toman
 
 SUMMARY_MESSAGE_LIMIT = 30
@@ -84,7 +85,7 @@ async def generate_summary(ai, user_message: str):
 
 
 def clamp_reply(text: str | None) -> str:
-    cleaned = (text or "").strip()
+    cleaned = strip_markdown(text)
     if len(cleaned) > SUMMARY_REPLY_MAX_CHARS:
         cleaned = cleaned[: SUMMARY_REPLY_MAX_CHARS - 1].rstrip() + "…"
     return cleaned

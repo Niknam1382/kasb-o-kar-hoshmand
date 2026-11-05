@@ -9,7 +9,10 @@
    ساخته نمی‌شود و پیامِ «لینکِ کهنه» می‌رود. مبلغِ سفارشِ تکی هم دیگر AttributeError نمی‌دهد.
 ۴. پلِ `bot_manager`: آپدیتِ پرداختِ بله در رباتِ فروشگاه مصرف می‌شود و با توکنِ همان ربات به
    هندلرِ پرداخت می‌رود؛ آپدیتِ گفت‌وگو و `payment-` مصرف نمی‌شوند.
-۵. پنلِ فروشگاه‌دار: هر دو ورودی در یکِ صفحه + ذخیره و حذفِ توکنِ درگاه.
+۵. پنلِ فروشگاه‌دار (P39): «💳 پرداختِ آنلاینِ سفارش‌ها» هر دو توکن را می‌گیرد (اول ربات، بعد
+   درگاه) و صفحهٔ هوشمندسازیِ بله فقط توکنِ ربات را دارد.
+۶. با کلیدِ رونماییِ خاموش، همان صفحه فقط توکنِ درگاه را می‌پرسد (اتصالِ بله که ساخته نشود،
+   توکنِ ربات هم لازم نیست).
 
 اجرا: python3 tests_manual/run_one.py test_p34_bale_own_payment_surface.py
 """
@@ -22,6 +25,8 @@ from types import SimpleNamespace
 sys.path.insert(0, ".")
 sys.path.insert(0, "tests_manual")
 
+from sqlalchemy import select  # noqa: E402
+
 from harness import build_test_dispatchers, reset_database  # noqa: E402
 from phase4_helpers import Chat  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
@@ -32,6 +37,7 @@ from app.config import settings  # noqa: E402
 from app.database.models import OrderConsultation, OrderStatus, OrderType, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import (  # noqa: E402
+    bale_bot_service,
     bale_credentials_service as creds,
     bale_service,
     customer_service,
@@ -251,7 +257,9 @@ async def _reveal_bale_bots(shop_bot_id: int) -> None:
         shop_bot.bale_bot_enabled = True
 
 
-async def test_panel_shows_and_saves_both_inputs(main_dp, bot_manager) -> None:
+async def test_payment_screen_takes_both_inputs(main_dp, bot_manager) -> None:
+    """P39: «💳 پرداختِ آنلاینِ سفارش‌ها» هر دو توکن را می‌گیرد (اول ربات، بعد درگاه) و
+    صفحهٔ هوشمندسازیِ بله دیگر دکمهٔ توکنِ درگاه ندارد."""
     await reset_database()
     shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
     await _configure_platform()
@@ -260,41 +268,75 @@ async def test_panel_shows_and_saves_both_inputs(main_dp, bot_manager) -> None:
     bot_manager.register_bale = lambda shop_bot: asyncio.sleep(0)  # type: ignore[assignment] — بی‌شبکه
     owner = Chat(main_dp, OWNER_TG_ID)
     with _Cfg():
-        await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+        await owner.say("💳 پرداختِ آنلاینِ سفارش‌ها")
         screen = owner.last_text
         assert "۱) توکنِ رباتِ بله" in screen and "۲) توکنِ درگاهِ بله‌پی" in screen, screen
         assert "تنظیم‌نشده" in screen, screen
-        datas = [b.callback_data for row in owner.last_markup.inline_keyboard for b in row]
-        assert "bale_provider_edit" in datas, datas
+        assert "اول توکنِ رباتِ بله" in screen, "چون رباتِ بله ثبت نشده، همان اول پرسیده می‌شود"
 
-        await owner.tap("bale_provider_edit")
-        assert "پنلِ پذیرندگانِ بله‌پی" in owner.last_text, owner.last_text
+        await owner.say("کوتاه")
+        assert owner.last_text == main_texts.BALE_SHOP_BOT_TOKEN_INVALID_FORMAT, owner.last_text
+
+        real_fetch = bale_bot_service.fetch_identity
+
+        async def fake_fetch(_token: str) -> dict:
+            return {"id": 987_654, "username": SHOP_PAY_BOT}
+
+        bale_bot_service.fetch_identity = fake_fetch  # type: ignore[assignment]
+        try:
+            await owner.say(SHOP_BALE_TOKEN)
+        finally:
+            bale_bot_service.fetch_identity = real_fetch  # type: ignore[assignment]
+        assert owner.sent[-2]["text"] == main_texts.BALE_SHOP_BOT_SAVED, owner.sent[-2]["text"]
+        assert "توکنِ درگاهِ خودت را بفرست" in owner.last_text, owner.last_text
+
         await owner.say("کوتاه")
         assert owner.last_text == main_texts.BALE_PROVIDER_TOKEN_INVALID, owner.last_text
 
-        # ذخیره با رباتِ ثبت‌نشده ⇒ پیام باید بگوید «هنوز جفت کامل نشده»، نه «پول به کیفِ خودت»
+        # جفتِ کامل ⇒ پیامِ ذخیره باید بگوید صورتحساب در چتِ رباتِ خودت می‌آید
         await owner.say(SHOP_PROVIDER)
         saved = owner.sent[-2]["text"]
-        assert "رباتِ بله‌یِ خودت هنوز ثبت نشده" in saved, saved
+        assert "رباتِ بله‌ات هم ثبت است" in saved, saved
+        assert "همین دکمه را دوباره بزن" in owner.last_text, owner.last_text
         async with session_scope() as session:
             shop_bot = await session.get(ShopBot, shop_bot_id)
             assert shop_bot.bale_provider_token == SHOP_PROVIDER
+            assert shop_bot.bale_bot_username == SHOP_PAY_BOT
 
-        # رباتِ بله هم ثبت شد ⇒ جفت کامل
-        await _connect_shop_bale_bot(shop_bot_id)
-        await owner.tap("bale_provider_edit")
-        await owner.say(SHOP_PROVIDER + "2")
-        saved = owner.sent[-2]["text"]
-        assert "صورتحسابِ سفارش در چتِ رباتِ خودت" in saved, saved
-
-        # «حذف» هم از همین صفحه کار می‌کند و صفحه برمی‌گردد
-        await owner.tap("bale_provider_edit")
+        # «حذف» از همان صفحه کار می‌کند
+        await owner.say("💳 پرداختِ آنلاینِ سفارش‌ها")
         await owner.say("حذف")
-        assert main_texts.BALE_PROVIDER_TOKEN_REMOVED in owner.sent[-2]["text"], owner.sent[-2]["text"]
+        assert main_texts.BALE_PROVIDER_TOKEN_REMOVED in owner.last_text, owner.last_text
         async with session_scope() as session:
             shop_bot = await session.get(ShopBot, shop_bot_id)
             assert shop_bot.bale_provider_token is None
-    print("✅ test_panel_shows_and_saves_both_inputs PASSED")
+
+        # صفحهٔ هوشمندسازیِ بله: فقط توکنِ ربات (دکمهٔ درگاه حذف شده است)
+        await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+        datas = [b.callback_data for row in owner.last_markup.inline_keyboard for b in row]
+        assert "bale_edit" in datas, datas
+        assert "bale_provider_edit" not in datas, datas
+        assert "۲)" not in owner.last_text, owner.last_text
+    print("✅ test_payment_screen_takes_both_inputs PASSED")
+
+
+async def test_payment_screen_asks_bot_token_only_when_revealed(main_dp) -> None:
+    """کلیدِ رونماییِ ادمین خاموش ⇒ اتصالِ بله ساخته نمی‌شود، پس صفحهٔ پرداخت هم توکنِ ربات
+    نمی‌پرسد و سراغِ همان توکنِ درگاه می‌رود (رفتارِ پیش از P39 برایِ نصب‌هایِ پنهان)."""
+    await reset_database()
+    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    await _configure_platform()
+    owner = Chat(main_dp, OWNER_TG_ID)
+    with _Cfg():
+        await owner.say("💳 پرداختِ آنلاینِ سفارش‌ها")
+        screen = owner.last_text
+        assert "اول توکنِ رباتِ بله" not in screen, screen
+        assert "توکنِ درگاهِ خودت را بفرست" in screen, screen
+        await owner.say(SHOP_PROVIDER)
+        async with session_scope() as session:
+            shop_bot = (await session.execute(select(ShopBot))).scalars().first()
+            assert shop_bot.bale_provider_token == SHOP_PROVIDER
+    print("✅ test_payment_screen_asks_bot_token_only_when_revealed PASSED")
 
 
 async def main() -> None:
@@ -302,7 +344,8 @@ async def main() -> None:
     await test_pair_rule_and_link_target()
     await test_handoff_uses_matching_surface()
     await test_bale_payment_bridge_consumes_only_payment_updates(bot_manager)
-    await test_panel_shows_and_saves_both_inputs(main_dp, bot_manager)
+    await test_payment_screen_takes_both_inputs(main_dp, bot_manager)
+    await test_payment_screen_asks_bot_token_only_when_revealed(main_dp)
 
 
 if __name__ == "__main__":

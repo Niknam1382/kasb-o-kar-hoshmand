@@ -84,7 +84,10 @@ DELIVERABLE: frozenset[str] = frozenset({CONFIRMED, PAID, PROCESSING, SHIPPED, C
 # ── گذارهایِ مجاز ───────────────────────────────────────────────────────
 TRANSITIONS: dict[str, frozenset[str]] = {
     AWAITING_CUSTOMER_CONFIRMATION: frozenset({PENDING, CANCELLED, EXPIRED}),
-    PENDING: frozenset({CONFIRMED, REJECTED, CANCELLED, EXPIRED}),
+    # P39 · باگِ ۳: پرداختِ آنلاینِ راستی‌آزمایی‌شده (بله‌پی/زرین‌پال) هم از `pending` به `paid`
+    # می‌رود — مشتری پول را داده و فروشگاه‌دار دیگر لازم نیست دستی تایید کند. تنها فراخوانِ این
+    # گذار `order_payment_service.apply_verified_*` است (بعد از inquire/verify سمتِ سرور).
+    PENDING: frozenset({CONFIRMED, PAID, REJECTED, CANCELLED, EXPIRED}),
     # awaiting_payment → pending: انتخابِ «پرداختِ دستی» (فروشگاه‌دار مثلِ مسیرِ قدیمی دستی تایید می‌کنه)
     AWAITING_PAYMENT: frozenset({RECEIPT_SUBMITTED, PAID, PENDING, CANCELLED, EXPIRED, REJECTED}),
     RECEIPT_SUBMITTED: frozenset({PAID, AWAITING_PAYMENT, REJECTED, EXPIRED}),

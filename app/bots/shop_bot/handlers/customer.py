@@ -54,6 +54,7 @@ from app.bots.shop_bot.handlers import payments as payment_handlers
 from app.bots.shop_bot.handlers import product_photos as product_photo_handlers
 from app.services.admin_settings_service import cached_admin_settings
 from app.services.rate_limiter import rate_limiter
+from app.utils import text_limits
 
 logger = logging.getLogger(__name__)
 
@@ -721,6 +722,9 @@ async def _generate_and_send_reply(
     # نشانه‌یِ خلأِ دانش *قبل از* ذخیره و ارسال حذف می‌شه (وگرنه به مشتری می‌رسید و توی تاریخچه
     # می‌رفت و AI تقلیدش می‌کرد). حذف همیشه انجام می‌شه؛ ثبتِ سوال فقط وقتی کلید روشنه.
     reply, gap_flagged = knowledge_service.strip_gap_marker(ai_result.text)
+    # مدل‌ها معمولاً با Markdown جواب می‌دهند و هیچ پیامی این‌جا با parse_mode فرستاده نمی‌شود ⇒
+    # «**قیمت**» عیناً در چتِ مشتری می‌نشیند (شکایتِ مستقیمِ مالکِ محصول؛ P39).
+    reply = text_limits.strip_markdown(reply)
     if not reply:
         reply = texts.GAP_FALLBACK_REPLY
 

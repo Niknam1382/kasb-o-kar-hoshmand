@@ -28,6 +28,7 @@ from app.bots.main_bot.states import (
 )
 from app.config import settings
 from app.utils.jalali import format_jalali_datetime
+from app.utils.text_limits import strip_markdown
 from app.database.models import Customer, DiscountCode, OrderConsultation, PaymentPurpose, PaymentStatus, TenantMode
 from app.services import (
     admin_role_service,
@@ -186,11 +187,13 @@ async def save_shop_bot_token(message: Message, state: FSMContext, session: Asyn
     except Exception:
         logger.warning("اعمالِ بیوگرافی رویِ رباتِ تازه ثبت‌شده ناموفق بود.", exc_info=True)
 
-    # P36: «علاوه بر توکنِ رباتِ تلگرام، توکنِ رباتِ بله را هم بفرست» — همان صفحه‌یِ دو ورودی،
-    # درست بعد ازِ موفقیت‌آمیز‌ترین لحظه‌یِ اتصالِ تلگرام. اگر فروشگاه توکنِ بله دارد، مزاحم نمی‌شویم.
+    # P36 → P39: «علاوه بر توکنِ رباتِ تلگرام، توکنِ رباتِ بله را هم بفرست» — در *همان* جریانِ
+    # ثبتِ توکن و بدونِ هیچ دکمهٔ تازه (درخواستِ مالکِ محصول: فقط برایِ هوشمندسازی).
     if bale_bot_service.enabled(await get_admin_settings(session)) and not bale_bot_service.raw_token(shop_bot):
         try:
-            await message.answer(texts.BALE_SMARTEN_OFFER, reply_markup=keyboards.bale_shop_bot_keyboard(shop_bot))
+            await state.set_state(BaleShopBotStates.waiting_token)
+            await state.update_data({"bale_return": "register"})
+            await message.answer(texts.BALE_SMARTEN_OFFER)
         except TelegramAPIError:
             logger.exception("پیشنهادِ اتصالِ بله پس ازِ ثبتِ توکنِ تلگرام ناموفق بود.")
 
@@ -221,6 +224,33 @@ async def _bale_screen(target, shop_bot, session: AsyncSession) -> None:
         await target.answer(text, reply_markup=markup)
 
 
+async def _bale_payment_screen(target, shop_bot, session: AsyncSession, state: FSMContext, arm: bool = True) -> None:
+    """P39: صفحهٔ «💳 پرداختِ آنلاینِ سفارش‌ها» — هر دو توکنِ بله‌پی همین‌جا گرفته می‌شوند.
+
+    کدام خانه پرسیده شود = آنچه کم است: اول رباتِ بله (چون توکنِ درگاه به یک رباتِ خاص بسته
+    است)، بعد درگاه. با arm=False فقط وضعیت نشان داده می‌شود و state سلاح نمی‌شود (تا متنِ
+    بعدیِ فروشگاه‌دار اشتباهی به‌جایِ توکن خوانده نشود).
+    """
+    pay_settings = await payment_settings_service.get(session, shop_bot.id)
+    status = await bale_credentials_service.shop_status(session, shop_bot, pay_settings)
+    # توکنِ رباتِ بله فقط وقتی پرسیده می‌شود که کلیدِ رونماییِ ادمین روشن باشد (در غیرِ این‌صور
+    # اتصالِ بله ساخته نمی‌شود و پرسیدنش فقط گمراه‌کننده است)؛ توکنِ درگاه همیشه لازم است.
+    may_ask_bot = not bale_bot_service.raw_token(shop_bot) and await bale_bot_service.visible_for(session)
+    asking = "bot" if may_ask_bot else "provider"
+    if not arm:
+        asking = "info"
+    elif asking == "bot":
+        await state.set_state(BaleShopBotStates.waiting_token)
+        await state.update_data({"bale_return": "payment"})
+    else:
+        await state.set_state(BaleProviderTokenStates.waiting_token)
+    text = texts.bale_provider_token_current(shop_bot, status.missing, asking)
+    if isinstance(target, CallbackQuery):
+        await target.message.answer(text)
+    else:
+        await target.answer(text, reply_markup=keyboards.payments_entry_keyboard())
+
+
 @router.message(F.text == texts.BALE_SHOP_BOT_BUTTON)
 async def open_bale_shop_bot(message: Message, session: AsyncSession, state: FSMContext) -> None:
     if not await bale_bot_service.visible_for(session):
@@ -242,6 +272,7 @@ async def bale_edit_token(callback: CallbackQuery, session: AsyncSession, state:
         return
     await state.clear()
     await state.set_state(BaleShopBotStates.waiting_token)
+    await state.update_data({"bale_return": "screen"})
     await callback.answer()
     await callback.message.answer(texts.ASK_BALE_SHOP_BOT_TOKEN)
 
@@ -308,8 +339,18 @@ async def save_bale_shop_bot_token(message: Message, state: FSMContext, session:
         await message.answer(texts.SHOP_BOT_NOT_SET_UP)
         return
 
+    origin = (await state.get_data()).get("bale_return")
     raw_token = message.text.strip()
+    if origin == "register" and raw_token in texts.BALE_SMARTEN_SKIP_WORDS:
+        await state.clear()
+        await message.answer(texts.BALE_SMARTEN_POSTPONED)
+        return
     if not bale_bot_service.valid_token_input(raw_token):
+        if origin == "register":
+            # جریانِ «ثبتِ توکن» نباید منویِ پنل را گروگان بگیرد: هر ورودیِ دیگر ⇒ آزادکردنِ state.
+            await state.clear()
+            await message.answer(texts.BALE_SMARTEN_RELEASED)
+            return
         await message.answer(texts.BALE_SHOP_BOT_TOKEN_INVALID_FORMAT)  # state می‌ماند تا درستش را بفرستد
         return
     try:
@@ -331,48 +372,12 @@ async def save_bale_shop_bot_token(message: Message, state: FSMContext, session:
         await bot_manager.register_bale(shop_bot)
     except Exception:
         logger.exception("ثبتِ اتصالِ بله‌یِ فروشگاه %s در ShopBotManager ناموفق بود.", shop_bot.id)
-    await _bale_screen(message, shop_bot, session)
-
-
-@router.callback_query(F.data == "bale_provider_edit")
-async def bale_edit_provider_token(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
-    """P34: توکنِ درگاهِ بله‌پی در *همین* صفحه نوشته می‌شود، نه فقط در صفحهٔ جدا."""
-    shop_bot = await _own_shop_bot_cb(callback, session)
-    if shop_bot is None:
-        return
-    await state.clear()
-    await state.set_state(BaleShopBotStates.waiting_provider_token)
-    await callback.answer()
-    await callback.message.answer(texts.ASK_BALE_SHOP_PROVIDER_TOKEN)
-
-
-@router.message(BaleShopBotStates.waiting_provider_token, F.text)
-async def save_bale_shop_provider_token(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    owner = await _current_owner(message, session)
-    shop_bot = await shop_bot_service.get_by_owner(session, owner)
-    if shop_bot is None:
-        await state.clear()
-        await message.answer(texts.SHOP_BOT_NOT_SET_UP)
-        return
-
-    raw = message.text.strip()
-    if raw == "حذف":
-        await state.clear()
-        shop_bot.bale_provider_token = None
-        await session.flush()
-        await message.answer(texts.BALE_PROVIDER_TOKEN_REMOVED)
+    if origin == "payment":
+        # P39: صفحهٔ پرداختِ آنلاین *هر دو* توکن را می‌گیرد؛ بعد ازِ ربات، سراغِ درگاه می‌رویم.
+        await _bale_payment_screen(message, shop_bot, session, state)
+    elif origin != "register":
         await _bale_screen(message, shop_bot, session)
-        return
 
-    if not bale_credentials_service.valid_token_input(raw):
-        await message.answer(texts.BALE_PROVIDER_TOKEN_INVALID)  # state می‌ماند تا درستش را بفرستد
-        return
-
-    await state.clear()
-    shop_bot.bale_provider_token = raw
-    await session.flush()
-    await message.answer(texts.bale_provider_saved_text(shop_bot))
-    await _bale_screen(message, shop_bot, session)
 
 
 # =============================================================================
@@ -460,6 +465,7 @@ async def preview_message(message: Message, session: AsyncSession) -> None:
     # پیش‌نمایش: نشانه‌یِ خلأ حذف می‌شه ولی هیچ‌وقت *ثبت* نمی‌شه (سوالِ تستیِ خودِ فروشگاه‌دار نباید
     # توی «سوال‌هایِ بی‌جواب» قاطی بشه).
     preview_reply, gap_flagged = knowledge_service.strip_gap_marker(ai_result.text)
+    preview_reply = strip_markdown(preview_reply)
     if gap_flagged:
         preview_reply = f"{preview_reply}\n\n{texts.PREVIEW_GAP_NOTE}".strip()
     await message.answer(preview_reply or texts.PREVIEW_GAP_NOTE)
@@ -574,11 +580,9 @@ async def open_stats(message: Message, session: AsyncSession) -> None:
 # کیف‌پول و پرداخت
 # =============================================================================
 async def _wallet_status_line(session: AsyncSession, owner) -> str:
-    """موجودی + «چقدرش واقعاً قابلِ خرج است» + «چقدرش دارد منقضی می‌شود»."""
-    usable, expiring_toman, expiring_days = await wallet_service.credit_summary(session, owner)
-    return texts.wallet_status_text(
-        owner.wallet_balance_toman, usable_toman=usable, expiring_toman=expiring_toman, expiring_days=expiring_days
-    )
+    """موجودی + «چقدرش واقعاً قابلِ خرج است» + انقضایِ هر شارژ جدا (P39 · باگِ ۴)."""
+    usable, lots = await wallet_service.credit_summary(session, owner)
+    return texts.wallet_status_text(owner.wallet_balance_toman, usable_toman=usable, lots=lots)
 
 
 @router.message(F.text == "💰 کیف‌پول")
@@ -1299,15 +1303,7 @@ async def open_bale_provider_token(message: Message, session: AsyncSession, stat
     if shop_bot is None:
         await message.answer(texts.SHOP_BOT_NOT_SET_UP)
         return
-
-    row = await payment_settings_service.get(session, shop_bot.id)
-    status = await bale_credentials_service.shop_status(session, shop_bot, row)
-    # B11: قبلاً دو پیامِ پشتِ‌هم می‌رفت (وضعیت + «کد را بفرست») که «پیامِ اضافه» به نظر می‌رسید؛
-    # حالا یک پیامِ واحد، با وضعیتِ واقعی و آنچه کم است.
-    await state.set_state(BaleProviderTokenStates.waiting_token)
-    await message.answer(
-        texts.bale_provider_token_current(shop_bot, status.missing), reply_markup=keyboards.payments_entry_keyboard()
-    )
+    await _bale_payment_screen(message, shop_bot, session, state)
 
 
 @router.message(BaleProviderTokenStates.waiting_token, F.text)
@@ -1329,7 +1325,8 @@ async def save_bale_provider_token(message: Message, state: FSMContext, session:
     await state.clear()
     shop_bot.bale_provider_token = raw
     await session.flush()
-    await message.answer(texts.BALE_PROVIDER_TOKEN_SAVED)
+    await message.answer(texts.bale_provider_saved_text(shop_bot))
+    await _bale_payment_screen(message, shop_bot, session, state, arm=False)
 
 
 # =============================================================================

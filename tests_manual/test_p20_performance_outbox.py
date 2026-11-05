@@ -7,8 +7,8 @@
 ۳. dedupe: دو بار صف‌کردنِ همان رویداد ⇒ یک ردیف.
 ۴. `notify_customer` (تاییدِ سفارشِ فروشگاه‌دار): خطایِ گذرا ⇒ صف؛ بلاکِ مشتری ⇒ بدونِ صف (بی‌فایده).
 ۵. جابِ دوره‌ای، صف را واقعاً تخلیه می‌کند (سیم‌کشیِ scheduler، نه فقط تابعِ تنها).
-۶. `wallet_service.credit_summary`: «قابل‌استفاده» = موجودی کمِ holdِ کمیسیون؛ «در آستانهٔ انقضا»
-   فقط بسته‌هایِ زندهٔ ۳۰ روزِ آینده را می‌شمارد.
+۶. `wallet_service.credit_summary`: «قابل‌استفاده» = موجودی کمِ holdِ کمیسیون؛ انقضا به تفکیکِ
+   هر روزِ انقضا و به همان ترتیبِ مصرف برمی‌گردد (P39 — پیش‌تر یکِ مبلغِ قاطی‌شده بود).
 ۷. رابطهٔ `ShopBot.products` دیگر selectin نیست (کوئریِ پنهانِ «همهٔ محصولات» در هر پیامِ مشتری).
 ۸. پنلِ ادمین: گزارشِ صفِ اعلان‌ها + دکمهٔ «تلاشِ دوباره» که شکست‌خورده‌ها را با backoffِ تازه
    به صف برمی‌گرداند (بدونِ این دکمه، `failed` یک‌باره برایِ همیشه ساکت می‌ماند).
@@ -277,11 +277,12 @@ async def test_credit_summary_shows_usable_and_expiring() -> None:
 
     async with session_scope() as session:
         owner = (await session.execute(select(ShopOwner).where(ShopOwner.telegram_id == OWNER_TG_ID))).scalars().one()
-        usable, expiring, days_left = await wallet_service.credit_summary(session, owner)
+        usable, lots = await wallet_service.credit_summary(session, owner)
     assert usable == 75_000, usable  # ۱۰۰٬۰۰۰ موجودی منهای ۲۵٬۰۰۰ hold
     assert commission_service.usable_credit(owner) == usable
-    assert expiring == 40_000, expiring  # فقط بسته‌ای که ۱۰ روز مانده دارد
-    assert days_left == 10, days_left
+    # P39: other ازِ یکِ عددِ قاطی‌شده، هر شارژ جدا دیده می‌شود (به ترتیبِ مصرفِ FIFO)
+    assert [(lot.remaining_toman, lot.days_left) for lot in lots] == [(40_000, 10), (60_000, lots[1].days_left)], lots
+    assert lots[1].days_left > 300, lots[1].days_left
     print("✅ test_credit_summary_shows_usable_and_expiring PASSED")
 
 

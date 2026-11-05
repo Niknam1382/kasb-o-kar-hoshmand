@@ -34,6 +34,7 @@ sys.path.insert(0, ".")
 sys.path.insert(0, "tests_manual")
 
 from aiogram import Bot  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from harness import (  # noqa: E402
     FakeSession,
@@ -50,7 +51,7 @@ from app.bots.main_bot import texts as main_texts  # noqa: E402
 from app.bots.shop_bot import texts as shop_texts  # noqa: E402
 from app.bots.shop_bot.handlers import customer as customer_handlers  # noqa: E402
 from app.config import settings  # noqa: E402
-from app.database.models import OrderStatus, OrderType, ShopBot  # noqa: E402
+from app.database.models import OrderEvent, OrderStatus, OrderType, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import bale_credentials_service, bale_service, customer_service, order_service, shop_bot_service, shop_owner_service  # noqa: E402
 from app.services.admin_settings_service import update_setting  # noqa: E402
@@ -103,7 +104,13 @@ async def _create_and_confirm_order(shop_dp, shop_bot_id: int, customer_id: int,
 
 async def test_owner_can_set_and_remove_provider_token(main_dp) -> None:
     await reset_database()
-    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    # P39: صفحهٔ «پرداختِ آنلاین» اول آنچه کم است را می‌پرسد ⇒ رباتِ بله ثبت باشد تا همین‌جا
+    # توکنِ درگاه پرسیده شود (با رباتِ ثبت‌نشده، ورودیِ متن اول توکنِ ربات حساب می‌شود).
+    async with session_scope() as session:
+        shop_bot = await session.get(ShopBot, shop_bot_id)
+        shop_bot.bale_encrypted_token = "888888:FAKEBALEBOTTOKENFORTHEPAYTEST0"
+        await session.commit()
     owner_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
 
     await main_dp.feed_update(owner_bot, make_message_update(1, text="💳 پرداختِ آنلاینِ سفارش‌ها", user_id=OWNER_TG_ID))
@@ -240,6 +247,8 @@ async def test_successful_payment_requires_inquiry_confirmation_for_orders() -> 
 
 
 async def test_successful_payment_marks_order_paid_and_notifies_both_sides(main_bot, bot_manager) -> None:
+    """P39 · باگِ ۳: پرداختِ موفقِ بله‌پی سفارش را خودکار تایید می‌کند، فاکتور را می‌فرستد و
+    در پیامِ فروشگاه‌دار نامِ روشِ پرداخت («بله‌پی») نوشته می‌شود."""
     shop_bot_id, customer_id = await _seed(with_provider_token=True)
     shop_bot_instance = Bot(token=f"{SHOP_BOT_TG_ID}:FAKE", session=FakeSession())
     register_fake_shop_bot(bot_manager, shop_bot_id, shop_bot_instance)
@@ -247,6 +256,8 @@ async def test_successful_payment_marks_order_paid_and_notifies_both_sides(main_
 
     async with session_scope() as session:
         order = await order_service.create_order(session, shop_bot_id, customer_id, OrderType.ORDER, "خلاصه", 300_000)
+        # مشتری تایید کرده و «منتظرِ پرداخت» است — همان حالتی که لینکِ پرداخت در آن ساخته می‌شود
+        order.status = OrderStatus.AWAITING_PAYMENT
         order.bale_invoice_payload = "order-verify-ok"
         await session.flush()
         order_id = order.id
@@ -264,21 +275,34 @@ async def test_successful_payment_marks_order_paid_and_notifies_both_sides(main_
         order = await order_service.get_by_id(session, order_id)
         assert order.bale_paid_at is not None
         assert order.bale_transaction_id == "chg_ok"
-        assert order.status == OrderStatus.PENDING, "status نباید توسطِ پرداخت تغییر کنه — همچنان دستِ فروشگاه‌داره"
+        assert order.status in (OrderStatus.PAID, OrderStatus.PROCESSING), order.status
+        events = (
+            await session.execute(
+                select(OrderEvent).where(OrderEvent.order_id == order_id).order_by(OrderEvent.id)
+            )
+        ).scalars().all()
+        assert any(e.to_status in ("paid", "processing") for e in events), [e.to_status for e in events]
 
-    assert len(main_bot.session.sent_messages) == 1
-    assert main_bot.session.sent_messages[0]["text"] == main_texts.order_paid_online_notification(order)
+    owner_texts = [m["text"] for m in main_bot.session.sent_messages]
+    assert any("بله‌پی" in t for t in owner_texts), owner_texts
+    assert not hasattr(main_texts, "order_paid_online_notification"), "پیامِ بی‌نامِ روشِ پرداخت حذف شد"
 
     customer_session: FakeSession = shop_bot_instance.session  # type: ignore[assignment]
-    assert len(customer_session.sent_messages) == 1
-    assert customer_session.sent_messages[0]["text"] == shop_texts.ONLINE_PAYMENT_CONFIRMED
+    customer_texts = [m["text"] for m in customer_session.sent_messages if "text" in m]
+    assert any("پرداخت" in t for t in customer_texts), customer_texts
+    # فاکتور: فایل + متنی که نامِ روشِ پرداخت را هم می‌گوید (P39 · باگِ ۳)
+    assert customer_session.sent_documents, customer_session.sent_documents
+    assert any("بله‌پی" in t for t in customer_texts), customer_texts
+    async with session_scope() as session:
+        paid_order = await order_service.get_by_id(session, order_id)
+        assert paid_order.payment_method == "bale", paid_order.payment_method
 
     # وب‌هوکِ تکراری نباید دوباره اطلاع‌رسانی کنه
+    before = (len(main_bot.session.sent_messages), len(customer_session.sent_messages))
     await app_main._handle_bale_successful_payment(
         {"invoice_payload": "order-verify-ok", "telegram_payment_charge_id": "chg_ok"}
     )
-    assert len(main_bot.session.sent_messages) == 1
-    assert len(customer_session.sent_messages) == 1
+    assert (len(main_bot.session.sent_messages), len(customer_session.sent_messages)) == before
 
     print("✅ test_successful_payment_marks_order_paid_and_notifies_both_sides PASSED")
 

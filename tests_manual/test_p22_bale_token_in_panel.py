@@ -61,7 +61,13 @@ async def test_payments_screen_offers_the_provider_token_button() -> None:
 
 async def test_owner_can_store_and_remove_token_from_the_payments_screen(main_dp) -> None:
     await reset_database()
-    await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
+    # P39: این صفحه *هر دو* توکن را می‌گیرد و اول آنچه کم است را می‌پرسد. رباتِ بله را از پیش
+    # ثبت می‌کنیم تا مسیرِ توکنِ درگاه (ورودیِ نامعتبر + «حذف») سنجیده شود.
+    async with session_scope() as session:
+        shop_bot = await session.get(ShopBot, shop_bot_id)
+        shop_bot.bale_encrypted_token = "777777:BALEFAKETOKENFORTHEPANELTEST00"
+        await session.commit()
     owner = Chat(main_dp, OWNER_TG_ID)
 
     await owner.tap("pays_menu")
@@ -72,11 +78,11 @@ async def test_owner_can_store_and_remove_token_from_the_payments_screen(main_dp
     # ۱) ورودیِ تازه: همان صفحه را نشان می‌دهد (وضعیت + آنچه کم است) و منتظرِ توکن می‌نشیند
     await owner.tap("pays_bale_token")
     screen = owner.last_text
-    # P35: سرتیترِ صفحه از «💳 پرداختِ آنلاینِ سفارش‌ها» به «🏦 توکنِ درگاهِ بله‌پی» عوض شد
-    # (متنِ کوتاه و درست شد؛ دکمهٔ منو همان نامِ قبلی را نگه داشته است).
-    assert "🏦 توکنِ درگاهِ بله‌پی" in screen, screen
-    assert "توکنِ درگاهِ فروشگاهِ تو" in screen, screen
-    assert "بفرست" in screen, "راهنمایِ صریحِ مرحلهٔ بعد"
+    # P39: «🏦 توکنِ درگاهِ بله‌پی» (سرتیترِ P35) به صفحهٔ دوورودیِ «پرداختِ آنلاینِ سفارش‌ها با
+    # بله‌پی» تبدیل شد؛ دکمهٔ منو همان نامِ قبلی را نگه داشته است.
+    assert "پرداختِ آنلاینِ سفارش‌ها با بله‌پی" in screen, screen
+    assert "۱) توکنِ رباتِ بله" in screen and "۲) توکنِ درگاهِ بله‌پی" in screen, screen
+    assert "توکنِ درگاهِ خودت را بفرست" in screen, "راهنمایِ صریحِ مرحلهٔ بعد"
 
     # ۲) ورودیِ نامعتبر: رد می‌شود و state می‌ماند (هیچ تماسِ شبکه‌ای هم لازم ندارد)
     await owner.say("xyz")
@@ -88,6 +94,7 @@ async def test_owner_can_store_and_remove_token_from_the_payments_screen(main_dp
 
         await session.execute(update(ShopBot).values(bale_provider_token="PROVIDER-TOKEN-FOR-TEST-0001"))
         await session.commit()
+    await owner.tap("pays_bale_token")
     await owner.say("حذف")
     assert texts.BALE_PROVIDER_TOKEN_REMOVED in owner.last_text, owner.last_text
     async with session_scope() as session:

@@ -190,8 +190,21 @@ async def test_bale_is_offered_right_after_telegram_token(main_dp, bot_manager) 
         assert registered == [shop_bot_id], registered
         last = owner.sent[-1]["text"]
         assert last == texts.BALE_SMARTEN_OFFER, last
-        datas = [b.callback_data for row in owner.sent[-1]["reply_markup"].inline_keyboard for b in row]
-        assert "bale_edit" in datas, datas
+        assert owner.sent[-1].get("reply_markup") is None, "P39: برایِ توکنِ بله هیچ دکمهٔ تازه‌ای ساخته نمی‌شود"
+
+        # «بعداً» همان جریان را می‌بندد (بی‌شبکه، بدونِ ثبتِ توکن)
+        await owner.say("بعداً")
+        assert owner.last_text == texts.BALE_SMARTEN_POSTPONED, owner.last_text
+        async with session_scope() as session:
+            shop_bot = await session.get(ShopBot, shop_bot_id)
+            assert not shop_bot.bale_encrypted_token, "با «بعداً» هیچ توکنی ذخیره نشود"
+
+        # ورودیِ بی‌ربط در همان جریان ⇒ state آزاد می‌شود تا منویِ پنل گروگان نماند
+        await owner.say("🔑 ثبت/ویرایش توکن ربات")
+        await owner.say(NEW_TG_TOKEN)
+        assert owner.last_text == texts.BALE_SMARTEN_OFFER, owner.last_text
+        await owner.say("سلام")
+        assert owner.last_text == texts.BALE_SMARTEN_RELEASED, owner.last_text
 
         # توکنِ بله دارد ⇒ پیشنهاد تکراری نمی‌بیند (فقط «وصل شد» + راهنمایِ مرحله)
         await _connect_bale(shop_bot_id)

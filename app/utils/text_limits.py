@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import re
+
 TELEGRAM_TEXT_LIMIT = 4096
 TELEGRAM_CAPTION_LIMIT = 1024
 TELEGRAM_ALERT_TEXT_LIMIT = 200  # متنِ toastِ کال‌بک (answer)
@@ -19,3 +21,28 @@ def clip(value: str | None, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+# هیچ پیامی در این پروژه با parse_mode فرستاده نمی‌شود ⇒ نشانه‌هایِ Markdown که مدلِ زبانی
+# می‌نویسد (مثلِ «**قیمت**») عیناً در چتِ مشتری نمایش داده می‌شود. فقط نشانه حذف می‌شود، نه
+# محتوا؛ زیرِ خطِ داخلِ شناسه (callback_data) و ستارهٔ وسطِ کلمه دست‌نخورده می‌مانند.
+_MD_PAIR_RE = re.compile(r"(?<!\w)(\*{1,3}|_{2,3}|~{2,3}|`{1,3})(?=\S)(.+?)(?<=\S)\1(?!\w)", re.DOTALL)
+_MD_OPEN_RE = re.compile(r"\*{2,}")
+_MD_BULLET_RE = re.compile(r"^[ \t]*[*+-][ \t]+", re.MULTILINE)
+_MD_HEADING_RE = re.compile(r"^[ \t]*#{1,6}[ \t]*", re.MULTILINE)
+
+
+def strip_markdown(value: str | None) -> str:
+    """نشانه‌هایِ Markdown را از متنِ خروجیِ مدل می‌زداید (محتوا دست‌نخورده)."""
+    text = value or ""
+    if not text:
+        return ""
+    text = _MD_BULLET_RE.sub("• ", text)
+    text = _MD_HEADING_RE.sub("", text)
+    for _ in range(3):
+        cleaned = _MD_PAIR_RE.sub(lambda m: m.group(2), text)
+        if cleaned == text:
+            break
+        text = cleaned
+    text = _MD_OPEN_RE.sub("", text)
+    return "\n".join(line.rstrip() for line in text.splitlines()).strip()

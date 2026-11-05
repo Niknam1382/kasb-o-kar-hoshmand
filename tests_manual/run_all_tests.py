@@ -141,6 +141,8 @@ TEST_FILES = [
     "test_p35_text_accuracy.py",
     "test_p36_bale_smarten_flow.py",
     "test_p37_hardening.py",
+    "test_p39_no_markdown_markers.py",
+    "test_p39_wallet_per_charge_expiry.py",
 ]
 
 

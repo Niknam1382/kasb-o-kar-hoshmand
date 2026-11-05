@@ -487,12 +487,75 @@ async def _reactivate_expired(session: AsyncSession, rows: list[OrderConsultatio
     return oversold
 
 
+def _record_payment_method(rows, method: str) -> None:
+    """نامِ روشِ پرداخت روی ردیف‌ها (P39 · باگِ ۳): فاکتور و پنلِ فروشگاه‌دار باید دقیقاً
+    بگویند پول از کجا آمده؛ مسیرِ قدیمیِ بله‌پی هرگز `payment_method` را پر نمی‌کرد و فاکتور
+    «پرداختِ دستی» می‌زد. روشِ ازپیش‌ثبت‌شده (مثلاً کارت‌به‌کارت) بازنویسی نمی‌شود."""
+    for row in rows:
+        if not row.payment_method or row.payment_method == "manual":
+            row.payment_method = method
+
+
+async def apply_verified_gateway_payment(
+    session: AsyncSession, rows, *, actor_ref: str, auto_accept: bool
+) -> OnlineResult:
+    """ماشینِ وضعیتِ پرداختِ آنلاینِ تاییدشده، رویِ ردیف‌هایی که ردیفِ `OrderPayment` ندارند.
+
+    P39 · باگِ ۳: مسیرِ قدیمیِ بله‌پی («سفارشِ تکی» و سبدِ ساخته‌شده با `create_invoice_link`)
+    هیچ ردیفِ پرداختی نمی‌سازد؛ پیش از این فقط `bale_paid_at` مهر می‌خورد، status روی
+    «منتظرِ پرداخت» می‌ماند، خطِ زمانی جلو نمی‌آمد، فاکتوری نمی‌رفت و کمیسیونِ رزروشده هرگز
+    تسویه نمی‌شد. فراخوان باید قبلش استعلامِ سمتِ سرور + تطبیقِ مبلغ + قفلِ ردیف‌ها را انجام
+    داده باشد.
+    """
+    if not rows:
+        return OnlineResult(False)
+
+    statuses = {order_state.value_of(r.status) for r in rows}
+    late = needs_review = oversold = False
+    if statuses <= {order_state.PENDING, order_state.AWAITING_PAYMENT, order_state.RECEIPT_SUBMITTED}:
+        _record_payment_method(rows, actor_ref)
+        if order_state.PENDING in statuses:
+            # گروه هرگز واردِ جریانِ پرداخت نشده بود (پیشنهادِ پرداخت در پایانِ چک‌اوت) ⇒ رزرو
+            # همین‌جا گرفته می‌شود تا تسویهٔ داخلِ گذار (وضعیت paid) نرخِ snapshot‌شده داشته باشد.
+            await order_transition_service.apply_commission(session, rows, order_state.AWAITING_PAYMENT)
+        result = await order_transition_service.transition_group(
+            session, rows[0], order_state.PAID, actor_type="system", actor_ref=actor_ref
+        )
+        if not result.ok:
+            needs_review = True
+    elif statuses == {order_state.EXPIRED}:
+        late = True
+        oversold = await _reactivate_expired(session, rows)
+        needs_review = oversold
+        _record_payment_method(rows, actor_ref)
+        result = await order_transition_service.transition_group(
+            session, rows[0], order_state.PAID, actor_type="system", actor_ref=actor_ref, reason="late_payment"
+        )
+        if not result.ok:
+            needs_review = True
+    elif statuses <= {order_state.PAID, order_state.PROCESSING, order_state.SHIPPED, order_state.COMPLETED}:
+        needs_review = True  # قبلاً پرداخت شده و پول دوباره آمده ⇒ باید بازبینی/استرداد شود
+    else:
+        needs_review = True  # لغو/ردشده/استردادشده ولی پول گرفته شد
+
+    final_status = order_state.value_of(rows[0].status)
+    if auto_accept and final_status == order_state.PAID and not needs_review:
+        moved = await order_transition_service.transition_group(
+            session, rows[0], order_state.PROCESSING, actor_type="system", actor_ref="auto_accept"
+        )
+        if moved.ok:
+            final_status = order_state.PROCESSING
+    return OnlineResult(
+        True, True, rows=rows, late=late, needs_review=needs_review, final_status=final_status, oversold=oversold
+    )
+
+
 async def apply_verified_online_payment(
     session: AsyncSession, payment_id: int, shop_bot_id: int, *, transaction_ref: str, auto_accept: bool
 ) -> OnlineResult:
-    """تنها مسیرِ اعتباردهیِ پرداختِ آنلاین: قفل ⇒ ایدمپوتنسی (`transaction_ref` یکتا) ⇒ `paid`
-    (+`processing` اگه auto_accept) یا پرداختِ دیرهنگام/نیازِ بررسی. **فراخوان باید قبلش تاییدِ سمتِ سرور (inquire/verify) و
-    تطبیقِ مبلغ را انجام داده باشد.**"""
+    """تنها مسیرِ اعتباردهیِ پرداختِ آنلاین با ردیفِ `OrderPayment`: قفل ⇒ ایدمپوتنسی
+    (`transaction_ref` یکتا) ⇒ ماشینِ وضعیتِ `apply_verified_gateway_payment` ⇒ ثبتِ ردیفِ پرداخت.
+    **فراخوان باید قبلش تاییدِ سمتِ سرور (inquire/verify) و تطبیقِ مبلغ را انجام داده باشد.**"""
     payment = await get_payment_locked(session, payment_id, shop_bot_id)
     if payment is None:
         return OnlineResult(False)
@@ -507,28 +570,8 @@ async def apply_verified_online_payment(
     if not rows:
         return OnlineResult(False)
 
-    statuses = {order_state.value_of(r.status) for r in rows}
-    late = needs_review = oversold = False
-    if statuses <= {order_state.AWAITING_PAYMENT, order_state.RECEIPT_SUBMITTED}:
-        result = await order_transition_service.transition_group(
-            session, rows[0], order_state.PAID, actor_type="system", actor_ref=payment.method
-        )
-        if not result.ok:
-            needs_review = True
-    elif statuses == {order_state.EXPIRED}:
-        late = True
-        oversold = await _reactivate_expired(session, rows)
-        needs_review = oversold
-        result = await order_transition_service.transition_group(
-            session, rows[0], order_state.PAID, actor_type="system", actor_ref=payment.method, reason="late_payment"
-        )
-        if not result.ok:
-            needs_review = True
-    elif statuses <= {order_state.PAID, order_state.PROCESSING, order_state.SHIPPED, order_state.COMPLETED}:
-        pass  # قبلاً پرداخت شده (مثلاً کارت) — پولِ دوباره آمده ⇒ نیازِ بررسی/استرداد
-        needs_review = True
-    else:
-        needs_review = True  # لغو/ردشده/استردادشده ولی پول گرفته شد ⇒ فروشگاه‌دار باید تصمیم بگیره
+    result = await apply_verified_gateway_payment(session, rows, actor_ref=payment.method, auto_accept=auto_accept)
+    needs_review = result.needs_review
 
     payment.status = P_PAID
     payment.transaction_ref = transaction_ref[:80]
@@ -537,12 +580,14 @@ async def apply_verified_online_payment(
     payment.needs_review = needs_review
     await session.flush()
 
-    final_status = order_state.value_of(rows[0].status)
-    if auto_accept and final_status == order_state.PAID and not needs_review:
-        moved = await order_transition_service.transition_group(
-            session, rows[0], order_state.PROCESSING, actor_type="system", actor_ref="auto_accept"
-        )
-        if moved.ok:
-            final_status = order_state.PROCESSING
-    return OnlineResult(True, True, rows=rows, payment=payment, late=late, needs_review=needs_review, final_status=final_status, oversold=oversold)
+    return OnlineResult(
+        True,
+        True,
+        rows=result.rows,
+        payment=payment,
+        late=result.late,
+        needs_review=needs_review,
+        final_status=result.final_status,
+        oversold=result.oversold,
+    )
 

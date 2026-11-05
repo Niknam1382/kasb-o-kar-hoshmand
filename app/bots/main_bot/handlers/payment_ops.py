@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.handlers import order_ops
-from app.bots.main_bot.states import BaleProviderTokenStates, PaymentOpsStates, PaymentSettingsStates
+from app.bots.main_bot.states import PaymentOpsStates, PaymentSettingsStates
 from app.bots.shop_bot import keyboards as shop_keyboards
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.shop_bot.handlers.orders import send_invoice_to_customer
@@ -399,16 +399,17 @@ async def pays_bale_token_start(callback: CallbackQuery, state: FSMContext, sess
     باید دکمهٔ «💳 پرداختِ آنلاینِ سفارش‌ها» را در منویِ اصلی پیدا می‌کردی؛ داخلِ «روش‌هایِ
     پرداختِ مشتری» هیچ راهِ ورودی نبود (برایِ زرین‌پال بود: «🔑 مرچنتِ زرین‌پال»).
 
-    ذخیره را همان هندلرِ مشترکِ `panel.save_bale_provider_token` انجام می‌دهد ⇒ یکِ مسیر، دوِ ورودی."""
+    P39: همین صفحه هر دو توکن را می‌گیرد (اول رباتِ بله، بعد درگاه) و ذخیره را همان هندلرِ
+    مشترکِ `panel.save_bale_provider_token` انجام می‌دهد ⇒ یکِ مسیر، دوِ ورودی."""
+    from app.bots.main_bot.handlers.panel import _bale_payment_screen
+
     _owner, shop_bot, row = await _settings_ctx(session, callback.from_user.id)
     if shop_bot is None:
         await callback.answer(texts.SHOP_BOT_NOT_SET_UP, show_alert=True)
         return
-    status = await bale_credentials_service.shop_status(session, shop_bot, row)
     await state.clear()
-    await state.set_state(BaleProviderTokenStates.waiting_token)
     await callback.answer()
-    await callback.message.answer(texts.bale_provider_token_current(shop_bot, status.missing))
+    await _bale_payment_screen(callback, shop_bot, session, state)
 
 
 @router.message(PaymentSettingsStates.waiting_zarinpal_merchant, F.text)

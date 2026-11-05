@@ -137,11 +137,13 @@ async def send_due_nightly_reports(session: AsyncSession, main_bot: Bot, now: da
         if owner is None or stats is None:
             continue
         # P21-D (F1): موجودی، قابل‌صرف، اعتبارِ در آستانهٔ انقضا و طلبِ کمیسیونِ وصول‌نشده به همان پیام اضافه می‌شوند.
-        usable, expiring, expiring_days = await wallet_service.credit_summary(session, owner)
+        usable, lots = await wallet_service.credit_summary(session, owner)
+        expiring = sum(lot.remaining_toman for lot in lots if lot.days_left <= wallet_service.EXPIRING_SOON_DAYS)
+        nearest_days = lots[0].days_left if expiring > 0 and lots else None
         debt = debts.get(shop_bot.shop_owner_id, 0)
         message = texts.nightly_report_text(stats, consultation=shop_bot.tenant_mode == TenantMode.CONSULTATION)
         message += "\n" + texts.digest_wallet_line(
-            int(owner.wallet_balance_toman or 0), usable, expiring if expiring_days is not None else 0, expiring_days, debt
+            int(owner.wallet_balance_toman or 0), usable, expiring, nearest_days, debt
         )
         try:
             await main_bot.send_message(owner.telegram_id, message)

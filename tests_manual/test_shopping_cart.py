@@ -450,11 +450,16 @@ async def test_cartgroup_webhook_marks_all_orders_paid(shop_dp, bot_manager, mai
         orders = await _orders_for_shop(session, shop_bot_id)
         assert all(o.bale_paid_at is not None for o in orders), "همه‌ی ردیف‌هایِ گروه باید پرداخت‌شده علامت بخورن"
         assert all(o.bale_transaction_id == "chg_cart_1" for o in orders)
-        assert all(o.status == OrderStatus.PENDING for o in orders), "پرداخت نباید status رو عوض کنه"
+        # P39 · باگِ ۳: پرداختِ بله‌پی گروه را خودکار به «پرداخت‌شده» می‌برد (نه فقط مهرِ زمان)
+        assert all(o.status in (OrderStatus.PAID, OrderStatus.PROCESSING) for o in orders), [o.status for o in orders]
+        assert all(o.payment_method == "bale" for o in orders), [o.payment_method for o in orders]
 
-    assert len(main_bot.session.sent_messages) == 1
+    owner_texts = [m["text"] for m in main_bot.session.sent_messages]
+    assert len(owner_texts) == 1, owner_texts
+    assert "بله‌پی" in owner_texts[0], owner_texts
     customer_session: FakeSession = shop_bot_instance.session  # type: ignore[assignment]
-    assert customer_session.sent_messages[-1]["text"] == shop_texts.ONLINE_PAYMENT_CONFIRMED
+    assert customer_session.sent_documents, "فاکتور هم برایِ مشتری می‌رود"
+    assert any("بله‌پی" in m["text"] for m in customer_session.sent_messages), customer_session.sent_messages
     messages_after_first_webhook = len(customer_session.sent_messages)
 
     # وب‌هوکِ تکراری idempotent باشه — نباید دوباره اطلاع‌رسانی کنه:

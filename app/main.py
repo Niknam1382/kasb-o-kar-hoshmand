@@ -18,7 +18,6 @@ from app.bots.common.channel_knowledge import create_channel_knowledge_router
 from app.bots.common.middlewares import DbSessionMiddleware
 from app.bots.main_bot import texts as main_texts
 from app.bots.main_bot.router import build_main_router
-from app.bots.shop_bot import texts as shop_texts
 from app.bots.shop_bot.router import build_shop_router
 from app.config import RunMode, settings
 from app import observability
@@ -32,7 +31,6 @@ from app.services import (
     bale_bot_service,
     bale_credentials_service,
     bale_service,
-    customer_service,
     order_payment_service,
     order_service,
     order_state,
@@ -1028,26 +1026,22 @@ async def _handle_bale_cartgroup_payment(invoice_payload: str, transaction_id: s
             await order_service.mark_bale_paid(session, order, transaction_id)
 
         shop_bot = await shop_bot_service.get_by_id(session, orders[0].shop_bot_id)
-        customer = await customer_service.get_by_id(session, orders[0].customer_id)
-        owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
-        order_count = len(orders)
-        total_toman = order_transition_service.group_total_toman(orders)
+        settings_row = await payment_settings_service.get_or_create(session, shop_bot.id)
+        # P39 · باگِ ۳: مهرِ `bale_paid_at` به‌تنهایی سفارش را جلو نمی‌برد — همان ماشینِ وضعیتِ
+        # جریانِ تازه (paid + رویدادِ خطِ زمانی + تسویهٔ کمیسیون) این‌جا هم اجرا می‌شود.
+        result = await order_payment_service.apply_verified_gateway_payment(
+            session, orders, actor_ref="bale", auto_accept=settings_row.auto_accept_online
+        )
+        notify = (
+            [r.id for r in result.rows], result.late, result.needs_review, result.oversold, result.final_status or "paid"
+        ) if result.ok and result.changed else None
         shop_bot_id = shop_bot.id
-        owner_telegram_id = owner.telegram_id
-        customer_telegram_id = customer.telegram_id if customer is not None else None
-        customer_platform = customer.platform if customer is not None else None
 
-    try:
-        await _state["main_bot"].send_message(owner_telegram_id, main_texts.cart_paid_online_notification(order_count, total_toman))
-    except TelegramAPIError:
-        logger.exception("اطلاع‌رسانیِ پرداختِ آنلاینِ سبد به فروشگاه‌دار %s ناموفق بود.", owner_telegram_id)
-
-    shop_bot_instance = _state["bot_manager"].customer_bot(shop_bot_id, customer_platform)
-    if shop_bot_instance is not None and customer_telegram_id is not None:
-        try:
-            await shop_bot_instance.send_message(customer_telegram_id, shop_texts.ONLINE_PAYMENT_CONFIRMED)
-        except TelegramAPIError:
-            logger.exception("اطلاع‌رسانیِ تاییدِ پرداخت به مشتری %s ناموفق بود.", customer_telegram_id)
+    if notify is not None:
+        await payment_notify_service.notify_online_payment(
+            _state["main_bot"], _state["bot_manager"], shop_bot_id, notify[0],
+            method="bale", late=notify[1], needs_review=notify[2], oversold=notify[3], final_status=notify[4],
+        )
 
 
 async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str, token: str | None = None) -> None:
@@ -1055,7 +1049,8 @@ async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str, 
     فروشگاه‌دار → پلتفرم). عمداً از payment_service استفاده نمی‌کنه چون اون
     سرویس کاملاً حولِ Payment (پرداختِ فروشگاه‌دار به پلتفرم — تخفیف، پاداشِ
     معرف، اشتراک/کیف‌پول) ساخته شده و هیچ‌کدومش برایِ این مسیر معنی نداره؛
-    اینجا فقط سفارش رو «پرداخت‌شده» علامت می‌زنیم و به هر دو طرف خبر می‌دیم."""
+ این‌جا بعد ازِ تاییدِ سمتِ سرور، ردیف‌ها مثلِ جریانِ تازه به `paid` می‌روند و
+    اعلان‌ها/فاکتور از `payment_notify_service` می‌روند (P39 · باگِ ۳)."""
     async with session_scope() as session:
         order = await order_service.get_by_bale_payload(session, invoice_payload)
         if order is None:
@@ -1087,22 +1082,22 @@ async def _handle_bale_order_payment(invoice_payload: str, transaction_id: str, 
             return
         await order_service.mark_bale_paid(session, order, transaction_id)
         shop_bot = await shop_bot_service.get_by_id(session, order.shop_bot_id)
-        customer = await customer_service.get_by_id(session, order.customer_id)
-        owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
-        order_id = order.id
-        customer_platform = customer.platform if customer is not None else None
+        settings_row = await payment_settings_service.get_or_create(session, shop_bot.id)
+        # P39 · باگِ ۳: سفارشِ بله‌پی مثلِ زرین‌پال خودکار تایید می‌شود (paid + رویدادِ خطِ
+        # زمانی + تسویهٔ کمیسیون) و بعد فاکتور و خبرِ «بله‌پی» به فروشگاه‌دار می‌رود.
+        result = await order_payment_service.apply_verified_gateway_payment(
+            session, [order], actor_ref="bale", auto_accept=settings_row.auto_accept_online
+        )
+        notify = (
+            [r.id for r in result.rows], result.late, result.needs_review, result.oversold, result.final_status or "paid"
+        ) if result.ok and result.changed else None
+        shop_bot_id = shop_bot.id
 
-    try:
-        await _state["main_bot"].send_message(owner.telegram_id, main_texts.order_paid_online_notification(order))
-    except TelegramAPIError:
-        logger.exception("اطلاع‌رسانیِ پرداختِ آنلاینِ سفارشِ %s به فروشگاه‌دار %s ناموفق بود.", order_id, owner.telegram_id)
-
-    shop_bot_instance = _state["bot_manager"].customer_bot(shop_bot.id, customer_platform)
-    if shop_bot_instance is not None and customer is not None:
-        try:
-            await shop_bot_instance.send_message(customer.telegram_id, shop_texts.ONLINE_PAYMENT_CONFIRMED)
-        except TelegramAPIError:
-            logger.exception("اطلاع‌رسانیِ تاییدِ پرداخت به مشتری %s ناموفق بود.", customer.telegram_id)
+    if notify is not None:
+        await payment_notify_service.notify_online_payment(
+            _state["main_bot"], _state["bot_manager"], shop_bot_id, notify[0],
+            method="bale", late=notify[1], needs_review=notify[2], oversold=notify[3], final_status=notify[4],
+        )
 
 
 async def _zarinpal_shop_callback(Authority: str, Status: str) -> HTMLResponse | None:

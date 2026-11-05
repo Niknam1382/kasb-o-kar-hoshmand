@@ -219,7 +219,11 @@ async def test_concurrent_duplicate_group_payment_applies_once(main_bot, bot_man
             order = await order_service.get_by_id(session, order_id)
             assert order.bale_paid_at is not None and order.bale_transaction_id == "tx_race_1"
     assert len(main_bot.session.sent_messages) == 1, "فروشگاه‌دار فقط یک‌بار خبردار می‌شه"
-    assert len(shop_bot_instance.session.sent_messages) == 1, "مشتری فقط یک‌بار خبردار می‌شه"
+    # P39: برنده علاوه بر خبرِ تایید، فاکتور را هم می‌فرستد ⇒ ملاکِ «یک برنده» شمارشِ
+    # پیامِ تایید و فایلِ فاکتور است، نه تعدادِ کلِ پیام‌ها.
+    approved = [m["text"] for m in shop_bot_instance.session.sent_messages if "تایید شد" in m.get("text", "")]
+    assert len(approved) == 1, shop_bot_instance.session.sent_messages
+    assert len(shop_bot_instance.session.sent_documents) == 1, shop_bot_instance.session.sent_documents
     print("✅ test_concurrent_duplicate_group_payment_applies_once PASSED")
 
 

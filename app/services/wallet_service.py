@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import logging
 
@@ -28,6 +29,7 @@ from app import observability
 from app.services import time_freeze_service
 from app.services.admin_settings_service import get_admin_settings
 from app.utils.dates import add_months
+from app.utils.jalali import to_tehran
 
 logger = logging.getLogger(__name__)
 
@@ -338,35 +340,60 @@ def usable_credit(owner: ShopOwner) -> int:
     return int(owner.wallet_balance_toman or 0) - int(owner.commission_reserved_toman or 0)
 
 
-async def credit_summary(session: AsyncSession, owner: ShopOwner, within_days: int = EXPIRING_SOON_DAYS) -> tuple[int, int, int | None]:
-    """(قابل‌استفاده، مبلغِ در آستانهٔ انقضا، روزهایِ نزدیک‌ترین انقضا).
+@dataclasses.dataclass(frozen=True)
+class ExpiryLot:
+    """یک «روزِ انقضا» از کیف‌پول: جمعِ باقی‌ماندهٔ همهٔ شارژهایی که آن روز منقضی می‌شوند."""
 
-    «قابل‌استفاده» = موجودیِ کم‌شده از holdِ کمیسیونِ سفارش‌هایِ باز: امروز فروشگاه‌دار عددی
-    می‌بیند که نمی‌تواند کاملِ آن را برایِ شروعِ یک جریانِ پرداختِ تازه استفاده کند، و
-    «در آستانهٔ انقضا» هم چیزی است که اگر گفته نشود، مصرف می‌شود یا از دست می‌رود.
+    remaining_toman: int
+    expires_at: datetime.datetime
+    days_left: int
+
+
+async def expiry_lots(session: AsyncSession, owner: ShopOwner) -> list[ExpiryLot]:
+    """شارژهایِ زنده، گروه‌شده به تفکیکِ *روزِ* انقضا و مرتب‌شده به همان ترتیبی که مصرف می‌شوند (FIFO).
+
+    مصرف از قدیمی‌ترین `expires_at` شروع می‌شود، پس «ماندهٔ هر روز» دقیقاً همان چیزی است که
+    فروشگاه‌دار باید ببیند: اعتبارِ اول چند روزِ دیگر می‌رود و اعتبارِ دوم دست‌نخورده مانده.
+    دو شارژِ همان روز یکِ خط می‌شوند (ثانیه‌ها اختلافِ بی‌معنا در فهرست نمی‌سازند) و برایِ
+    «چقدر مانده» محافظه‌کارانه‌ترین زمانِ همان روز ملاک است.
     """
     now = datetime.datetime.now(datetime.timezone.utc)
-    total, earliest = (
+    rows = (
         await session.execute(
-            select(
-                func.coalesce(func.sum(WalletCharge.remaining_toman), 0),
-                func.min(WalletCharge.expires_at),
-            ).where(
+            select(WalletCharge.expires_at, func.sum(WalletCharge.remaining_toman))
+            .where(
                 WalletCharge.shop_owner_id == owner.id,
                 WalletCharge.is_expired.is_(False),
                 WalletCharge.remaining_toman > 0,
                 WalletCharge.expires_at > now,
-                WalletCharge.expires_at <= now + datetime.timedelta(days=within_days),
             )
+            .group_by(WalletCharge.expires_at)
+            .order_by(WalletCharge.expires_at.asc())
         )
-    ).one()
-    days_left = None
-    if earliest is not None:
-        if earliest.tzinfo is None:
-            earliest = earliest.replace(tzinfo=datetime.timezone.utc)
+    ).all()
+    by_day: dict[datetime.date, list[tuple[datetime.datetime, int]]] = {}
+    for expires_at, remaining in rows:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=datetime.timezone.utc)
+        by_day.setdefault(to_tehran(expires_at).date(), []).append((expires_at, int(remaining or 0)))
+    lots: list[ExpiryLot] = []
+    for moments in by_day.values():
+        earliest = moments[0][0]
+        total = sum(amount for _, amount in moments)
         days_left = max(0, int(-(-(earliest - now).total_seconds() // 86400)))
-    usable = usable_credit(owner)
-    return usable, int(total or 0), days_left
+        lots.append(ExpiryLot(remaining_toman=total, expires_at=earliest, days_left=days_left))
+    lots.sort(key=lambda lot: lot.expires_at)
+    return lots
+
+
+async def credit_summary(session: AsyncSession, owner: ShopOwner) -> tuple[int, list[ExpiryLot]]:
+    """(قابل‌استفاده، شارژهایِ زنده به ترتیبِ انقضا).
+
+    «قابل‌استفاده» = موجودیِ کم‌شده از holdِ کمیسیونِ سفارش‌هایِ باز: امروز فروشگاه‌دار عددی
+    می‌بیند که نمی‌تواند کاملِ آن را برایِ شروعِ یک جریانِ پرداختِ تازه استفاده کند، و انقضا
+    هم دیگر یک عددِ تکیِ گمراه‌کننده نیست (P39 · باگِ ۴).
+    """
+    return usable_credit(owner), await expiry_lots(session, owner)
 
 
 async def expire_stale_charges(session: AsyncSession) -> int:

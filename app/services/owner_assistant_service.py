@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import KnowledgeGap, KnowledgeGapStatus
 from app.services import accounting_service, campaign_service, crm_service
 from app.utils.jalali import format_jalali_date
+from app.utils.text_limits import strip_markdown
 from app.utils.validators import fa_number, format_toman
 
 HISTORY_TURNS = 6
@@ -146,7 +147,7 @@ def trim_history(history: list[dict] | None) -> list[dict]:
 
 
 def clamp_reply(text: str | None) -> str:
-    cleaned = (text or "").strip()
+    cleaned = strip_markdown(text)
     if len(cleaned) > REPLY_MAX_CHARS:
         cleaned = cleaned[: REPLY_MAX_CHARS - 1].rstrip() + "…"
     return cleaned

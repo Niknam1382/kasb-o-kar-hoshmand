@@ -36,12 +36,11 @@ class ShopBotTokenStates(StatesGroup):
 class BaleShopBotStates(StatesGroup):
     """P19: توکنِ رباتِ بله‌یِ خودِ فروشگاه (کنارِ توکنِ تلگرام).
 
-    P34: همین صفحه هر *دو* ورودیِ بله را می‌گیرد — توکنِ ربات و توکنِ درگاه — چون توکنِ درگاه
-    برایِ یک رباتِ خاص صادر می‌شود و با رباتِ دیگری قاطی نمی‌شود.
+    P39: توکنِ درگاه از این گروه بیرون رفت — هر دو توکن در همان صفحهٔ
+    «💳 پرداختِ آنلاینِ سفارش‌ها» گرفته می‌شوند (`BaleProviderTokenStates`).
     """
 
     waiting_token = State()
-    waiting_provider_token = State()
 
 
 class ProductStates(StatesGroup):
