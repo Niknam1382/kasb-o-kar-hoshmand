@@ -515,3 +515,16 @@ Payment · ۴ بدونِ قالب هیچ دکمهٔ بله‌پی ساخته ن�
 | پنج گیت + ruff | همه OK · ۲۸۵ فایل · ۳۱۲ شکلِ `callback_data` · ruff تمیز | اسکنِ دستیِ حرفِ لاتینِ چسبیده هم گرفته شد (خروجی: فقط مخفف‌هایِ واحد و escape‌ها) |
 | **سوئیتِ کامل** | **۱۲۲/۱۲۲ فایل · ۷۵۷ تست · صفر fail · `exit=0`** — مبنایِ پیش ازِ پ۴۰: ۱۲۱ فایل · ۷۵۰ تست ⇒ +۱ فایل (`test_p40_inspection_fixes`) و +۷ تست. `test_p40_inspection_fixes.py` در سوئیت ۲۱٫۵ ثانیه (سه debounceِ ۴/۵ ثانیه‌ای) | با رباتِ خاموشِ تأییدشده و کانتینرِ detached |
 | NOT RUN | `EXPLAIN (ANALYZE)` رویِ دادهٔ واقعی؛ سنجشِ عملیِ deadlock (بچ B)؛ pollingِ تلگرام با VPNِ خاموش | VPN کارِ خودِ مالکِ محصول است؛ بله در این پنجره reachable بود (۳۴۴ms) |
+
+
+
+## §۲۶) پ۴۱ — پرداختِ سفارش فقط به حسابِ خودِ فروشگاه + پاک‌سازیِ دیتابیس (۱۴۰۵-۰۸-۱۵ = ۲۰۲۶-۱۱-۰۶)
+
+| سنجه | عدد | توضیح |
+|---|---|---|
+| **سوئیتِ کامل** | **۱۲۳/۱۲۳ فایل · ۷۶۰ تست · صفر fail · `exit=0`** | مبنایِ پیش ازِ پ۴۱: ۱۲۲ فایل · ۷۵۷ تست ⇒ +۱ فایل/+۳ تست (`test_p41_order_payment_never_platform`). رباتِ خاموش، کانتینرِ detached، `exit=0` با `docker inspect` |
+| اجرایِ اول (رد شد) | ۱۲۱/۱۲۳ · ۷۵۸ تست · دو fail | `test_p18_bale_credentials` (ماتریسِ «دکمه و پرداخت باید هم‌ارز باشند» + متنِ منویِ پرداخت) و `test_campaign_checkout` (پیشنهادِ پرداختِ سبد) — هر سه با پیکربندیِ «فقط توکنِ درگاه» انتظارِ «فعال» داشتند؛ قاعدهٔ P41 آن را عمداً غیرفعال کرد ⇒ تست‌ها به قاعدهٔ تازه + یکِ کیسِ تازهٔ «فقط درگاه ⇒ هیچ» به‌روز شدند. flaky نبود (در اجرایِ تنهایی هم رد می‌شدند) |
+| فایل‌هایِ دست‌خوردهٔ تستی | `test_p18_bale_credentials` (۸)، `test_p34_bale_own_payment_surface` (۵)، `test_bale_pay_for_orders` (۷)، `test_shopping_cart` (۱۱)، `test_payments_w3w4` (۱۲)، `test_campaign_checkout` (۱۰)، `test_p41_order_payment_never_platform` (۳) | سیدها جفتِ کاملِ فروشگاه را هم می‌گذارند؛ `/start` با توکنِ رباتِ خودِ فروشگاه dispatch می‌شود (همان کاری که `bot_manager` در واقعیت می‌کند) |
+| گیت‌ها + ruff | همه OK · ۲۸۶ فایل · ۳۱۲ شکلِ `callback_data` · ruff تمیز | بدونِ مایگریشنِ تازه (تغییرِ رفتاریِ `shop_status` فقط کد است)؛ تک‌head `d4e7b1c8a902` |
+| **پاک‌سازیِ دیتابیسِ توسعه** | (MEASURED، درخواستِ صریحِ مالکِ محصول) | MEASURED (قبل ← بعد): `shop_owners` ۵←۰، `shop_bots` ۳←۰، `products` ۱۳←۰، `customers` ۷←۰، `orders_consultations` ۱۲←۰، `order_events` ۲۹←۰، `order_payments` ۸←۰، `payments` ۲←۰، `payment_event_logs` ۹۸۳←۰، `wallet_transactions` ۲۸←۰، `wallet_charges` ۳←۰، `carts` ۵←۰، `customer_addresses` ۳←۰، `shipping_methods` ۳←۰، `shop_payment_settings` ۳←۰، `conversation_messages` ۱۲←۰، `invoices`/`invoice_counters` ۲←۰، `direct_messages` ۱←۰، `discount_codes` ۱←۰. تنظیماتِ نگه‌داشته‌شده: `admin_settings` (یکِ ردیف: بله‌پی روشن، رونماییِ بله روشن، پورسانتِ معرف ۲۰٪، اعتبارِ شارژ ۱ ماه، کمیسیون ۰٫۵٪) + `alembic_version`؛ `admin_roles`/`ai_api_key_pool`/`subscription_plans`/`mandatory_channels`/`moderation_rules` از قبل خالی بودند و دست‌نخورده ماندند. شماره‌گذاریِ شناسه‌ها (sequence) ری‌استارت نشد — شناسه‌هایِ تازه از عددِ قبلی ادامه می‌کنند (عمدی؛ هیچ قاعده‌ای به عددِ کوچک وابسته نیست). پیش ازِ حذف، `pg_dump -Fc` گرفته شد: `kasbokar-backups/pish-az-P41-wipe-2026-11-06-0315.dump` (۲۱۰٬۶۹۷ بایت). |
+| NOT RUN | پرداختِ واقعیِ بله‌پی با جفتِ ناقص رویِ سرویسِ زنده (نباید دکمه‌ای ببیند — در تست با ساختنِ **نشدنِ** `create_invoice_link` اثبات شد)؛ دیدنِ چشمیِ متنِ تازهٔ صفحه | تلگرام در این پنجره VPN‌خاموش بود؛ بله reachable |
