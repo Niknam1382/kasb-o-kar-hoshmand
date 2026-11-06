@@ -546,7 +546,14 @@ async def test_bale_invoice_uses_discounted_amount_and_free_order_skips_payment(
         await update_setting(session, "bale_pay_enabled", True)
         # P26: لینکِ پرداخت = چتِ رباتِ پرداخت؛ نامِ کاربری را به‌جایِ getMe می‌گذاریم (تست به شبکه نمی‌زند).
         bale_credentials_service.remember_pay_bot_username('platform_pay_bot')
-        (await session.get(ShopBot, shop_bot_id)).bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
+        shop_bot = await session.get(ShopBot, shop_bot_id)
+        shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
+        # P41: پرداختِ سفارش فقط با جفتِ کاملِ خودِ فروشگاه ساخته می‌شود (رباتِ بله + درگاهِ خودش)
+        shop_bot.bale_encrypted_token = "222222:SHOP-OWN-BALE-BOT-TOKEN"
+        shop_bot.bale_bot_id = 222222
+        shop_bot.bale_bot_username = "shop_own_bale_bot"
+        shop_bot.bale_bot_enabled = True
+        await session.commit()
 
     ten_percent_id = await _new_campaign(shop_bot_id, name="۱۰٪")
     await shopper.reach_preview([rice, tea])

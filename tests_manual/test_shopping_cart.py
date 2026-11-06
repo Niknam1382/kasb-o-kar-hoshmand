@@ -399,6 +399,11 @@ async def test_bale_pay_offered_for_cart_when_configured(shop_dp, bot_manager) -
         bale_credentials_service.remember_pay_bot_username('platform_pay_bot')
         shop_bot = await session.get(ShopBot, shop_bot_id)
         shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
+        # P41: پیشنهادِ پرداختِ سفارش فقط با «رباتِ بلهٔ خودش + درگاهِ خودش» ساخته می‌شود.
+        shop_bot.bale_encrypted_token = "222222:SHOP-OWN-BALE-BOT-TOKEN"
+        shop_bot.bale_bot_id = 222222
+        shop_bot.bale_bot_username = "shop_own_bale_bot"
+        shop_bot.bale_bot_enabled = True
 
     await _quick_checkout(shop_dp, shop_bot_instance, [product1_id, product2_id])
 

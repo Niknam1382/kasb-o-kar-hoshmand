@@ -2,8 +2,8 @@
 تست: P34 — پرداختِ سفارش با «رباتِ بله + توکنِ درگاهِ خودِ فروشگاه»
 
 پوشش:
-۱. قاعدهٔ جفت: فقط توکنِ درگاه ⇒ پرداخت با رباتِ پلتفرم و یکِ هشدارِ روشن؛ هر دو ورودی ⇒
-   جفتِ خودِ فروشگاه (رباتِ او + درگاهِ او).
+۱. قاعدهٔ جفت (P41): هر ترکیبِ ناقصِ «رباتِ بله + درگاه» ⇒ بله‌پیِ سفارش فعال نیست (دیگر به
+   درگاه/رباتِ پلتفرم برنمی‌گردد تا پولِ مشتری در کیف‌پولِ پلتفرم ننشیند)؛ هر دو ⇒ جفتِ خودش.
 ۲. لینکِ پرداخت به چتِ همان ربات می‌رود (نه همیشه رباتِ پلتفرم).
 ۳. `/start`ِ صورتحساب: با رباتِ درست با توکنِ همان فروشگاه ساخته می‌شود؛ با رباتِ نادرست
    ساخته نمی‌شود و پیامِ «لینکِ کهنه» می‌رود. مبلغِ سفارشِ تکی هم دیگر AttributeError نمی‌دهد.
@@ -121,20 +121,23 @@ async def test_pair_rule_and_link_target() -> None:
     shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
     await _configure_platform()
     with _Cfg():
-        # الف) هیچ درگاهی نه از فروشگاه نه از پلتفرم ⇒ بله‌پی فعال نیست
+        # الف) هیچ درگاهی نه از فروشگاه نه از پلتفرم ⇒ بله‌پی فعال نیست (P41: علت‌هایِ خودِ فروشگاه)
         await _configure_platform(provider=False)
         status = await _status(shop_bot_id)
-        assert not status.available and creds.MISSING_PROVIDER_TOKEN in status.missing, status.missing
+        assert not status.available, status.missing
+        assert creds.MISSING_SHOP_BOT_TOKEN in status.missing, status.missing
+        assert creds.MISSING_SHOP_PROVIDER_TOKEN in status.missing, status.missing
+        assert creds.MISSING_PROVIDER_TOKEN not in status.missing, "دیگر به درگاهِ پنلِ ادمین ارجاع نمی‌دهد"
         assert status.uses_own_bot is False and status.shop_bot_id is None
 
-        # ب) فقط توکنِ درگاهِ فروشگاه ⇒ پرداخت با رباتِ پلتفرم، و هشدارِ روشن (باگِ گزارش‌شده)
+        # ب) فقط توکنِ درگاهِ فروشگاه، با درگاهِ سراسریِ روشن ⇒ P41: همچنان غیرفعال.
+        #    (این دقیقاً همان حالتی است که پول را در کیف‌پولِ پلتفرم می‌نشاند.)
         await _configure_platform(provider=True)
         await _set_shop_provider(shop_bot_id, SHOP_PROVIDER)
         status = await _status(shop_bot_id)
-        assert status.available, status.missing
-        assert status.bot_token == PLATFORM_BOT_TOKEN and status.provider_token == SHOP_PROVIDER
-        assert status.username == PLATFORM_PAY_BOT and status.uses_own_bot is False
-        assert creds.SHOP_HAS_PROVIDER_WITHOUT_BOT in status.warnings, status.warnings
+        assert not status.available, f"با جفتِ ناقص پرداخت نباید فعال باشد: {status.missing}"
+        assert creds.MISSING_SHOP_BOT_TOKEN in status.missing and creds.SHOP_HAS_PROVIDER_WITHOUT_BOT in status.warnings
+        assert status.uses_own_bot is False and status.shop_bot_id is None
 
         # ج) رباتِ بله را هم ثبت کرد ⇒ جفتِ خودِ فروشگاه: رباتِ او، درگاهِ او، چتِ او
         await _connect_shop_bale_bot(shop_bot_id)
@@ -147,13 +150,15 @@ async def test_pair_rule_and_link_target() -> None:
         link = creds.pay_link_for("order-1-aabbccddee", status.username)
         assert link and f"ble.ir/{SHOP_PAY_BOT}" in link and "start=order-1-aabbccddee" in link, link
         old_link = creds.pay_link_for("order-1-aabbccddee")
-        assert old_link and f"ble.ir/{PLATFORM_PAY_BOT}" in old_link, old_link
+        assert old_link and f"ble.ir/{PLATFORM_PAY_BOT}" in old_link, "سطحِ پلتفرم فقط برایِ شارژِ کیف‌پول می‌ماند"
 
-        # د) رباتِ بله هست ولی درگاه ندارد ⇒ هشدارِِ دوم، و پرداخت با درگاهِ سراسری
+        # د) رباتِ بله هست ولی درگاه ندارد ⇒ P41: غیرفعال + هشدارِ دوم
         await _set_shop_provider(shop_bot_id, None)
         status = await _status(shop_bot_id)
+        assert not status.available, status.missing
+        assert creds.MISSING_SHOP_PROVIDER_TOKEN in status.missing, status.missing
         assert creds.SHOP_HAS_BOT_WITHOUT_PROVIDER in status.warnings, status.warnings
-        assert status.provider_token == PLATFORM_PROVIDER and status.uses_own_bot is False
+        assert status.uses_own_bot is False
     print("✅ test_pair_rule_and_link_target PASSED")
 
 

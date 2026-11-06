@@ -58,6 +58,11 @@ async def _configure(shop_bot_id: int, *, card: bool = False, bale: bool = False
         if bale:
             shop_bot = await session.get(ShopBot, shop_bot_id)
             shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
+            # P41: پرداختِ سفارش فقط با جفتِ کاملِ خودِ فروشگاه فعال است ⇒ رباتِ بلهٔ او هم ثبت شود.
+            shop_bot.bale_encrypted_token = "222222:SHOP-OWN-BALE-BOT-TOKEN"
+            shop_bot.bale_bot_id = 222222
+            shop_bot.bale_bot_username = "shop_own_bale_bot"
+            shop_bot.bale_bot_enabled = True
             await update_setting(session, "bale_pay_enabled", True)
             # P26: ملاکِ ساختنِ لینک، نامِ کاربریِ رباتِ پرداخت است (قالبِ لینک از پنل برداشته شد).
             bale_credentials_service.remember_pay_bot_username("platform_pay_bot")
@@ -393,9 +398,12 @@ async def test_bale_new_flow(shop_dp, main_dp, bot_manager, main_bot) -> None:
     assert urls and urls[0].startswith("https://ble.ir/"), urls
     payment = (await _payments())[0]
     assert payment.method == "bale" and payment.provider_ref.startswith(f"cartgroup-{g}-")
-    # مشتری لینک را زده: `/start <payload>` باید صورتحساب را با درگاهِ *همان فروشگاه* بسازد
+    # مشتری لینک را زده: `/start <payload>` باید صورتحساب را با درگاهِ *همان فروشگاه* بسازد.
+    # P41: آن چت حالا رباتِ بلهٔ خودِ فروشگاه است ⇒ آپدیت با توکنِ همان ربات می‌رسد
+    # (در واقعیت `bot_manager` این کار را می‌کند؛ پلتفرم دیدنِ لینکِ فروشگاه دیگر «کهنه» است).
     await app_main._dispatch_bale_update(
-        {"update_id": 3, "message": {"chat": {"id": 777007}, "text": f"/start {payment.provider_ref}"}}
+        {"update_id": 3, "message": {"chat": {"id": 777007}, "text": f"/start {payment.provider_ref}"}},
+        token="222222:SHOP-OWN-BALE-BOT-TOKEN",
     )
     assert len(created) == 1 and created[0]["provider_token"] == "SHOP-OWN-PROVIDER-TOKEN" and created[0]["amount_rial"] == 2_500_000
     assert created[0]["payload"] == payment.provider_ref, "کلیدِ تطبیقِ همان payload باقی می‌ماند"

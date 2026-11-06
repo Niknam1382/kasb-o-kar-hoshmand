@@ -46,6 +46,10 @@ MISSING_PROVIDER_TOKEN = "provider_token"
 MISSING_PAY_BOT_USERNAME = "pay_bot_username"
 ADMIN_DISABLED = "admin_disabled"
 SHOP_DISABLED = "shop_disabled"
+# P41: پرداختِ *سفارش* دیگر به سطحِ پلتفرم برنگردانده می‌شود — این دو علت، ناقص‌بودنِ جفتِ خودِ
+# فروشگاه را می‌گویند (پولِ مشتریِ ناقص‌الجابه نباید در کیف‌پولِ پلتفرم بنشیند).
+MISSING_SHOP_BOT_TOKEN = "shop_bale_bot_token"
+MISSING_SHOP_PROVIDER_TOKEN = "shop_provider_token"
 
 # کشِ درون‌حافظه‌ایِ *فقط* مقدارِ پنل؛ مقدارِ .env همیشه زنده خوانده می‌شود تا تغییرِ پنل
 # بدونِ ری‌استارت اثر کند و تست‌هایی که settings را جایگزین می‌کنند نشکنند.
@@ -225,13 +229,15 @@ async def shop_status(
     که نشان داده می‌شود»، «پرداختی که ساخته می‌شود» و «مقصدِ پول» هیچ‌وقت از هم جدا نمی‌شوند
     (علتِ ریشه‌یِ B11).
 
-    قاعدهٔ P34 — افزودنی، تا هیچ فروشگاهِ فعلی بدونِ پرداخت نماند:
-    • فروشگاه **هر دو** ورودی را ثبت کرده (توکنِ رباتِ بله + توکنِ درگاه) ⇒ جفتِ *خودش*:
-      صورتحساب با رباتِ او و درگاهِ او ساخته می‌شود و لینک به چتِ همان ربات می‌رود، پس پول در
-      کیف‌پولِ خودِ فروشگاه می‌نشیند.
-    • فقط توکنِ درگاه ⇒ مثلِ گذشته با رباتِ پلتفرم (درگاهِ خودِ فروشگاه، و اگر نداشت سراسری)
-      + هشدارِ `SHOP_HAS_PROVIDER_WITHOUT_BOT` که همین را به فروشگاه‌دار می‌گوید.
-    • توکنِ درگاه از هیچ‌کدام ⇒ فعال نیست (علتِ `MISSING_PROVIDER_TOKEN`).
+    قاعدهٔ P41 (درخواستِ صریحِ مالکِ محصول): پرداختِ **سفارش** فقط با جفتِ کاملِ خودِ فروشگاه
+    انجام می‌شود — توکنِ رباتِ بلهٔ خودش + توکنِ درگاهِ خودش. تا این دو پر نباشند بله‌پی برایِ
+    مشتری آن فروشگاه فعال نیست؛ پیش از این با یکِ توکنِ درگاه، صورتحساب با درگاه/رباتِ پلتفرم
+    ساخته می‌شد و پولِ مشتری در کیف‌پولِ پلتفرم می‌نشیند (و باید با پشتیبانی هماهنگ می‌شد).
+    شارژِ کیف‌پولِ خودِ پلتفرم (`payment-`) مثلِ قبل با سطحِ پلتفرم است، چون آن پرداخت را
+    فروشگاه‌دار *به سرویس* می‌دهد.
+
+    • هر دو ورودیِ خودش ⇒ جفتِ *خودش*: صورتحساب با رباتِ او و درگاهِ او، لینک در چتِ همان ربات.
+    • هرکدام ناقص ⇒ `MISSING_SHOP_BOT_TOKEN` / `MISSING_SHOP_PROVIDER_TOKEN` ⇒ `available` false.
     """
     from app.services import bale_bot_service  # import محلی: چرخه‌یِ import نسازد
 
@@ -244,16 +250,22 @@ async def shop_status(
     platform_provider = (admin_row.bale_provider_token or "").strip()
 
     uses_own_bot = bool(own_provider and own_bot)
+    provider = own_provider or platform_provider or None
     if uses_own_bot:
         token = bale_bot_service.raw_token(shop_bot)
         username = (shop_bot.bale_bot_username or "").strip()
         provider = own_provider
+        if not username or build_pay_link(username, "payment-0-0") is None:
+            # لینکِ چتِ رباتِ خودش ساخته نمی‌شود ⇒ همان «دکمهٔ مرده» (B11/P26)
+            missing.append(MISSING_PAY_BOT_USERNAME)
     else:
+        # سطحِ پلتفرم فقط برایِ «چه چیزی کم است» خوانده می‌شود؛ برایِ پرداختِ سفارش مصرف نمی‌شود.
         token = bot_token()
         username = _panel_bot_username
-        provider = own_provider or platform_provider or None
-        if not token:
-            missing.append(MISSING_BOT_TOKEN)
+        if not own_bot:
+            missing.append(MISSING_SHOP_BOT_TOKEN)
+        if not own_provider:
+            missing.append(MISSING_SHOP_PROVIDER_TOKEN)
         if own_provider and not own_bot:
             warnings.append(SHOP_HAS_PROVIDER_WITHOUT_BOT)
         if own_bot and not own_provider:
@@ -264,11 +276,8 @@ async def shop_status(
         missing.append(SHOP_DISABLED)
     if not admin_row.bale_pay_enabled:
         missing.append(ADMIN_DISABLED)
-    if not provider:
-        missing.append(MISSING_PROVIDER_TOKEN)
-    if not username or build_pay_link(username, "payment-0-0") is None:
-        # B11/P26: دکمه‌ای که لینکش ساخته نمی‌شود، همان «دکمهٔ مرده»یِ گزارش‌شده است.
-        missing.append(MISSING_PAY_BOT_USERNAME)
+    # یادآوری: `MISSING_PROVIDER_TOKEN` (سراسری) اینجا دیگر اضافه نمی‌شود — ملاکِ پرداختِ سفارش
+    # «درگاهِ خودِ فروشگاه» است و گفتنِ «درگاهِ پنلِ ادمین خالی است» به فروشگاه‌دار گمراه‌کننده بود.
     return ShopBaleStatus(
         token,
         provider,

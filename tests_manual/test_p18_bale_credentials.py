@@ -46,6 +46,9 @@ SHOP_TOKEN = "SHOP-OWN-PROVIDER-TOKEN"
 GLOBAL_TOKEN = "GLOBAL-ADMIN-PROVIDER-TOKEN"
 ENV_BOT_TOKEN = "123456:ENV-BALE-BOT-TOKEN"
 PANEL_BOT_TOKEN = "654321:PANEL-BALE-BOT-TOKEN"
+# P41: جفتِ خودِ فروشگاه — تنها سطحی که پرداختِ سفارش با آن ساخته می‌شود.
+OWN_BOT_TOKEN = "222222:SHOP-OWN-BALE-BOT-TOKEN-P18"
+OWN_PAY_BOT = "shop_own_bale_bot_p18"
 # P26: لینکِ پرداخت یعنی چتِ رباتِ پرداخت (`https://ble.ir/<username>?start=<payload>`)؛ نامِ
 # کاربری در حالتِ عادی از getMe خوانده می‌شود و در تست از `remember_pay_bot_username` (بی‌شبکه).
 PLATFORM_PAY_BOT = "platform_pay_bot"
@@ -95,7 +98,7 @@ class _Cfg:
 
 
 async def _configure(
-    shop_bot_id: int, *, shop_token: bool, global_token: bool, admin_enabled: bool, card: bool = True
+    shop_bot_id: int, *, shop_token: bool, global_token: bool, admin_enabled: bool, card: bool = True, own_bot: bool = False
 ) -> None:
     async with session_scope() as session:
         row = await payment_settings_service.get_or_create(session, shop_bot_id)
@@ -108,6 +111,14 @@ async def _configure(
         if global_token:
             await update_setting(session, "bale_provider_token", GLOBAL_TOKEN)
         await update_setting(session, "bale_pay_enabled", admin_enabled)
+        if own_bot:
+            # P41: پرداختِ سفارش با جفتِ «رباتِ بلهٔ خودش + درگاهِ خودش» است، نه سطحِ پلتفرم.
+            shop_bot = await session.get(ShopBot, shop_bot_id)
+            shop_bot.bale_encrypted_token = OWN_BOT_TOKEN
+            shop_bot.bale_bot_id = 222222
+            shop_bot.bale_bot_username = OWN_PAY_BOT
+            shop_bot.bale_bot_enabled = True
+        await session.commit()
 
 
 # ============================================================================= ۱ و ۲ و ۳ و ۹ — سرویس
@@ -152,36 +163,55 @@ async def test_provider_token_shop_first_then_global() -> None:
 async def test_shop_status_reports_every_reason() -> None:
     await reset_database()
     shop_bot_id = await _seed_shop_only()
+    own_bot_token = "222222:SHOP-OWN-BALE-BOT-P18-UPDATED"
+    own_bot_username = "shop_p18_bot"
     with _Cfg(bale_bot_token=""):
         async with session_scope() as session:
             shop_bot = await session.get(ShopBot, shop_bot_id)
             row = await payment_settings_service.get_or_create(session, shop_bot_id)
             status = await creds.shop_status(session, shop_bot, row)
+            # P41: ملاکِ پرداختِ سفارش، خودِ فروشگاه است ⇒ علت‌ها هم «خودش»‌اند. توکنِ رباتِ
+            # پلتفرم و نامِ کاربریِ رباتِ پرداخت در این حالت دیگر شمارده نمی‌شوند، چون صورتحسابِ
+            # سفارش با آن‌ها ساخته **نمی‌شود**.
             assert set(status.missing) == {
-                creds.MISSING_BOT_TOKEN,
+                creds.MISSING_SHOP_BOT_TOKEN,
+                creds.MISSING_SHOP_PROVIDER_TOKEN,
                 creds.ADMIN_DISABLED,
-                creds.MISSING_PROVIDER_TOKEN,
-                creds.MISSING_PAY_BOT_USERNAME,
             }, status.missing
             assert not status.available
-            # فروشگاه‌دار کلیدِ خودش را خاموش کرده ⇒ علتِ پنجم هم اضافه می‌شود
+            # فروشگاه‌دار کلیدِ خودش را خاموش کرده ⇒ علتِ چهارم هم اضافه می‌شود
             row.bale_enabled = False
             status = await creds.shop_status(session, shop_bot, row)
-            assert creds.SHOP_DISABLED in status.missing and len(status.missing) == 5
-            # پیکربندیِ کامل ⇒ هیچ علتی نیست
+            assert creds.SHOP_DISABLED in status.missing and len(status.missing) == 4, status.missing
             row.bale_enabled = True
             shop_bot.bale_provider_token = SHOP_TOKEN
             await update_setting(session, "bale_pay_enabled", True)
-        with _Cfg(bale_bot_token=ENV_BOT_TOKEN):
-            # P26: لینکِ پرداخت = چتِ ربات ⇒ نامِ کاربری (که در حالتِ عادی از getMe می‌آید) لازم است
-            creds.remember_pay_bot_username(PLATFORM_PAY_BOT)
-            async with session_scope() as session:
-                shop_bot = await session.get(ShopBot, shop_bot_id)
-                row = await payment_settings_service.get(session, shop_bot_id)
-                status = await creds.shop_status(session, shop_bot, row)
-                assert status.available and status.missing == ()
-                assert status.bot_token == ENV_BOT_TOKEN and status.provider_token == SHOP_TOKEN
-                assert payment_settings_service.METHOD_BALE in await creds.methods(session, shop_bot, row)
+            await session.commit()
+
+    with _Cfg(bale_bot_token=ENV_BOT_TOKEN):
+        # P26: لینکِ پرداخت = چتِ ربات ⇒ نامِ کاربری (که در حالتِ عادی از getMe می‌آید) لازم است
+        creds.remember_pay_bot_username(PLATFORM_PAY_BOT)
+        async with session_scope() as session:
+            shop_bot = await session.get(ShopBot, shop_bot_id)
+            row = await payment_settings_service.get(session, shop_bot_id)
+            status = await creds.shop_status(session, shop_bot, row)
+            assert not status.available, "فقط توکنِ درگاه ⇒ پرداخت با ربات/درگاهِ پلتفرم ساخته نمی‌شود"
+            assert creds.MISSING_SHOP_BOT_TOKEN in status.missing
+            # جفتِ کاملِ خودش ⇒ فعال، و با ربات و درگاهِ **خودش** (پلتفرم دیگر مصرف نمی‌شود)
+            shop_bot.bale_encrypted_token = own_bot_token
+            shop_bot.bale_bot_id = 222222
+            shop_bot.bale_bot_username = own_bot_username
+            shop_bot.bale_bot_enabled = True
+            await session.commit()
+
+        async with session_scope() as session:
+            shop_bot = await session.get(ShopBot, shop_bot_id)
+            row = await payment_settings_service.get(session, shop_bot_id)
+            status = await creds.shop_status(session, shop_bot, row)
+            assert status.available and status.missing == (), status.missing
+            assert status.bot_token == own_bot_token and status.provider_token == SHOP_TOKEN
+            assert status.username == own_bot_username and status.uses_own_bot is True
+            assert payment_settings_service.METHOD_BALE in await creds.methods(session, shop_bot, row)
     print("✅ test_shop_status_reports_every_reason PASSED")
 
 
@@ -192,13 +222,15 @@ async def _payment_keyboard(env: _Env, group: str) -> list[str]:
 
 
 async def _run_matrix_case(
-    dispatchers, *, shop_token: bool, global_token: bool, admin_enabled: bool, bot_token: str
+    dispatchers, *, shop_token: bool, global_token: bool, admin_enabled: bool, bot_token: str, own_bot: bool = False
 ) -> tuple[bool, bool, list[dict]]:
     """یک پیکربندیِ کامل را از چک‌اوت تا pm_bale می‌راند و برمی‌گرداند:
     (دکمه به مشتری نشان داده شد؟, پرداخت واقعاً لینک ساخت؟, لینک‌هایِ ساخته‌شده)."""
     _main_dp, shop_dp, bot_manager, main_bot = dispatchers
     shop_bot_id, p1, p2 = await _seed()
-    await _configure(shop_bot_id, shop_token=shop_token, global_token=global_token, admin_enabled=admin_enabled)
+    await _configure(
+        shop_bot_id, shop_token=shop_token, global_token=global_token, admin_enabled=admin_enabled, own_bot=own_bot
+    )
     _created.clear()
     _sent_invoices.clear()
     with _Cfg(bale_bot_token=bot_token):
@@ -214,8 +246,11 @@ async def _run_matrix_case(
         worked = link is not None
         if worked:
             payload = link.split("start=", 1)[1]
+            # P41: لینکِ فروشگاه با جفتِ کامل، در چتِ رباتِ *خودش* باز می‌شود ⇒ آپدیت هم با
+            # توکنِ همان ربات می‌رسد (در واقعیت `bot_manager` این کار را می‌کند).
             await app_main._dispatch_bale_update(
-                {"update_id": 1, "message": {"chat": {"id": 777001}, "text": f"/start {payload}"}}
+                {"update_id": 1, "message": {"chat": {"id": 777001}, "text": f"/start {payload}"}},
+                token=OWN_BOT_TOKEN if own_bot else None,
             )
         alert_texts = [a.get("text") or "" for a in env.cust_alerts()]
         assert shown == worked, (
@@ -246,41 +281,48 @@ async def test_button_and_payment_never_disagree(shop_dp, main_dp, bot_manager, 
     bale_service.create_invoice_link = _fake_create_invoice_link
     bale_service.send_invoice = _fake_send_invoice
 
-    # ۱) کامل با توکنِ درگاهِ فروشگاه
+    # ۱) جفتِ کاملِ خودِ فروشگاه ⇒ دکمه هست، لینک با درگاهِ خودش
     shown, worked, made = await _run_matrix_case(
-        dispatchers, shop_token=True, global_token=False, admin_enabled=True, bot_token=ENV_BOT_TOKEN
+        dispatchers, shop_token=True, global_token=False, admin_enabled=True, bot_token=ENV_BOT_TOKEN, own_bot=True
     )
-    assert shown and worked and made[0]["provider_token"] == SHOP_TOKEN and made[0]["bot_token"] == ENV_BOT_TOKEN
+    assert shown and worked and made[0]["provider_token"] == SHOP_TOKEN and made[0]["bot_token"] == OWN_BOT_TOKEN
 
-    # ۲) همان با توکنِ رباتِ پنل ⇒ بدونِ ری‌استارت از پنل خوانده می‌شود
+    # ۲) توکنِ رباتِ پلتفرم از پنل باشد ⇒ بدونِ ری‌استارت خوانده می‌شود و اثری بر پرداختِ سفارش ندارد
     shown, worked, made = await _run_matrix_case(
-        dispatchers, shop_token=True, global_token=False, admin_enabled=True, bot_token=PANEL_BOT_TOKEN
+        dispatchers, shop_token=True, global_token=False, admin_enabled=True, bot_token=PANEL_BOT_TOKEN, own_bot=True
     )
-    assert shown and worked
+    assert shown and worked and made[0]["bot_token"] == OWN_BOT_TOKEN, "صورتحسابِ سفارش با رباتِ پلتفرم ساخته نشود"
 
     # ۳) **باگِ گزارش‌شده:** فروشگاه‌دار توکن را گذاشته ولی کلیدِ سراسریِ ادمین خاموش است
     shown, worked, _ = await _run_matrix_case(
-        dispatchers, shop_token=True, global_token=False, admin_enabled=False, bot_token=ENV_BOT_TOKEN
+        dispatchers, shop_token=True, global_token=False, admin_enabled=False, bot_token=ENV_BOT_TOKEN, own_bot=True
     )
     assert not shown and not worked, "بدونِ کلیدِ ادمین، دکمه اصلاً نباید به مشتری نشان داده شود"
 
-    # ۴) توکنِ درگاهِ فروشگاه نیست ولی سراسری هست ⇒ کار می‌کند (یکدست‌سازیِ A1)
-    shown, worked, made = await _run_matrix_case(
-        dispatchers, shop_token=False, global_token=True, admin_enabled=True, bot_token=ENV_BOT_TOKEN
+    # ۴) P41: درگاهِ سراسری هست ولی فروشگاه درگاهِ خودش را ندارد ⇒ هیچ‌کدام.
+    #    (پیش از این همین حالت پولِ مشتری را به کیف‌پولِ پلتفرم می‌ریخت.)
+    shown, worked, _ = await _run_matrix_case(
+        dispatchers, shop_token=False, global_token=True, admin_enabled=True, bot_token=ENV_BOT_TOKEN, own_bot=True
     )
-    assert shown and worked and made[0]["provider_token"] == GLOBAL_TOKEN
+    assert not shown and not worked, "پرداختِ سفارش با درگاهِ پلتفرم ساخته نمی‌شود"
 
     # ۵) هیچ توکنِ درگاهی نیست ⇒ نه دکمه، نه پرداخت
     shown, worked, _ = await _run_matrix_case(
-        dispatchers, shop_token=False, global_token=False, admin_enabled=True, bot_token=ENV_BOT_TOKEN
+        dispatchers, shop_token=False, global_token=False, admin_enabled=True, bot_token=ENV_BOT_TOKEN, own_bot=True
     )
     assert not shown and not worked
 
-    # ۶) توکنِ رباتِ بله نیست ⇒ نه دکمه، نه پرداخت
-    shown, worked, _ = await _run_matrix_case(
-        dispatchers, shop_token=True, global_token=False, admin_enabled=True, bot_token=""
+    # ۶) P41: توکنِ رباتِ *پلتفرم* نیست ولی جفتِ خودش کامل است ⇒ پرداختِ سفارش کار می‌کند
+    shown, worked, made = await _run_matrix_case(
+        dispatchers, shop_token=True, global_token=False, admin_enabled=True, bot_token="", own_bot=True
     )
-    assert not shown and not worked
+    assert shown and worked and made[0]["bot_token"] == OWN_BOT_TOKEN
+
+    # ۷) P41: فقط توکنِ درگاه، بدونِ رباتِ بلهٔ خودش (حالتی که مالکِ محصول دید) ⇒ هیچ‌کدام
+    shown, worked, _ = await _run_matrix_case(
+        dispatchers, shop_token=True, global_token=True, admin_enabled=True, bot_token=ENV_BOT_TOKEN, own_bot=False
+    )
+    assert not shown and not worked, "با جفتِ ناقص پولِ مشتری هرگز به کیف‌پولِ پلتفرم نمی‌نشیند"
     print("✅ test_button_and_payment_never_disagree PASSED")
 
 
@@ -288,7 +330,7 @@ async def test_owner_gets_actionable_notice_not_customer(shop_dp, main_dp, bot_m
     """کیبوردِ کهنه: مشتری بله‌پی را می‌زند در حالی که پیکربندی ناقص است ⇒ پیامِ مودبانه به مشتری
     و راهنمایِ عملی به فروشگاه‌دار (با محدودیتِ نرخ)."""
     shop_bot_id, p1, p2 = await _seed()
-    await _configure(shop_bot_id, shop_token=True, global_token=False, admin_enabled=True)
+    await _configure(shop_bot_id, shop_token=True, global_token=False, admin_enabled=True, own_bot=True)
     bale_service.create_invoice_link = _fake_create_invoice_link
     _created.clear()
     with _Cfg(bale_bot_token=ENV_BOT_TOKEN):
@@ -323,7 +365,8 @@ async def test_owner_menu_reports_true_state(shop_dp, main_dp, bot_manager, main
         text = main_texts.payments_menu_text(row, shop_bot, status.missing)
         assert "بله‌پی: ⛔️ خاموش" in text, text
         assert "⚠️ بله‌پی برایِ مشتری فعال نیست" in text and "کلیدِ سراسریِ بله‌پی خاموش است" in text, text
-        # با توکنِ سراسری و کلیدِ روشن ⇒ «✅ روشن» و اشاره به توکنِ سراسری
+        # P41: درگاهِ سراسریِ مدیر دیگر پولِ سفارش را به پلتفرم نمی‌برد، پس ادعایِ «استفاده می‌شود»
+        # نباید باشد و وضعیت هم تا جفتِ خودش کامل نشده «روشن» نمی‌شود.
         async with session_scope() as session:
             await update_setting(session, "bale_pay_enabled", True)
             await update_setting(session, "bale_provider_token", GLOBAL_TOKEN)
@@ -333,7 +376,25 @@ async def test_owner_menu_reports_true_state(shop_dp, main_dp, bot_manager, main
             row = await payment_settings_service.get(session, shop_bot_id)
             status = await creds.shop_status(session, shop_bot, row)
         text = main_texts.payments_menu_text(row, shop_bot, status.missing)
-        assert "بله‌پی: ✅ روشن" in text and "توکنِ سراسریِ مدیر استفاده می‌شود" in text, text
+        assert "بله‌پی: ⛔️ خاموش" in text, text
+        assert "توکنِ سراسریِ مدیر استفاده می‌شود" not in text, text
+        assert "درگاهِ سراسری برایِ پرداختِ سفارش استفاده نمی‌شود" in text, text
+
+        # جفتِ کاملِ خودِ فروشگاه ⇒ ✅ روشن (بدونِ هیچ درگاهِ سراسری)
+        async with session_scope() as session:
+            await update_setting(session, "bale_provider_token", "")
+            shop_bot = await session.get(ShopBot, shop_bot_id)
+            shop_bot.bale_provider_token = SHOP_TOKEN
+            shop_bot.bale_encrypted_token = OWN_BOT_TOKEN
+            shop_bot.bale_bot_id = 222222
+            shop_bot.bale_bot_username = OWN_PAY_BOT
+            shop_bot.bale_bot_enabled = True
+            await session.flush()
+            row = await payment_settings_service.get(session, shop_bot_id)
+            status = await creds.shop_status(session, shop_bot, row)
+        text = main_texts.payments_menu_text(row, shop_bot, status.missing)
+        assert "بله‌پی: ✅ روشن" in text and not status.missing, text
+        assert "درگاهِ سراسری" not in text, text
     print("✅ test_owner_menu_reports_true_state PASSED")
 
 

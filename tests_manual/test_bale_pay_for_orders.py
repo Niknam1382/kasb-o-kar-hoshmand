@@ -83,6 +83,11 @@ async def _seed(with_provider_token: bool) -> tuple[int, int]:
         if with_provider_token:
             shop_bot = await session.get(ShopBot, shop_bot_id)
             shop_bot.bale_provider_token = "SHOP-OWN-PROVIDER-TOKEN"
+            # P41: پرداختِ سفارش فقط با جفتِ کاملِ خودِ فروشگاه ساخته می‌شود ⇒ رباتِ بله هم ثبت شود.
+            shop_bot.bale_encrypted_token = "222222:SHOP-OWN-BALE-BOT-TOKEN"
+            shop_bot.bale_bot_id = 222222
+            shop_bot.bale_bot_username = "shop_own_bale_bot"
+            shop_bot.bale_bot_enabled = True
         customer = await customer_service.get_or_create_customer(session, shop_bot_id, CUSTOMER_TG_ID, "مشتری", None)
         customer_id = customer.id
     return shop_bot_id, customer_id
