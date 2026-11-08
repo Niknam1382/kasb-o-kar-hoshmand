@@ -22,8 +22,10 @@
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import datetime
+import io
 import sys
 
 sys.path.insert(0, ".")
@@ -408,7 +410,33 @@ async def _stranger_rows() -> list[int]:
         return list((await session.execute(select(ShopOwner.id).where(ShopOwner.telegram_id == STRANGER_TG_ID))).scalars().all())
 
 
+# ============================================================================= ۳ — گرهِ ماژولِ زنده (ریشهٔ «تایید نشدنِ پرداخت»)
+def test_live_module_alias_is_installed() -> None:
+    """`python -m app.main` ماژول را `__main__` می‌کند؛ هر `from app import main` در
+    `bot_manager` یکِ کپیِ دوم با `_state` خالی می‌ساخت و بعد ازِ commitِ پرداخت،
+    `KeyError: 'main_bot'` می‌داد ⇒ اعلان و فاکتور هرگز نمی‌رفتند (موردِ ۳).
+
+    خودِ بلوکِ `__main__` را نمی‌شود در سوئیت اجرا کرد (چون ربات را بالا می‌آورد)، پس این تست
+    یکِ نگهبانِ ساختاری است: اگر روزی این سه خط از داخلِ گاردِ `__main__` بیرون برود یا حذف
+    شود، همین‌جا می‌شکند. رفتارِ «پرداختِ تاییدشده ⇒ اعلان + فاکتور» مثلِ قبل در
+    `test_p34_bale_own_payment_surface` و `test_w5_bale_hardening` پوشش دارد.
+    """
+    tree = ast.parse(io.open("app/main.py", encoding="utf-8").read())
+    guard = [node for node in tree.body if isinstance(node, ast.If)]
+    live = [
+        node
+        for node in guard
+        if isinstance(node.test, ast.Compare) and getattr(node.test.left, "id", None) == "__name__"
+    ]
+    assert live, "بلوکِ `if __name__ == '__main__':` پیدا نشد"
+    body = ast.dump(live[0])
+    assert 'app.main' in body and "setdefault" in body, "گره‌زدنِ sys.modules['app.main'] حذف شده است"
+    assert "setattr" in body, "اتصالِ app.main رویِ پکیجِ app حذف شده است"
+    print("✅ test_live_module_alias_is_installed PASSED")
+
+
 async def main() -> None:
+    test_live_module_alias_is_installed()
     main_dp, shop_dp, bot_manager, main_bot = build_test_dispatchers()
     await test_panel_has_no_green_button_and_token_section_offers_bale(main_dp)
     await test_payment_screen_shows_options_and_token_does_not_smartern(main_dp)
