@@ -136,12 +136,14 @@ def _card(product):
 def test_panel_menus_are_paired() -> None:
     """مشکلِ ۲ کاربر: منویِ فروشگاه‌دار «سه ردیفِ تک، بعد دونفره، بعد یکِ ردیفِ سه‌تایی» بود.
     قاعده: هیچ ردیفی بیشتر از دو دکمه ندارد و تا ردیفِ آخر، همه دونفره‌اند."""
-    for bale_visible in (False, True):
+    # P42 · موردِ ۱ و ۳۵: دکمهٔ سبز از منو رفته و سوئیچِ «سوال‌هایِ بی‌جواب» هم ردیفش را برداشته؛
+    # در هر دو حالت چینشِ دونفره باید سالم بماند.
+    for knowledge_gap in (False, True):
         for mode in ("sales", "consultation"):
-            rows_of_menu = rows(main_keyboards.shop_owner_panel_keyboard(mode, bale_visible=bale_visible))
+            rows_of_menu = rows(main_keyboards.shop_owner_panel_keyboard(mode, knowledge_gap=knowledge_gap))
             widths = [len(row) for row in rows_of_menu]
-            assert max(widths) <= 2, (mode, bale_visible, widths)
-            assert all(width == 2 for width in widths[:-1]), (mode, bale_visible, widths)
+            assert max(widths) <= 2, (mode, knowledge_gap, widths)
+            assert all(width == 2 for width in widths[:-1]), (mode, knowledge_gap, widths)
 
     for is_super in (True, False):
         widths = [len(row) for row in rows(main_keyboards.admin_panel_keyboard(is_super))]

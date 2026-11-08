@@ -274,6 +274,8 @@ async def test_payment_screen_takes_both_inputs(main_dp, bot_manager) -> None:
     owner = Chat(main_dp, OWNER_TG_ID)
     with _Cfg():
         await owner.say("💳 پرداختِ آنلاینِ سفارش‌ها")
+        assert "بله‌پی" in owner.last_text, owner.last_text
+        await owner.tap("pays_bale_token")
         screen = owner.last_text
         assert "۱) توکنِ رباتِ بله" in screen and "۲) توکنِ درگاهِ بله‌پی" in screen, screen
         assert "تنظیم‌نشده" in screen, screen
@@ -292,7 +294,8 @@ async def test_payment_screen_takes_both_inputs(main_dp, bot_manager) -> None:
             await owner.say(SHOP_BALE_TOKEN)
         finally:
             bale_bot_service.fetch_identity = real_fetch  # type: ignore[assignment]
-        assert owner.sent[-2]["text"] == main_texts.BALE_SHOP_BOT_SAVED, owner.sent[-2]["text"]
+        # P42 · موردِ ۲: همان توکن از صفحهٔ پرداخت ⇒ پیامِ «فقط برایِ پرداختِ بله‌پی»
+        assert owner.sent[-2]["text"] == main_texts.BALE_TOKEN_SAVED_FOR_PAY_ONLY, owner.sent[-2]["text"]
         assert "توکنِ درگاهِ خودت را بفرست" in owner.last_text, owner.last_text
 
         await owner.say("کوتاه")
@@ -310,6 +313,7 @@ async def test_payment_screen_takes_both_inputs(main_dp, bot_manager) -> None:
 
         # «حذف» از همان صفحه کار می‌کند
         await owner.say("💳 پرداختِ آنلاینِ سفارش‌ها")
+        await owner.tap("pays_bale_token")
         await owner.say("حذف")
         assert main_texts.BALE_PROVIDER_TOKEN_REMOVED in owner.last_text, owner.last_text
         async with session_scope() as session:
@@ -317,7 +321,7 @@ async def test_payment_screen_takes_both_inputs(main_dp, bot_manager) -> None:
             assert shop_bot.bale_provider_token is None
 
         # صفحهٔ هوشمندسازیِ بله: فقط توکنِ ربات (دکمهٔ درگاه حذف شده است)
-        await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+        await owner.tap("tok_bale")
         datas = [b.callback_data for row in owner.last_markup.inline_keyboard for b in row]
         assert "bale_edit" in datas, datas
         assert "bale_provider_edit" not in datas, datas
@@ -334,6 +338,7 @@ async def test_payment_screen_asks_bot_token_only_when_revealed(main_dp) -> None
     owner = Chat(main_dp, OWNER_TG_ID)
     with _Cfg():
         await owner.say("💳 پرداختِ آنلاینِ سفارش‌ها")
+        await owner.tap("pays_bale_token")
         screen = owner.last_text
         assert "اول توکنِ رباتِ بله" not in screen, screen
         assert "توکنِ درگاهِ خودت را بفرست" in screen, screen

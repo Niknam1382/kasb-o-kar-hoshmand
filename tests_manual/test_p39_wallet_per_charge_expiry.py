@@ -105,29 +105,29 @@ async def test_wallet_screen_names_every_charge_expiry(main_dp) -> None:
     print("✅ test_wallet_screen_names_every_charge_expiry PASSED")
 
 
-# ============================================================================= ۳ — گروه‌کردنِ روزها و سقفِ نمایش
-async def test_same_day_charges_group_and_long_lists_fold() -> None:
+# ============================================================================= ۳ — شارژها جدا و فهرست‌هایِ بلند تا‌شده
+async def test_same_day_charges_stay_separate_and_long_lists_fold() -> None:
     await reset_database()
     await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID, initial_balance_toman=0)
     owner_id = await _owner_id()
     await _add_charge(owner_id, 100_000, 9)
-    await _add_charge(owner_id, 50_000, 9)  # همان روزِ انقضا ⇒ یک خط
+    await _add_charge(owner_id, 50_000, 9)  # P42 · موردِ ۲۱: همان روزِ انقضا ⇒ دو خطِ جدا
     for day in (12, 20, 40, 55, 70, 90, 120):
         await _add_charge(owner_id, 10_000, day)
 
     async with session_scope() as session:
         owner = await session.get(ShopOwner, owner_id)
         _usable, lots = await wallet_service.credit_summary(session, owner)
-    assert [(lot.remaining_toman, lot.days_left) for lot in lots[:2]] == [(150_000, 9), (10_000, 12)], lots
-    assert len(lots) == 8, len(lots)
+    assert [(lot.remaining_toman, lot.days_left) for lot in lots[:2]] == [(100_000, 9), (50_000, 9)], lots
+    assert len(lots) == 9, len(lots)
 
     body = texts.wallet_status_text(340_000, lots=lots)
-    assert "۱۵۰٬۰۰۰ تومان — ۹ روزِ دیگر" in body, body
+    assert "۱۰۰٬۰۰۰ تومان — ۹ روزِ دیگر" in body and "۵۰٬۰۰۰ تومان — ۹ روزِ دیگر" in body, body
     assert body.count("\n• ") == texts.WALLET_LOT_DISPLAY_LIMIT + 1, body  # ۶ خط + خطِ جمعِ بقیه
-    assert "و ۲ شارژِ دیگر" in body, body
+    assert "و ۳ شارژِ دیگر" in body, body
     assert "۱۲۰ روزِ دیگر" in body, "دیرترینِ انقضایِ فهرستِ جمع‌شده گفته می‌شود"
     assert "۹۰ روزِ دیگر" not in body, "پس ازِ سقفِ نمایش، تک‌تکِ ردیف‌ها تکرار نشوند"
-    print("✅ test_same_day_charges_group_and_long_lists_fold PASSED")
+    print("✅ test_same_day_charges_stay_separate_and_long_lists_fold PASSED")
 
 
 # ============================================================================= ۴ — گزارشِ شبانه
@@ -145,7 +145,7 @@ async def main() -> None:
     main_dp, _shop_dp, _bot_manager, _main_bot = build_test_dispatchers()
     await test_lots_are_per_charge_and_ordered_by_spend()
     await test_wallet_screen_names_every_charge_expiry(main_dp)
-    await test_same_day_charges_group_and_long_lists_fold()
+    await test_same_day_charges_stay_separate_and_long_lists_fold()
     test_digest_line_is_honest_about_nearest_expiry()
 
 

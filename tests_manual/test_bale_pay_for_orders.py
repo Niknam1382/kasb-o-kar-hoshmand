@@ -118,16 +118,20 @@ async def test_owner_can_set_and_remove_provider_token(main_dp) -> None:
         await session.commit()
     owner_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
 
+    # P42 · موردِ ۲: این دکمه اول «گزینه‌ها» را نشان می‌دهد و توکن فقط با «pays_bale_token» پرسیده
+    # می‌شود (تا متنِ بعدیِ فروشگاه‌دار اشتباهی به‌عنوانِ توکنِ ربات خوانده نشود).
     await main_dp.feed_update(owner_bot, make_message_update(1, text="💳 پرداختِ آنلاینِ سفارش‌ها", user_id=OWNER_TG_ID))
-    await main_dp.feed_update(owner_bot, make_message_update(2, text="MY-REAL-PROVIDER-TOKEN", user_id=OWNER_TG_ID))
+    await main_dp.feed_update(owner_bot, make_callback_update(2, data="pays_bale_token", user_id=OWNER_TG_ID))
+    await main_dp.feed_update(owner_bot, make_message_update(3, text="MY-REAL-PROVIDER-TOKEN", user_id=OWNER_TG_ID))
 
     async with session_scope() as session:
         owner = await shop_owner_service.get_by_telegram_id(session, OWNER_TG_ID)
         shop_bot = await shop_bot_service.get_by_owner(session, owner)
         assert shop_bot.bale_provider_token == "MY-REAL-PROVIDER-TOKEN"
 
-    await main_dp.feed_update(owner_bot, make_message_update(3, text="💳 پرداختِ آنلاینِ سفارش‌ها", user_id=OWNER_TG_ID))
-    await main_dp.feed_update(owner_bot, make_message_update(4, text="حذف", user_id=OWNER_TG_ID))
+    await main_dp.feed_update(owner_bot, make_message_update(4, text="💳 پرداختِ آنلاینِ سفارش‌ها", user_id=OWNER_TG_ID))
+    await main_dp.feed_update(owner_bot, make_callback_update(5, data="pays_bale_token", user_id=OWNER_TG_ID))
+    await main_dp.feed_update(owner_bot, make_message_update(6, text="حذف", user_id=OWNER_TG_ID))
 
     async with session_scope() as session:
         owner = await shop_owner_service.get_by_telegram_id(session, OWNER_TG_ID)

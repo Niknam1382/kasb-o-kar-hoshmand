@@ -246,12 +246,16 @@ async def test_manager_bale_transport_and_customer_bot() -> None:
 
         shop_bot.bale_bot_enabled = False
         await manager.register_bale(shop_bot)
-        assert manager.registered_bale_bot_ids() == [], "خاموش ⇒ اتصالِ کهنه هم بسته می‌شود"
+        # P42 · موردِ ۲: تا توکنِ رباتِ بله هست اتصال می‌ماند (مسیرِ پرداختِ بله‌پی)؛ چیزی که
+        # خاموش می‌شود هوشمندسازی است، پس `_bale_smarten` باید False باشد.
+        assert manager.registered_bale_bot_ids() == [shop_bot_id], "توکن هست ⇒ اتصال برایِ پرداخت باز"
+        assert manager._bale_smarten[shop_bot_id] is False
 
         shop_bot.bale_bot_enabled = True
         await manager.register_bale(shop_bot)
         assert manager.registered_bale_bot_ids() == [shop_bot_id]
-        assert len(built) == 2, "ثبتِ دوباره ⇒ اتصالِ تازه"
+        assert manager._bale_smarten[shop_bot_id] is True
+        assert len(built) == 3, "ثبتِ دوباره ⇒ اتصالِ تازه"
 
         shop_bot.bale_encrypted_token = None
         await manager.register_bale(shop_bot)
@@ -339,19 +343,22 @@ async def test_admin_reveal_and_hide(main_dp, bot_manager) -> None:
         )
     assert any("bale_shop_bots_enabled -> True" in (e.details or "") for e in entries), entries
 
-    with_bale = keyboards.shop_owner_panel_keyboard("sales", bale_visible=True)
-    assert main_texts.BALE_SHOP_BOT_BUTTON in {b.text for row in with_bale.keyboard for b in row}
-    without = keyboards.shop_owner_panel_keyboard("sales", bale_visible=False)
-    assert main_texts.BALE_SHOP_BOT_BUTTON not in {b.text for row in without.keyboard for b in row}
+    # P42 · موردِ ۱: گزینهٔ بله در انتخابگرِ «ثبت/ویرایش توکن ربات» است، نه در منویِ پنل.
+    with_bale = keyboards.shop_bot_token_choice_keyboard(True)
+    assert main_texts.BALE_SHOP_BOT_BUTTON in {b.text for row in with_bale.inline_keyboard for b in row}
+    without = keyboards.shop_bot_token_choice_keyboard(False)
+    assert main_texts.BALE_SHOP_BOT_BUTTON not in {b.text for row in without.inline_keyboard for b in row}
+    panel = keyboards.shop_owner_panel_keyboard("sales")
+    assert main_texts.BALE_SHOP_BOT_BUTTON not in {b.text for row in panel.keyboard for b in row}
 
     owner = Chat(main_dp, OWNER_TG_ID)
-    await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+    await owner.tap("tok_bale")
     assert "رباتِ بله‌یِ فروشگاه" in owner.last_text, owner.last_text
 
     await admin.tap("admin_toggle_bale_bots")
     assert await _flag() is False
     assert calls == [f"register:{shop_bot_id}", f"unregister:{shop_bot_id}"], calls
-    await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+    await owner.tap("tok_bale")
     assert owner.last_text == main_texts.BALE_SHOP_BOT_UNAVAILABLE, "پنهان ⇒ حتی با دکمه‌یِ باز هم توکن ثبت نمی‌شود"
     print("✅ test_admin_reveal_and_hide PASSED")
 
@@ -380,8 +387,9 @@ async def test_owner_bale_token_flow(main_dp, bot_manager) -> None:
     bale_service.get_me = fake_get_me  # type: ignore[assignment]
     try:
         owner = Chat(main_dp, OWNER_TG_ID)
-        await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
-        assert "رباتِ بله‌یِ فروشگاه" in owner.last_text and "هنوز توکنی ثبت نکردی" in owner.last_text, owner.last_text
+        await owner.tap("tok_bale")
+        # P42 · موردِ ۱: صفحهٔ «هوشمندسازیِ بله» حالا می‌گوید «هنوز توکنِ رباتِ بله را ثبت نکردی»
+        assert "رباتِ بله‌یِ فروشگاه" in owner.last_text and "هنوز توکنِ رباتِ بله را ثبت نکردی" in owner.last_text, owner.last_text
         data = _callback_data(owner.last_markup)
         assert "bale_edit" in data and "bale_back" in data, data
 
@@ -406,7 +414,7 @@ async def test_owner_bale_token_flow(main_dp, bot_manager) -> None:
 
         # همان رباتِ بله برایِ فروشگاهِ دیگر ⇒ رد (بدونِ نوشتنِ توکن)
         other_owner = Chat(main_dp, OTHER_OWNER_TG_ID)
-        await other_owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+        await other_owner.tap("tok_bale")
         await other_owner.tap("bale_edit")
         await other_owner.say(FAKE_BALE_TOKEN)
         assert main_texts.BALE_SHOP_BOT_ALREADY_USED in [m["text"] for m in other_owner.sent], other_owner.sent[-3:]
@@ -414,29 +422,32 @@ async def test_owner_bale_token_flow(main_dp, bot_manager) -> None:
         assert calls == [f"register:{shop_bot_id}"], calls
 
         # خاموش/روشن از همان صفحه
-        await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+        await owner.tap("tok_bale")
         await owner.tap("bale_off")
         assert (await _shop_bot(shop_bot_id)).bale_bot_enabled is False
-        assert calls[-1] == f"unregister:{shop_bot_id}", calls
-        await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+        # P42 · موردِ ۲: خاموش‌کردنِ هوشمندسازی اتصال را نمی‌بندد (پرداخت باید کار کند).
+        assert calls[-1] == f"register:{shop_bot_id}", calls
+        await owner.tap("tok_bale")
         assert "خاموش ⏸" in owner.last_text, owner.last_text
         await owner.tap("bale_on")
         assert (await _shop_bot(shop_bot_id)).bale_bot_enabled is True
         assert calls[-1] == f"register:{shop_bot_id}", calls
 
         # حذف ⇒ توکن و شناسه پاک، اتصال بسته؛ تلگرام دست‌نخورده
-        await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+        await owner.tap("tok_bale")
         await owner.tap("bale_clear")
         row = await _shop_bot(shop_bot_id)
         assert row.bale_encrypted_token is None and row.bale_bot_id is None and row.bale_bot_username is None
         assert calls[-1] == f"unregister:{shop_bot_id}", calls
         assert row.bot_telegram_id == SHOP_BOT_TG_ID and row.encrypted_token
-        await owner.say(main_texts.BALE_SHOP_BOT_BUTTON)
+        await owner.tap("tok_bale")
         data = _callback_data(owner.last_markup)
         assert "bale_edit" in data and "bale_clear" not in data, data
 
         await owner.tap("bale_back")
-        assert main_texts.BALE_SHOP_BOT_BUTTON in {b.text for row in owner.last_markup.keyboard for b in row}, "دکمه برمی‌گردد"
+        labels = {b.text for row in owner.last_markup.keyboard for b in row}
+        assert "🔑 ثبت/ویرایش توکن ربات" in labels, labels
+        assert main_texts.BALE_SHOP_BOT_BUTTON not in labels, "P42 · موردِ ۱: منویِ پنل دکمهٔ سبز ندارد"
     finally:
         bale_service.get_me = original_get_me
     print("✅ test_owner_bale_token_flow PASSED")
@@ -456,8 +467,9 @@ async def test_owner_without_shop_bot(main_dp) -> None:
     async with session_scope() as session:
         await shop_owner_service.get_or_create_shop_owner(session, stranger_id)
     stranger = Chat(main_dp, stranger_id)
-    await stranger.say(main_texts.BALE_SHOP_BOT_BUTTON)
-    assert stranger.last_text == main_texts.SHOP_BOT_NOT_SET_UP, stranger.last_text
+    await stranger.tap("tok_bale")
+    # P42 · موردِ ۱: کال‌بک ⇒ پاسخِ toast (نه پیامِ تازه)، همان قراردادِ بقیهٔ صفحه‌هایِ پنل.
+    assert stranger.last_toast["text"] == main_texts.SHOP_BOT_NOT_SET_UP, stranger.last_toast
     print("✅ test_owner_without_shop_bot PASSED")
 
 

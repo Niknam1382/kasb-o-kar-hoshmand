@@ -186,11 +186,12 @@ async def test_bale_is_offered_right_after_telegram_token(main_dp, bot_manager) 
     owner = Chat(main_dp, OWNER_TG_ID)
     try:
         await owner.say("🔑 ثبت/ویرایش توکن ربات")
+        await owner.tap("tok_telegram")
         await owner.say(NEW_TG_TOKEN)
         assert registered == [shop_bot_id], registered
         last = owner.sent[-1]["text"]
         assert last == texts.BALE_SMARTEN_OFFER, last
-        assert owner.sent[-1].get("reply_markup") is None, "P39: برایِ توکنِ بله هیچ دکمهٔ تازه‌ای ساخته نمی‌شود"
+        assert owner.sent[-1].get("reply_markup") is None, "پیامِ پیشنهادِ بله دکمهٔ تازه‌ای ندارد"
 
         # «بعداً» همان جریان را می‌بندد (بی‌شبکه، بدونِ ثبتِ توکن)
         await owner.say("بعداً")
@@ -201,6 +202,7 @@ async def test_bale_is_offered_right_after_telegram_token(main_dp, bot_manager) 
 
         # ورودیِ بی‌ربط در همان جریان ⇒ state آزاد می‌شود تا منویِ پنل گروگان نماند
         await owner.say("🔑 ثبت/ویرایش توکن ربات")
+        await owner.tap("tok_telegram")
         await owner.say(NEW_TG_TOKEN)
         assert owner.last_text == texts.BALE_SMARTEN_OFFER, owner.last_text
         await owner.say("سلام")
@@ -210,8 +212,10 @@ async def test_bale_is_offered_right_after_telegram_token(main_dp, bot_manager) 
         await _connect_bale(shop_bot_id)
         before = len(owner.sent)
         await owner.say("🔑 ثبت/ویرایش توکن ربات")
+        await owner.tap("tok_telegram")
         await owner.say(NEW_TG_TOKEN)
-        assert len(owner.sent) == before + 2, owner.sent[before:]
+        # انتخابگر (۱) + درخواستِ توکنِ تلگرام (۲) + «وصل شد» (۳)؛ پیشنهادِ بله تکرار نمی‌شود
+        assert len(owner.sent) == before + 3, owner.sent[before:]
     finally:
         panel_handlers.Bot = real_bot_class
         del bot_manager.register

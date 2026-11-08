@@ -504,8 +504,11 @@ async def test_credit_batches_service(main_bot) -> None:
         bid = batch.batch_id
     async with session_scope() as session:
         res = await credit_batch_service.execute(session, bid, by="1")
-        assert res.changed and res.applied_owner_ids == [] and res.batch.skipped_count == 1, "اشتراکِ تمام‌شده تمدید نمی‌شه"
-        assert (await session.execute(select(func.count()).select_from(AdminCreditBatchItem).where(AdminCreditBatchItem.batch_id == bid))).scalar_one() == 0
+        # P42 · موردِ ۵: ردیفِ Subscriptionِ تمام‌شده همچنان دست‌نخورده می‌ماند، اما بسته‌هایِ
+        # اعتبارِ زندهٔ همان فروشگاه تمدید می‌شوند ⇒ «۰ اعمال، ۱ رد» دیگر نمی‌بینیم.
+        assert res.changed and res.applied_owner_ids == [owner_id], "شارژِ زنده تمدید می‌شه، اشتراکِ نه"
+        assert (await session.get(Subscription, sub_id)).end_date == NOW - datetime.timedelta(days=3)
+        assert (await session.execute(select(func.count()).select_from(AdminCreditBatchItem).where(AdminCreditBatchItem.batch_id == bid))).scalar_one() == 1
 
     # لغو، ادامه‌یِ بعد از کرش
     async with session_scope() as session:
