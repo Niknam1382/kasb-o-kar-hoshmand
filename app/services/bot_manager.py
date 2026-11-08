@@ -33,6 +33,10 @@ class ShopBotManager:
         self._secrets: dict[int, str] = {}
         self._bale_bots: dict[int, Bot] = {}
         self._bale_polling_tasks: dict[int, asyncio.Task] = {}
+        # P42 · موردِ ۲: «توکنِ بله» دو مصرفِ جدا دارد — پرداخت (با توکنِ درگاهِ خودِ فروشگاه) و
+        # هوشمندسازی (پاسخِ AI به مشتریِ بله‌ای). این جدولِ درِ حافظه می‌گوید هر اتصالِ بله به
+        # روترهایِ گفت‌وگو feed شود یا فقط آپدیت‌هایِ پرداخت مصرف شوند.
+        self._bale_smarten: dict[int, bool] = {}
         # P29 (MEASURED): با ۵۰۰ فروشگاه، راه‌اندازیِ قبلی همهٔ delete_webhook را در یکِ لحظه
         # می‌فرستد (اوجِ هم‌زمانی = ۵۰۰ اندازه‌گرفته‌شده) و در حالتِ webhook ترتیبی می‌ماند
         # (۲۰ ربات = ۵٫۰ ثانیه ⇒ ۵۰۰ ربات ≈ ۱۲۵ ثانیه). این درِ نیمه‌باز هر دو را به
@@ -82,8 +86,14 @@ class ShopBotManager:
             self._polling_tasks[shop_bot.id] = task
 
     async def register_bale(self, shop_bot: ShopBot) -> None:
-        """اتصالِ بله‌یِ این فروشگاه (اگر توکن دارد و سوییچِ خودش روشن است)."""
-        if not bale_bot_service.connectable(shop_bot):
+        """اتصالِ بله‌یِ این فروشگاه، فقط با *وجودِ توکن* باز می‌شود (P42 · موردِ ۲).
+
+        توکنِ رباتِ بله هم مقصدِ پرداخت است و هم مقصدِ هوشمندسازی؛ تا پیشِ این `connectable`
+        (توکن + سوییچِ هوشمندسازی) ملاک بود، پس ثبتِ توکن از صفحهٔ «پرداختِ آنلاینِ سفارش‌ها»
+        ربات را هوشمند می‌کرد و برعکس، خاموش‌کردنِ هوشمندسازی پرداخت را هم می‌کشت. حالا polling
+        با توکن باز می‌ماند و `_bale_smarten` تعیین می‌کند گفت‌وگو به روتر برود یا نه.
+        """
+        if not bale_bot_service.has_token(shop_bot):
             await self.unregister_bale(shop_bot.id)
             return
         token = bale_bot_service.raw_token(shop_bot)
@@ -91,9 +101,11 @@ class ShopBotManager:
         if shop_bot.id in self._bale_bots:
             await self.unregister_bale(shop_bot.id)
         self._bale_bots[shop_bot.id] = bot
+        self._bale_smarten[shop_bot.id] = bool(shop_bot.bale_bot_enabled)
         self._bale_polling_tasks[shop_bot.id] = asyncio.create_task(self._poll(shop_bot.id, bot, bale=True))
 
     async def unregister_bale(self, shop_bot_id: int) -> None:
+        self._bale_smarten.pop(shop_bot_id, None)
         bot = self._bale_bots.pop(shop_bot_id, None)
         task = self._bale_polling_tasks.pop(shop_bot_id, None)
         if task is not None:
@@ -164,6 +176,10 @@ class ShopBotManager:
             for update in updates:
                 offset = update.update_id + 1
                 if bale and await self._handle_bale_payment_update(bot, update):
+                    continue
+                if bale and not self._bale_smarten.get(shop_bot_id, False):
+                    # P42 · موردِ ۲: توکن فقط برایِ پرداخت ثبت شده ⇒ گفت‌وگویِ بله‌ای به روترِ AI
+                    # نمی‌رود (نه هزینه‌ای از کیف‌پول، نه پاسخِ هوشمندی). آپدیتِ پرداخت بالا مصرف شد.
                     continue
                 try:
                     await self._dispatcher.feed_update(bot, update)

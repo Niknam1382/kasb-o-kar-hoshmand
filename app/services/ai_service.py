@@ -28,7 +28,11 @@ _http_session: aiohttp.ClientSession | None = None
 def _get_http_session() -> aiohttp.ClientSession:
     global _http_session
     if _http_session is None or _http_session.closed:
-        _http_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60))
+        # P42 · موردِ ۳۲: سقفِ انتظار از env (AI_TIMEOUT_SECONDS) — پاسخِ مشاوره‌ایِ بلند، قربانیِ
+        # عددِ ثابتِ ۶۰ ثانیه می‌شد.
+        from app.config import settings
+
+        _http_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=settings.ai_timeout_seconds))
     return _http_session
 
 
@@ -195,6 +199,11 @@ class OpenAiCompatibleAiService(BaseAiService):
                         return await resp.json()
             except AiServiceError:
                 raise
+            except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as exc:
+                # P42 · موردِ ۳۲: تایم‌اوت یعنی ارائه‌دهنده جواب نداده؛ فرستادنِ *همان* بارِ پولیِ
+                # دوباره فقط مشتری را ثانیه‌هایِ بیشتری معطلِ هیچ می‌کند ⇒ همان‌جا خطا می‌دهیم.
+                # خطاهایِ اتصالِ لحظه‌ای (ClientConnectorError…) مثلِ قبل تلاشِ مجدد می‌گیرند.
+                raise AiServiceError(f"پاسخِ هوش مصنوعی دیر رسید یا اتصال قطع شد ({type(exc).__name__})") from exc
             except Exception as exc:
                 last_exc = AiServiceError(f"فراخوانی هوش مصنوعی ناموفق بود: {exc}")
 

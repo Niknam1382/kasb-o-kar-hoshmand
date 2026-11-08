@@ -78,12 +78,18 @@ async def get_by_bale_bot_id(session: AsyncSession, bale_bot_id: int) -> ShopBot
     return result.scalar_one_or_none()
 
 
-async def apply_token(session: AsyncSession, shop_bot: ShopBot, raw_token: str, identity: dict) -> None:
-    """توکن (رمزنگاری‌شده توسط TypeDecorator) + شناسه و نامِ کاربریِ رباتِ بله."""
+async def apply_token(session: AsyncSession, shop_bot: ShopBot, raw_token: str, identity: dict, *, smarten: bool = True) -> None:
+    """توکن (رمزنگاری‌شده توسط TypeDecorator) + شناسه و نامِ کاربریِ رباتِ بله.
+
+    P42 · موردِ ۲ (درخواستِ صریحِ مالکِ محصول): `smarten=False` یعنی این توکن *فقط* برایِ
+    پرداختِ بله‌پی ثبت شده و رباتِ بله نباید به مشتری پاسخِ هوشمند بدهد. `bale_bot_enabled`
+    همان سوییچِ هوشمندسازی است، پس با `smarten=False` دست‌نخورده می‌ماند.
+    """
     shop_bot.bale_encrypted_token = raw_token.strip()
     shop_bot.bale_bot_id = int(identity["id"])
     shop_bot.bale_bot_username = (identity.get("username") or "")[:64] or None
-    shop_bot.bale_bot_enabled = True
+    if smarten:
+        shop_bot.bale_bot_enabled = True
     await session.flush()
 
 
@@ -109,5 +115,15 @@ def token_masked(shop_bot: ShopBot | None) -> str:
 
 
 def connectable(shop_bot: ShopBot | None) -> bool:
-    """هم توکن داشته باشد هم سوییچِ خودِ فروشگاه روشن باشد."""
+    """هوشمندسازیِ بله: توکن دارد و سوییچِ خودش هم روشن است."""
     return bool(shop_bot is not None and raw_token(shop_bot) and shop_bot.bale_bot_enabled)
+
+
+def has_token(shop_bot: ShopBot | None) -> bool:
+    """P42 · موردِ ۲: توکنِ رباتِ بله ثبت شده — صرف‌نظر ازِ اینکه هوشمندسازی روشن باشد.
+
+    مسیرِ پرداخت به این نیاز دارد، نه به `connectable`: با توکنِ ربات + توکنِ درگاه، صورتحساب
+    در چتِ رباتِ خودِ فروشگاه می‌آید و پول در کیف‌پولِ خودش می‌نشیند، حتی اگر پاسخِ هوشمند
+    خاموش باشد.
+    """
+    return bool(shop_bot is not None and raw_token(shop_bot))

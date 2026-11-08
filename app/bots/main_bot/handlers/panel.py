@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.main_bot import keyboards, texts
+from app.bots.main_bot.handlers.owner_common import panel_keyboard
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.main_bot.states import (
     AiInstructionsStates,
@@ -111,7 +112,7 @@ async def cmd_cancel(message: Message, state: FSMContext, session: AsyncSession)
     if is_admin:
         keyboard = keyboards.admin_panel_keyboard(is_super_admin)
     else:
-        keyboard = keyboards.shop_owner_panel_keyboard(owner.business_mode if owner else None, bale_visible=await bale_bot_service.visible_for(session))
+        keyboard = await panel_keyboard(session, owner.business_mode if owner else None)
     await message.answer(texts.OPERATION_CANCELLED, reply_markup=keyboard)
 
 
@@ -132,9 +133,7 @@ async def cb_back_to_panel(callback: CallbackQuery, state: FSMContext, session: 
     if is_admin:
         keyboard = keyboards.admin_panel_keyboard(is_super)
     else:
-        keyboard = keyboards.shop_owner_panel_keyboard(
-            owner.business_mode if owner else None, bale_visible=await bale_bot_service.visible_for(session)
-        )
+        keyboard = await panel_keyboard(session, owner.business_mode if owner else None)
     await callback.answer()
     try:
         # کیبوردِ inlineِ همان صفحه برداشته می‌شود تا دابل‌تپ، دو پیامِ پنل نسازد.
@@ -148,9 +147,35 @@ async def cb_back_to_panel(callback: CallbackQuery, state: FSMContext, session: 
 # ثبت/ویرایش توکن ربات فروشگاهی
 # =============================================================================
 @router.message(F.text == "🔑 ثبت/ویرایش توکن ربات")
-async def open_shop_bot_token(message: Message, state: FSMContext) -> None:
+async def open_shop_bot_token(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    # P42 · موردِ ۱: پیام‌رسان اول انتخاب می‌شود (بدونِ دکمهٔ تازه در منو). با ویژگیِ پنهان،
+    # همان رفتارِ قدیمی می‌ماند و یکِ پرسشِ اضافه ساخته نمی‌شود.
+    if await bale_bot_service.visible_for(session):
+        await message.answer(texts.SHOP_BOT_TOKEN_CHOICE_TEXT, reply_markup=keyboards.shop_bot_token_choice_keyboard(True))
+        return
     await state.set_state(ShopBotTokenStates.waiting_token)
     await message.answer(texts.ASK_SHOP_BOT_TOKEN)
+
+
+@router.callback_query(F.data == "tok_telegram")
+async def tok_telegram(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(ShopBotTokenStates.waiting_token)
+    await callback.answer()
+    await callback.message.answer(texts.ASK_SHOP_BOT_TOKEN)
+
+
+@router.callback_query(F.data.in_({"tok_bale", "bale_open"}))
+async def tok_bale(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    """P42 · موردِ ۱ و ۲۹: صفحهٔ «هوشمندسازیِ بله» — از انتخابگرِ توکن و از پیامِ «ربات وصل شد»."""
+    await callback.answer()
+    if not await bale_bot_service.visible_for(session):
+        await callback.message.answer(texts.BALE_SHOP_BOT_UNAVAILABLE)
+        return
+    shop_bot = await _own_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.clear()
+    await _bale_screen(callback.message, shop_bot, session)
 
 
 @router.message(ShopBotTokenStates.waiting_token, F.text)
@@ -174,8 +199,15 @@ async def save_shop_bot_token(message: Message, state: FSMContext, session: Asyn
 
     shop_bot = await shop_bot_service.upsert_shop_bot(session, owner, raw_token, me.id, me.username)
     await state.clear()
-    await message.answer(texts.shop_bot_token_saved(me.username))
 
+    # P36 → P42: «علاوه بر توکنِ رباتِ تلگرام، توکنِ رباتِ بله را هم بفرست» — در *همان* جریانِ
+    # ثبتِ توکن و بدونِ دکمهٔ منو (مواردِ ۱ و ۲۹): پیامِ «وصل شد» + دو دکمه، و توکنِ تایپ‌شده
+    # هم همین‌جا پذیرفته می‌شود. هیچ اشاره‌ای به صفحهٔ پرداخت نمی‌شود.
+    revealed = bale_bot_service.enabled(await get_admin_settings(session))
+    await message.answer(
+        texts.shop_bot_token_saved(me.username),
+        reply_markup=keyboards.bale_entry_keyboard() if revealed else None,
+    )
     try:
         await bot_manager.register(shop_bot)
     except Exception:
@@ -187,15 +219,13 @@ async def save_shop_bot_token(message: Message, state: FSMContext, session: Asyn
     except Exception:
         logger.warning("اعمالِ بیوگرافی رویِ رباتِ تازه ثبت‌شده ناموفق بود.", exc_info=True)
 
-    # P36 → P39: «علاوه بر توکنِ رباتِ تلگرام، توکنِ رباتِ بله را هم بفرست» — در *همان* جریانِ
-    # ثبتِ توکن و بدونِ هیچ دکمهٔ تازه (درخواستِ مالکِ محصول: فقط برایِ هوشمندسازی).
-    if bale_bot_service.enabled(await get_admin_settings(session)) and not bale_bot_service.raw_token(shop_bot):
+    if revealed and not bale_bot_service.has_token(shop_bot):
         try:
             await state.set_state(BaleShopBotStates.waiting_token)
             await state.update_data({"bale_return": "register"})
             await message.answer(texts.BALE_SMARTEN_OFFER)
         except TelegramAPIError:
-            logger.exception("پیشنهادِ اتصالِ بله پس ازِ ثبتِ توکنِ تلگرام ناموفق بود.")
+            logger.exception("پیشنهادِ هوشمندسازیِ بله پس ازِ ثبتِ توکنِ تلگرام ناموفق بود.")
 
 
 
@@ -235,7 +265,7 @@ async def _bale_payment_screen(target, shop_bot, session: AsyncSession, state: F
     status = await bale_credentials_service.shop_status(session, shop_bot, pay_settings)
     # توکنِ رباتِ بله فقط وقتی پرسیده می‌شود که کلیدِ رونماییِ ادمین روشن باشد (در غیرِ این‌صور
     # اتصالِ بله ساخته نمی‌شود و پرسیدنش فقط گمراه‌کننده است)؛ توکنِ درگاه همیشه لازم است.
-    may_ask_bot = not bale_bot_service.raw_token(shop_bot) and await bale_bot_service.visible_for(session)
+    may_ask_bot = not bale_bot_service.has_token(shop_bot) and await bale_bot_service.visible_for(session)
     asking = "bot" if may_ask_bot else "provider"
     if not arm:
         asking = "info"
@@ -249,20 +279,6 @@ async def _bale_payment_screen(target, shop_bot, session: AsyncSession, state: F
         await target.message.answer(text)
     else:
         await target.answer(text, reply_markup=keyboards.payments_entry_keyboard())
-
-
-@router.message(F.text == texts.BALE_SHOP_BOT_BUTTON)
-async def open_bale_shop_bot(message: Message, session: AsyncSession, state: FSMContext) -> None:
-    if not await bale_bot_service.visible_for(session):
-        await message.answer(texts.BALE_SHOP_BOT_UNAVAILABLE)
-        return
-    owner = await _current_owner(message, session)
-    shop_bot = await shop_bot_service.get_by_owner(session, owner)
-    if shop_bot is None:
-        await message.answer(texts.SHOP_BOT_NOT_SET_UP)
-        return
-    await state.clear()
-    await _bale_screen(message, shop_bot, session)
 
 
 @router.callback_query(F.data == "bale_edit")
@@ -284,9 +300,7 @@ async def bale_back(callback: CallbackQuery, session: AsyncSession, state: FSMCo
     owner = await _current_owner(callback, session)
     await callback.message.answer(
         texts.PANEL_WELCOME_BACK,
-        reply_markup=keyboards.shop_owner_panel_keyboard(
-            owner.business_mode if owner else None, bale_visible=await bale_bot_service.visible_for(session)
-        ),
+        reply_markup=await panel_keyboard(session, owner.business_mode if owner else None),
     )
 
 
@@ -309,13 +323,18 @@ async def bale_turn_on(callback: CallbackQuery, session: AsyncSession, bot_manag
 
 @router.callback_query(F.data == "bale_off")
 async def bale_turn_off(callback: CallbackQuery, session: AsyncSession, bot_manager) -> None:
+    """P42 · موردِ ۲: «خاموش» یعنی هوشمندسازی خاموش، نه قطعِ بله‌پی. اگر توکنِ درگاه باشد،
+    همان ربات به pollingِ پرداختِ خودِ فروشگاه می‌ماند و فقط پاسخِ AI نمی‌دهد."""
     shop_bot = await _own_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
     shop_bot.bale_bot_enabled = False
     await session.flush()
-    await bot_manager.unregister_bale(shop_bot.id)
-    await callback.answer(texts.BALE_SHOP_BOT_DISABLED_BY_OWNER)
+    try:
+        await bot_manager.register_bale(shop_bot)
+    except Exception:
+        logger.exception("خاموش‌کردنِ هوشمندسازیِ بله‌یِ فروشگاه %s ناموفق بود.", shop_bot.id)
+    await callback.answer(texts.BALE_SMARTEN_TURNED_OFF)
     await _bale_screen(callback.message, shop_bot, session)
 
 
@@ -365,9 +384,12 @@ async def save_bale_shop_bot_token(message: Message, state: FSMContext, session:
         await message.answer(texts.BALE_SHOP_BOT_ALREADY_USED)
         return
 
-    await bale_bot_service.apply_token(session, shop_bot, raw_token, identity)
+    # P42 · موردِ ۲: توکنی که از صفحهٔ «پرداختِ آنلاینِ سفارش‌ها» می‌آید فقط مقصدِ پول را
+    # می‌سازد؛ هرگز نباید رباتِ بله را هوشمند کند (پاسخِ AI به مشتریِ بله‌ای).
+    smarten = origin != "payment"
+    await bale_bot_service.apply_token(session, shop_bot, raw_token, identity, smarten=smarten)
     await state.clear()
-    await message.answer(texts.BALE_SHOP_BOT_SAVED)
+    await message.answer(texts.BALE_SHOP_BOT_SAVED if smarten else texts.BALE_TOKEN_SAVED_FOR_PAY_ONLY)
     try:
         await bot_manager.register_bale(shop_bot)
     except Exception:
@@ -427,7 +449,7 @@ async def end_preview(message: Message, state: FSMContext, session: AsyncSession
     owner = await _current_owner(message, session)
     shop_bot = await shop_bot_service.get_by_owner(session, owner)
     tenant_mode = shop_bot.tenant_mode if shop_bot else None
-    await message.answer(texts.PREVIEW_END_TEXT, reply_markup=keyboards.shop_owner_panel_keyboard(tenant_mode, bale_visible=await bale_bot_service.visible_for(session)))
+    await message.answer(texts.PREVIEW_END_TEXT, reply_markup=await panel_keyboard(session, tenant_mode))
 
 
 @router.message(PreviewStates.active, F.text)
@@ -1052,7 +1074,7 @@ async def cb_export_excel(callback: CallbackQuery, session: AsyncSession) -> Non
 CUSTOMER_BROADCAST_PACE_SECONDS = 0.05
 
 
-@router.message(F.text == "📣 پیام به مشتری‌ها")
+@router.message(F.text.in_([texts.BROADCAST_SALES_BUTTON, texts.BROADCAST_CONSULT_BUTTON]))
 async def open_customer_broadcast(message: Message, session: AsyncSession, state: FSMContext) -> None:
     owner = await _current_owner(message, session)
     shop_bot = await shop_bot_service.get_by_owner(session, owner)
@@ -1297,13 +1319,24 @@ async def cb_cancel_scheduled_broadcast(callback: CallbackQuery, session: AsyncS
 # پرداختِ آنلاینِ سفارش از طریقِ بله‌پیِ خودِ فروشگاه (فازِ ۳)
 # =============================================================================
 @router.message(F.text == "💳 پرداختِ آنلاینِ سفارش‌ها")
-async def open_bale_provider_token(message: Message, session: AsyncSession, state: FSMContext) -> None:
+async def open_bale_provider_token(message: Message, session: AsyncSession) -> None:
+    """P42 · موردِ ۲: این دکمه اول باید *گزینه‌ها* را نشان دهد.
+
+    تا پیشِ این مستقیم سراغِ توکنِ رباتِ بله می‌رفت و state را سلاح می‌کرد؛ هر توکنی که فروشگاه‌دار
+    آن‌جا می‌نوشت رباتِ بله‌اش را هوشمند می‌کرد، در حالی که او فقط پرداخت می‌خواست. حالا منویِ
+    روش‌هایِ پرداخت باز می‌شود و توکن‌ها فقط با دکمهٔ «🔵 بله‌پی: توکنِ ربات + درگاه».
+    """
     owner = await _current_owner(message, session)
     shop_bot = await shop_bot_service.get_by_owner(session, owner)
     if shop_bot is None:
         await message.answer(texts.SHOP_BOT_NOT_SET_UP)
         return
-    await _bale_payment_screen(message, shop_bot, session, state)
+    row = await payment_settings_service.get_or_create(session, shop_bot.id)
+    status = await bale_credentials_service.shop_status(session, shop_bot, row)
+    await message.answer(
+        texts.payments_menu_text(row, shop_bot, status.missing),
+        reply_markup=keyboards.payments_menu_keyboard(row, shop_bot),
+    )
 
 
 @router.message(BaleProviderTokenStates.waiting_token, F.text)

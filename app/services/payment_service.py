@@ -121,6 +121,16 @@ async def _generate_unique_amount(session: AsyncSession, base_amount: int) -> in
     raise RuntimeError("ساخت مبلغ منحصربه‌فرد بعد از چند تلاش ناموفق بود.")
 
 
+async def _validity_months(session: AsyncSession, purpose: PaymentPurpose, duration_months: int | None) -> int | None:
+    """P42 · موردِ ۴: شارژِ کیف‌پول هیچ‌گاه «مدت» نمی‌گرفت ⇒ در صفِ ادمین و تاریخچه «None ماه»
+    نوشته می‌شد. اعتبارِ واقعیِ هر شارژ `wallet_topup_validity_months` است؛ همان عدد رویِ ردیفِ
+    پرداخت می‌نشیند تا همهٔ نمایشگرها یکِ منبع داشته باشند (اثرِ مالی به این ستون بسته نیست —
+    `_apply_payment_effect` سرِ خودش هدفِ پرداخت را می‌خواند)."""
+    if duration_months is not None or purpose != PaymentPurpose.WALLET_TOPUP:
+        return duration_months
+    return (await get_admin_settings(session)).wallet_topup_validity_months
+
+
 async def create_card_to_card_payment(
     session: AsyncSession,
     owner: ShopOwner,
@@ -130,6 +140,7 @@ async def create_card_to_card_payment(
     purpose: PaymentPurpose = PaymentPurpose.SUBSCRIPTION,
 ) -> Payment:
     await ensure_recharge_amount_allowed(session, base_amount, purpose)  # PHASE 5A (سمتِ سرور)
+    duration_months = await _validity_months(session, purpose, duration_months)
     admin_settings = await get_admin_settings(session)
     # نکته‌ی مهم: تخفیف همین‌جا و به‌صورت داخلی روی base_amount اعمال می‌شه، نه
     # اینکه از caller انتظار بره base_amount از قبل تخفیف‌خورده باشه — این باعث
@@ -168,6 +179,7 @@ async def create_zarinpal_payment(
     purpose: PaymentPurpose = PaymentPurpose.SUBSCRIPTION,
 ) -> Payment:
     await ensure_recharge_amount_allowed(session, base_amount, purpose)  # PHASE 5A (سمتِ سرور)
+    duration_months = await _validity_months(session, purpose, duration_months)
     discounted_amount = discount_service.apply_discount(base_amount, discount) if discount else base_amount
 
     payment = Payment(
@@ -196,6 +208,7 @@ async def create_bale_payment(
     purpose: PaymentPurpose = PaymentPurpose.SUBSCRIPTION,
 ) -> Payment:
     await ensure_recharge_amount_allowed(session, base_amount, purpose)  # PHASE 5A (سمتِ سرور)
+    duration_months = await _validity_months(session, purpose, duration_months)
     discounted_amount = discount_service.apply_discount(base_amount, discount) if discount else base_amount
 
     payment = Payment(

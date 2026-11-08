@@ -137,16 +137,18 @@ def offer_trial_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 فعال‌سازی اعتبار آزمایشی", callback_data="activate_trial")]])
 
 
-def shop_owner_panel_keyboard(tenant_mode=None, bale_visible: bool = False) -> ReplyKeyboardMarkup:
+def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True) -> ReplyKeyboardMarkup:
     """منویِ فروشگاه‌دار (A4): مشاوره‌ای = بدونِ پرداختِ آنلاین/چک‌اوتِ سبد/کمپین (چیزهایِ مخصوصِ فروش).
-    P19: ردیفِ «🟢 توکن ربات بله» فقط وقتی ادمین ویژگی را رونمایی کرده باشد دیده می‌شود."""
+    P42 · موردِ ۱: «🟢 هوشمندسازیِ بله» دیگر دکمهٔ منو نیست — داخلِ «🔑 ثبت/ویرایش توکن ربات»
+    انتخاب می‌شود؛ آن دکمهٔ سبز ردیفِ اول را از دو به یک می‌انداخت و چینشِ دونفره را می‌شکست.
+    P42 · موردِ ۳۵: سوئیچِ ادمینِ «تشخیصِ سوال‌هایِ بی‌جواب» هر دو دکمه‌یِ دانش (بی‌جواب‌ها و
+    تاییدشده‌ها) را از *هر دو* پنل می‌برد؛ تا پیشِ این فقط تشخیصِ پشتِ صحنه خاموش می‌شد و
+    دکمه‌ها سرِ جای خود بودند.
+    P42 · موردِ ۳۳: در مودِ مشاوره‌ای مخاطبِ «پیام به مشتری‌ها»، کاربرِ همان جلسه است نه خریدار."""
     mode_value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     consultation = mode_value == "consultation"
     # C1: مودِ مشاوره‌ای کاتالوگِ محصول/خدمت ندارد (افزودنِ محصول در مشاوره معنا ندارد).
-    token_row = ["🔑 ثبت/ویرایش توکن ربات"]
-    if bale_visible:
-        token_row.append(texts.BALE_SHOP_BOT_BUTTON)  # P19: دو سرویسِ پیام‌رسان، کنارِ هم
-    rows = [token_row] if consultation else [token_row, ["📦 محصولات"]]
+    rows = [["🔑 ثبت/ویرایش توکن ربات"]] if consultation else [["🔑 ثبت/ویرایش توکن ربات"], ["📦 محصولات"]]
     if not consultation:
         rows.append(["🧾 مدیریتِ سفارش‌ها (جاری)"])  # W5: سفارش‌هایِ باز یک‌جا (اعلان‌ها دیگه گم نمی‌شن)
     rows += [
@@ -155,7 +157,8 @@ def shop_owner_panel_keyboard(tenant_mode=None, bale_visible: bool = False) -> R
         ["💰 کیف‌پول", "🎁 کد معرف"],
         ["🧾 تاریخچه‌ی پرداخت", "📤 خروجی اکسل"],
         ["👤 پروفایل من", "📞 پشتیبانی"],
-        ["📣 پیام به مشتری‌ها", texts.SCHEDULED_LIST_BUTTON] + ([] if consultation else ["💳 پرداختِ آنلاینِ سفارش‌ها"]),
+        [(texts.BROADCAST_CONSULT_BUTTON if consultation else texts.BROADCAST_SALES_BUTTON), texts.SCHEDULED_LIST_BUTTON]
+        + ([] if consultation else ["💳 پرداختِ آنلاینِ سفارش‌ها"]),
     ]
     if consultation:
         # C2: CRMِ فروشگاهی جای خود را به «💬 گفتگوها و کاربران» می‌دهد؛ C3: حسابداری هم نیست.
@@ -163,7 +166,8 @@ def shop_owner_panel_keyboard(tenant_mode=None, bale_visible: bool = False) -> R
     else:
         rows.append(["📝 سوال‌هایِ چک‌اوتِ سبد"])
         rows.append(["🎯 کمپین‌ها", "👥 مشتری‌ها"])
-    rows.append(["🧩 سوال‌هایِ بی‌جواب", "📚 پرسش‌وپاسخ‌هایِ تاییدشده"])
+    if knowledge_gap:
+        rows.append(["🧩 سوال‌هایِ بی‌جواب", "📚 پرسش‌وپاسخ‌هایِ تاییدشده"])
     rows.append(["💬 دستیارِ مدیریتی"] if consultation else ["🧮 حسابداری", "💬 دستیارِ مدیریتی"])
     rows.append(["⚙️ تنظیماتِ ربات فروشگاه"])
     # P22: چینشِ دونفره. قبلاً ردیف‌ها قاطی بود (سه ردیفِ تک، بعد دونفره، بعد یکِ سه‌تایی) و
@@ -1280,15 +1284,34 @@ def shop_branding_keyboard(shop_bot) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def shop_bot_token_choice_keyboard(bale_visible: bool = False) -> InlineKeyboardMarkup:
+    """P42 · موردِ ۱: «🔑 ثبت/ویرایش توکن ربات» اول *انتخابِ سرویس* را می‌پرسد.
+    گزینهٔ بله فقط وقتی در می‌آید که ادمین ویژگی را رونمایی کرده باشد."""
+    rows = [[InlineKeyboardButton(text="🤖 رباتِ تلگرام", callback_data="tok_telegram")]]
+    if bale_visible:
+        rows.append([InlineKeyboardButton(text=texts.BALE_SHOP_BOT_BUTTON, callback_data="tok_bale")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def bale_entry_keyboard() -> InlineKeyboardMarkup:
+    """P42 · موردِ ۲۹: درست بعد ازِ «رباتِ تلگرام وصل شد» — همان‌جا سراغِ بله می‌رویم،
+    نه با ارجاع به صفحهٔ پرداخت."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=texts.BALE_SHOP_BOT_BUTTON, callback_data="bale_open"),
+        InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu"),
+    ]])
+
+
 def bale_shop_bot_keyboard(shop_bot) -> InlineKeyboardMarkup:
     """P19: صفحه‌یِ مدیریتِ اتصالِ بله‌یِ همین فروشگاه (روشن/خاموش، توکن، حذف).
     P22: فعل‌ها دونادونه؛ «بازگشت» تمام‌عرض و آخر می‌ماند تا همیشه پیدا باشد.
-    P39: دکمهٔ «توکنِ درگاه» حذف شد — هر دو توکنِ بله‌پی در همان صفحهٔ
-    «💳 پرداختِ آنلاینِ سفارش‌ها» گرفته می‌شوند (درخواستِ مالکِ محصول)."""
+    P42 · موردِ ۲: سوییچِ این صفحه «هوشمندسازی» است، نه پرداخت — توکنی که در صفحهٔ
+    پرداخت نوشته می‌شود با همین سوییچ خاموش می‌ماند و فقط برایِ بله‌پی مصرف می‌شود."""
     has_token = bool(shop_bot.bale_encrypted_token)
     actions = []
     if has_token:
-        toggle = switch_label("اتصالِ بله", shop_bot.bale_bot_enabled)
+        toggle = switch_label("هوشمندسازیِ بله", shop_bot.bale_bot_enabled)
         actions.append(InlineKeyboardButton(text=toggle, callback_data="bale_off" if shop_bot.bale_bot_enabled else "bale_on"))
     actions.append(InlineKeyboardButton(text="🔑 توکنِ تازه" if has_token else "🔑 توکنِ ربات بله", callback_data="bale_edit"))
     if has_token:
@@ -1410,7 +1433,7 @@ def payments_menu_keyboard(row, shop_bot) -> InlineKeyboardMarkup:
         tog("زرین‌پال", row.zarinpal_enabled, "zarinpal"),
         tog("پرداختِ دستی/هماهنگی", row.manual_enabled, "manual"),
         tog("تاییدِ خودکارِ آنلاین", row.auto_accept_online, "auto"),
-        InlineKeyboardButton(text="🔑 توکنِ درگاهِ بله‌پی", callback_data="pays_bale_token"),
+        InlineKeyboardButton(text="🔵 بله‌پی: توکنِ ربات + درگاه", callback_data="pays_bale_token"),
         InlineKeyboardButton(text="⏱ مهلتِ کارت", callback_data="pays_dl:card"),
         InlineKeyboardButton(text="⏱ مهلتِ بله‌پی", callback_data="pays_dl:bale"),
         InlineKeyboardButton(text="⏱ مهلتِ زرین‌پال", callback_data="pays_dl:zarinpal"),

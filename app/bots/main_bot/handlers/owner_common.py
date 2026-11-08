@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts
@@ -39,6 +39,19 @@ async def safe_edit(callback: CallbackQuery, text: str, reply_markup=None) -> No
     except TelegramBadRequest as exc:
         if "message is not modified" not in str(exc).lower():
             raise
+
+
+async def panel_keyboard(session: AsyncSession, tenant_mode=None) -> ReplyKeyboardMarkup:
+    """منویِ پنلِ فروشگاه‌دار، با سوئیچِ ادمینِ «تشخیصِ سوال‌هایِ بی‌جواب» (P42 · موردِ ۳۵).
+
+    هشت نقطه در کد «بازگشت به پنل» می‌سازند؛ اگر عددِ سوئیچ از یکِ منبع نیاید، در بعضی
+    صفحه‌ها دکمه‌ها می‌مانند و در بعضی می‌روند — همان ناهماهنگی که مالکِ محصول گزارش کرد.
+    """
+    from app.bots.main_bot import keyboards
+    from app.services.admin_settings_service import get_admin_settings
+
+    admin_settings = await get_admin_settings(session)
+    return keyboards.shop_owner_panel_keyboard(tenant_mode, knowledge_gap=admin_settings.knowledge_gap_enabled)
 
 
 def parse_suffix_int(data: str | None, prefix: str) -> int | None:

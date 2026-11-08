@@ -41,7 +41,12 @@ async def get_all_registered(session: AsyncSession) -> list[ShopOwner]:
     return list(result.scalars().all())
 
 
-async def get_or_create_shop_owner(session: AsyncSession, telegram_id: int, referred_by_code: str | None = None) -> ShopOwner:
+async def get_or_create_shop_owner(
+    session: AsyncSession,
+    telegram_id: int,
+    referred_by_code: str | None = None,
+    newcomer_name: str | None = None,
+) -> ShopOwner:
     owner = await get_by_telegram_id(session, telegram_id)
     if owner is not None:
         return owner
@@ -61,10 +66,33 @@ async def get_or_create_shop_owner(session: AsyncSession, telegram_id: int, refe
     await session.flush()
 
     if referred_by_id is not None:
-        session.add(Referral(referrer_id=referred_by_id, referred_id=owner.id))
+        referral = Referral(referrer_id=referred_by_id, referred_id=owner.id)
+        session.add(referral)
         await session.flush()
+        # P42 · موردِ ۲۶: «فلانی با لینکِ تو وارد ربات شد». از صفِ اعلان‌ها می‌رود (نه ارسالِ
+        # مستقیم)، تا هیچ فراخوانیِ شبکه‌ای وسطِ نوشتنِ ثبت‌نام نباشد و اگر تلگرام لحظه‌ای
+        # قطع بود، خبر در تلاشِ بعدی برسد (qid: خودِ ردیفِ دعوت ⇒ هر دعوت یکِ خبر).
+        await _notify_referrer_of_join(session, referral, newcomer_name)
 
     return owner
+
+
+async def _notify_referrer_of_join(session: AsyncSession, referral: Referral, newcomer_name: str | None) -> None:
+    referrer = await session.get(ShopOwner, referral.referrer_id)
+    if referrer is None:
+        return
+    from app.bots.main_bot import texts
+    from app.services import notification_service
+
+    label = (newcomer_name or "").strip() or "یکِ کاربرِ تازه"
+    await notification_service.enqueue(
+        session,
+        referrer.telegram_id,
+        texts.referrer_join_notification(label),
+        owner_id=referrer.id,
+        label="referral_join",
+        dedupe_key=f"referral-join:{referral.id}",
+    )
 
 
 async def complete_registration(

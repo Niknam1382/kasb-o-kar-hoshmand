@@ -119,6 +119,20 @@ async def cmd_admin(message: Message, state: FSMContext) -> None:
 # =============================================================================
 # تایید/رد پرداخت (منتقل‌شده از panel.py طبق تصمیمِ بازآرایی)
 # =============================================================================
+async def _annotate_payment_decision(callback: CallbackQuery, note: str) -> None:
+    """P42 · موردِ ۴: رسیدِ *متنی* caption ندارد و `edit_caption` روی آن خطا می‌داد؛ آن خطا
+    هندلر را می‌ترکاند و میدل‌ورِ دیتابیس rollback می‌کرد ⇒ تاییدِ ادمین کاملاً گم می‌شد
+    (دکمه «کار نمی‌کند» و پرداخت در صفِ pending می‌ماند). یادداشت حالا روی نوعِ درستِ پیام
+    می‌نشیند و خطایِ UI هرگز تصمیمِ مالی را با خود نمی‌برد."""
+    try:
+        if callback.message.caption is not None:
+            await callback.message.edit_caption(caption=f"{callback.message.caption}\n\n{note}", reply_markup=NO_INLINE_KEYBOARD)
+        else:
+            await callback.message.edit_text(text=f"{callback.message.text or ''}\n\n{note}", reply_markup=NO_INLINE_KEYBOARD)
+    except TelegramAPIError:
+        logger.exception("ثبتِ یادداشتِ تصمیم روی پیامِ رسید ناموفق بود (تصمیمِ مالی ذخیره شده است).")
+
+
 @router.callback_query(F.data.startswith("admin_approve_payment:"))
 async def cb_admin_approve_payment(callback: CallbackQuery, session: AsyncSession) -> None:
     payment_id = parse_suffix_int(callback.data, "admin_approve_payment:")
@@ -143,9 +157,11 @@ async def cb_admin_approve_payment(callback: CallbackQuery, session: AsyncSessio
         await callback.answer("این پرداخت همین حالا توسطِ دیگری بررسی شد.", show_alert=True)
         return
 
+    # P42 · موردِ ۴: تصمیمِ مالی پیش از هر کارِ شبکه commit می‌شود (قاعدهٔ ۷) تا خطایِ UI
+    # یا ری‌استارتِ کانتینر، تایید را با خود نبرد.
+    await session.commit()
     await callback.answer()
-    new_caption = (callback.message.caption or "") + f"\n\n{texts.admin_payment_approved_confirmation(_owner_display_name(owner))}"
-    await callback.message.edit_caption(caption=new_caption, reply_markup=NO_INLINE_KEYBOARD)
+    await _annotate_payment_decision(callback, texts.admin_payment_approved_confirmation(_owner_display_name(owner)))
 
     try:
         await callback.bot.send_message(
@@ -181,9 +197,9 @@ async def cb_admin_reject_payment(callback: CallbackQuery, session: AsyncSession
     owner = await shop_owner_service.get_by_id(session, payment.shop_owner_id)
     await payment_service.reject_payment(session, payment, callback.from_user.id)
 
+    await session.commit()
     await callback.answer()
-    new_caption = (callback.message.caption or "") + f"\n\n{texts.admin_payment_rejected_confirmation(_owner_display_name(owner))}"
-    await callback.message.edit_caption(caption=new_caption, reply_markup=NO_INLINE_KEYBOARD)
+    await _annotate_payment_decision(callback, texts.admin_payment_rejected_confirmation(_owner_display_name(owner)))
 
     try:
         await callback.bot.send_message(owner.telegram_id, texts.payment_rejected_notification(None))
@@ -532,7 +548,7 @@ async def cb_toggle_bale_pay(callback: CallbackQuery, session: AsyncSession) -> 
 
 
 @super_router.callback_query(F.data == "admin_toggle_zero_credit_orders")
-async def cb_toggle_zero_credit_orders(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_toggle_zero_credit_orders(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     """P30: سوییچِ سراسریِ «ادامهٔ سفارش با اعتبارِ صفر» (بدهیِ کمیسیون تا سقفِ ادمین جمع می‌شود)."""
     admin_settings = await get_admin_settings(session)
     admin_settings.orders_allowed_when_wallet_empty = not admin_settings.orders_allowed_when_wallet_empty
@@ -545,6 +561,10 @@ async def cb_toggle_zero_credit_orders(callback: CallbackQuery, session: AsyncSe
     await session.flush()
     await callback.answer(texts.switch_toast("ادامهٔ سفارش با اعتبارِ صفر", admin_settings.orders_allowed_when_wallet_empty))
     if admin_settings.orders_allowed_when_wallet_empty and not admin_settings.commission_debt_ceiling_toman:
+        # P42 · موردِ ۷: پرسیدنِ سؤال بدونِ سلاح‌کردنِ FSM یعنی عددی که ادمین تایپ می‌کند به هیچ
+        # هندلری نمی‌رسید («ربات کاری نمی‌کند»). همان مسیرِ «ویرایشِ مقدار» در منویِ تنظیمات.
+        await state.set_state(AdminSettingsStates.waiting_value)
+        await state.update_data(field="commission_debt_ceiling_toman", field_kind="int")
         await callback.message.answer(texts.ADMIN_ASK_COMMISSION_DEBT_CEILING)
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
@@ -1612,7 +1632,8 @@ async def owner_gift_confirmed(callback: CallbackQuery, state: FSMContext, sessi
         return
 
     await wallet_service.add_charge(
-        session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_GRANT, reference=f"gift:{nonce}"
+        session, owner, amount_toman, reason=WalletTransactionReason.ADMIN_GRANT,
+        reference=f"gift:{nonce}", merge_into_latest=True,  # P42 · موردِ ۵
     )
     gift_shop_bot = await shop_bot_service.get_by_owner(session, owner)
     await audit_log_service.log(

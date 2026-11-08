@@ -29,7 +29,6 @@ from app import observability
 from app.services import time_freeze_service
 from app.services.admin_settings_service import get_admin_settings
 from app.utils.dates import add_months
-from app.utils.jalali import to_tehran
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +74,7 @@ async def _apply_balance_delta(session: AsyncSession, owner: ShopOwner, delta_to
         .where(ShopOwner.id == owner.id)
         # PHASE 7: موجودیِ کش‌شده هرگز منفی نمی‌شود. معمولاً این هیچ‌وقت رخ نمی‌دهد
         # (چون deduct از رویِ خودِ بسته‌ها کم می‌کند)، ولی اگر کشیده و بسته‌ها به هر
-        # دلیلی از هم جدا افتاده باشند، «گreatest(۰)» جلویِ بدهکارشدن را می‌گیرد و
+        # دلیلی از هم جدا افتاده باشند، «greatest(۰)» جلویِ بدهکارشدن را می‌گیرد و
         # خطا لاگ می‌شود؛ همان روز همسنجیِ PHASE 5E اختلاف را به ادمین می‌گوید.
         .values(wallet_balance_toman=func.greatest(0, ShopOwner.wallet_balance_toman + delta_toman))
         .returning(ShopOwner.wallet_balance_toman)
@@ -97,10 +96,38 @@ async def add_charge(
     validity_months: int | None = None,
     reference: str | None = None,
     idempotency_key: str | None = None,
+    merge_into_latest: bool = False,
 ) -> WalletCharge:
-    """یه بسته‌ی شارژِ جدید می‌سازه (با انقضای مستقل) و موجودیِ کش‌شده رو آپدیت می‌کنه."""
+    """یه بسته‌ی شارژِ جدید می‌سازه (با انقضای مستقل) و موجودیِ کش‌شده رو آپدیت می‌کنه.
+
+    `merge_into_latest=True` (P42 · موردِ ۵): اعتبارِ *هدیه* بسته‌ی تازه نمی‌سازد؛ رویِ شارژی
+    می‌نشیند که دیرترین انقضا را دارد، تا هدیه اول از همه خرج نشود. اگر هنوز هیچ شارژِ زنده‌ای
+    نباشد، همان بسته‌ی تازه ساخته می‌شود.
+    """
     if amount_toman <= 0:
         raise ValueError("مبلغِ شارژ باید مثبت باشه")
+
+    if merge_into_latest:
+        latest = await latest_live_charge(session, owner)
+        if latest is not None:
+            latest.remaining_toman = int(latest.remaining_toman or 0) + amount_toman
+            await session.flush()
+            await _apply_balance_delta(session, owner, amount_toman)
+            owner.wallet_empty_notified_at = None
+            owner.wallet_low_balance_notified_at = None
+            session.add(
+                WalletTransaction(
+                    shop_owner_id=owner.id,
+                    wallet_charge_id=latest.id,
+                    payment_id=payment_id,
+                    amount_toman=amount_toman,
+                    reason=reason,
+                    reference=reference,
+                    idempotency_key=_charge_idempotency_key(owner.id, payment_id, reference, idempotency_key),
+                )
+            )
+            await session.flush()
+            return latest
 
     if validity_months is None:
         admin_settings = await get_admin_settings(session)
@@ -186,7 +213,7 @@ async def deduct(
     # بسته‌هایی که تا اون لحظه پردازش شده بودن از قبل کم شده بود و
     # WalletTransactionِ متناظرشون هم session.add شده بود) — یعنی حتی
     # وقتی نهایتاً False برمی‌گردوند، اون کاهش‌های نصفه‌کاره (چون هیچ
-    # commit/rollبکِ صریحی هم نبود) با commitِ نهاییِ همون session
+    # commit/rollbackِ صریحی هم نبود) با commitِ نهاییِ همون session
     # (مثلاً توسطِ DbSessionMiddleware در پایانِ آپدیت) واقعاً پایدار می‌شدن
     # — دقیقاً برخلافِ چیزی که این تابع ادعا می‌کرد («هیچ تغییری اعمال
     # نمی‌شه»). چون .with_for_update() از همین اول قفل گرفته، هیچ تراکنشِ
@@ -342,7 +369,7 @@ def usable_credit(owner: ShopOwner) -> int:
 
 @dataclasses.dataclass(frozen=True)
 class ExpiryLot:
-    """یک «روزِ انقضا» از کیف‌پول: جمعِ باقی‌ماندهٔ همهٔ شارژهایی که آن روز منقضی می‌شوند."""
+    """یک *شارژ* از کیف‌پول: باقی‌مانده و زمانِ انقضایِ همان شارژ."""
 
     remaining_toman: int
     expires_at: datetime.datetime
@@ -350,40 +377,78 @@ class ExpiryLot:
 
 
 async def expiry_lots(session: AsyncSession, owner: ShopOwner) -> list[ExpiryLot]:
-    """شارژهایِ زنده، گروه‌شده به تفکیکِ *روزِ* انقضا و مرتب‌شده به همان ترتیبی که مصرف می‌شوند (FIFO).
+    """شارژهایِ زنده، یکی‌به‌یکی و به همان ترتیبی که مصرف می‌شوند (FIFO).
 
-    مصرف از قدیمی‌ترین `expires_at` شروع می‌شود، پس «ماندهٔ هر روز» دقیقاً همان چیزی است که
-    فروشگاه‌دار باید ببیند: اعتبارِ اول چند روزِ دیگر می‌رود و اعتبارِ دوم دست‌نخورده مانده.
-    دو شارژِ همان روز یکِ خط می‌شوند (ثانیه‌ها اختلافِ بی‌معنا در فهرست نمی‌سازند) و برایِ
-    «چقدر مانده» محافظه‌کارانه‌ترین زمانِ همان روز ملاک است.
+    P42 · موردِ ۲۱: دو شارژِ خریداری‌شده در یکِ لحظه باید دو خطِ جدا بمانند — فروشگاه‌دار رویِ
+    «کدامِ خریدم کِی می‌رود» حساب باز می‌کند، نه رویِ جمعِ آن‌ها. گروه‌کردنِ «به تفکیکِ روز»
+    (P40) کوئری را کوتاه می‌کرد ولی همان نمایشِ درست را می‌زد؛ حالا همان یکِ SELECT بدونِ
+    GROUP BY است و تعدادِ statement کم یا زیاد نشده. شارژِ *منقضی‌شده* (expires_at <= now) هم
+    دیگر در فهرست نمی‌آید، چون در همان لحظه با `expire_stale_charges` صفر می‌شود.
     """
     now = datetime.datetime.now(datetime.timezone.utc)
     rows = (
         await session.execute(
-            select(WalletCharge.expires_at, func.sum(WalletCharge.remaining_toman))
+            select(WalletCharge.remaining_toman, WalletCharge.expires_at)
             .where(
                 WalletCharge.shop_owner_id == owner.id,
                 WalletCharge.is_expired.is_(False),
                 WalletCharge.remaining_toman > 0,
                 WalletCharge.expires_at > now,
             )
-            .group_by(WalletCharge.expires_at)
             .order_by(WalletCharge.expires_at.asc())
         )
     ).all()
-    by_day: dict[datetime.date, list[tuple[datetime.datetime, int]]] = {}
-    for expires_at, remaining in rows:
+    lots: list[ExpiryLot] = []
+    for remaining, expires_at in rows:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=datetime.timezone.utc)
-        by_day.setdefault(to_tehran(expires_at).date(), []).append((expires_at, int(remaining or 0)))
-    lots: list[ExpiryLot] = []
-    for moments in by_day.values():
-        earliest = moments[0][0]
-        total = sum(amount for _, amount in moments)
-        days_left = max(0, int(-(-(earliest - now).total_seconds() // 86400)))
-        lots.append(ExpiryLot(remaining_toman=total, expires_at=earliest, days_left=days_left))
-    lots.sort(key=lambda lot: lot.expires_at)
+        days_left = max(0, int(-(-(expires_at - now).total_seconds() // 86400)))
+        lots.append(ExpiryLot(remaining_toman=int(remaining or 0), expires_at=expires_at, days_left=days_left))
     return lots
+
+
+async def extend_live_charges(session: AsyncSession, owner: ShopOwner, days: int) -> int:
+    """P42 · موردِ ۵: «تمدیدِ روز» روی *همهٔ* بسته‌هایِ فعال می‌نشیند، نه فقط یکی.
+
+    مثالِ مالکِ محصول: دو شارژ با ۲۵ و ۱۵ روزِ باقی‌مانده + تمدیدِ ۵ روزه ⇒ ۳۰ و ۲۰. ردیف‌ها
+    قفل می‌شوند (`FOR UPDATE`) تا دو اجرایِ هم‌زمانِ همان دسته، یک شارژ را دو بار جابه‌جا نکند.
+    """
+    if days <= 0:
+        return 0
+    rows = (
+        await session.execute(
+            select(WalletCharge)
+            .where(
+                WalletCharge.shop_owner_id == owner.id,
+                WalletCharge.is_expired.is_(False),
+                WalletCharge.remaining_toman > 0,
+            )
+            .order_by(WalletCharge.expires_at.asc())
+            .with_for_update()
+        )
+    ).scalars().all()
+    for charge in rows:
+        charge.expires_at = charge.expires_at + datetime.timedelta(days=days)
+    if rows:
+        await session.flush()
+    return len(rows)
+
+
+async def latest_live_charge(session: AsyncSession, owner: ShopOwner) -> WalletCharge | None:
+    """دیرترین شارژِ زنده (بیشترین تاریخِ انقضا)، با قفلِ سطری."""
+    return (
+        await session.execute(
+            select(WalletCharge)
+            .where(
+                WalletCharge.shop_owner_id == owner.id,
+                WalletCharge.is_expired.is_(False),
+                WalletCharge.remaining_toman > 0,
+            )
+            .order_by(WalletCharge.expires_at.desc())
+            .limit(1)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
 
 
 async def credit_summary(session: AsyncSession, owner: ShopOwner) -> tuple[int, list[ExpiryLot]]:

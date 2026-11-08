@@ -246,7 +246,8 @@ async def shop_status(
     admin_row = await get_admin_settings(session)
 
     own_provider = ((shop_bot.bale_provider_token if shop_bot is not None else None) or "").strip()
-    own_bot = bool(shop_bot is not None and bale_bot_service.connectable(shop_bot) and (shop_bot.bale_bot_username or "").strip())
+    # P42 · موردِ ۲: ملاکِ پرداخت *وجودِ توکنِ ربات* است نه روشن‌بودنِ سوییچِ هوشمندسازی.
+    own_bot = bool(shop_bot is not None and bale_bot_service.has_token(shop_bot) and (shop_bot.bale_bot_username or "").strip())
     platform_provider = (admin_row.bale_provider_token or "").strip()
 
     uses_own_bot = bool(own_provider and own_bot)

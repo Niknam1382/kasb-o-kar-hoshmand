@@ -152,11 +152,16 @@ async def _apply_one(session: AsyncSession, batch: AdminCreditBatch, params: dic
             WalletTransactionReason.ADMIN_GRANT,
             validity_months=params.get("validity_months"),
             reference=f"batch:{batch.batch_id}",
+            merge_into_latest=True,  # P42 · موردِ ۵: هدیه به دیرترین شارژِ زنده اضافه می‌شود
         )
         return True
+    # P42 · موردِ ۵: «تمدیدِ روز» در دنیایِ امروزِ پلتفرم یعنی جابه‌جاکردنِ انقضایِ *همهٔ*
+    # بسته‌هایِ اعتبار، چون بیشترِ فروشگاه‌ها ردیفِ Subscription ندارند (مدلِ مصرفِ اعتبار).
+    # تا پیشِ این، نبودنِ همان ردیف یعنی `False` ⇒ «۰ اعمال، ۱ رد».
+    extended_lots = await wallet_service.extend_live_charges(session, owner, int(params["days"]))
     sub = subs.get(owner.id)
     if sub is None or sub.status == SubscriptionStatus.EXPIRED:
-        return False  # اشتراکِ تمام‌شده/بدونِ اشتراک تمدید نمی‌شه؛ ادمین دستی تصمیم می‌گیره
+        return bool(extended_lots)
     sub.end_date = sub.end_date + datetime.timedelta(days=int(params["days"]))
     if sub.status == SubscriptionStatus.GRACE and sub.end_date > datetime.datetime.now(datetime.timezone.utc):
         sub.status = SubscriptionStatus.ACTIVE

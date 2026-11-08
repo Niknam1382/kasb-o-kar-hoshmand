@@ -12,11 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.main_bot import keyboards, texts
+from app.bots.main_bot.handlers.owner_common import panel_keyboard
 from app.bots.main_bot.states import RegistrationStates as RS
 from app.config import AuthMode, settings
 from app.database.models import ShopOwner, WalletTransactionReason
 from app.services import (
-    bale_bot_service,
     channel_service,
     email_service,
     otp_service,
@@ -29,6 +29,26 @@ from app.utils.validators import is_valid_email, normalize_iran_phone, split_las
 logger = logging.getLogger(__name__)
 
 router = Router(name="start")
+
+
+async def _registrations_closed_for_newcomer(target, session: AsyncSession, telegram_id: int) -> bool:
+    """True ⇒ درِ ثبت‌نام بسته است و این کاربر هنوز فروشگاه‌دار نیست (پیام داده شد).
+
+    کاربری که ردیفِ `ShopOwner` دارد even وسطِ ویزارد اجازهٔ تمام‌کردن می‌گیرد؛ بستنِ در فقط
+    جلویِ *ساختنِ* حسابِ تازه را می‌گیرد، نه ادامهٔ جریانِ نیمه‌تمامِ کسی که درِ باز بوده.
+    """
+    if await shop_owner_service.get_by_telegram_id(session, telegram_id) is not None:
+        return False
+    admin_settings = await get_admin_settings(session)
+    if admin_settings.allow_new_registrations:
+        return False
+    notice = texts.registration_closed_text(admin_settings)
+    if isinstance(target, CallbackQuery):
+        await target.answer(notice[:200], show_alert=True)
+        await target.message.answer(notice)
+    else:
+        await target.answer(notice)
+    return True
 
 # ترتیبِ قدم‌هایِ ویزارد (A1). «مرور» آخرین قدمه؛ OTPها زیرمجموعه‌یِ قدمِ موبایل/ایمیل‌ان.
 _ORDER = ["mode", "first_name", "last_name", "phone", "email", "review"]
@@ -118,7 +138,7 @@ async def _offer_trial_or_panel(message: Message, session: AsyncSession, owner: 
             reply_markup=keyboards.offer_trial_keyboard(),
         )
     else:
-        await message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(owner.business_mode, bale_visible=await bale_bot_service.visible_for(session)))
+        await message.answer(texts.PANEL_WELCOME_BACK, reply_markup=await panel_keyboard(session, owner.business_mode))
 
 
 @router.message(CommandStart())
@@ -126,18 +146,19 @@ async def cmd_start(message: Message, command: CommandObject, session: AsyncSess
     if command.args:
         await state.update_data(referred_by_code=command.args.strip())
 
+    # P42 · موردِ ۴۲: درِ ثبت‌نام پیش از گیتِ کانال چک می‌شود تا کاربرِ تازه واردِ جریانِ عضویت
+    # در کانال نشود (تا پیشِ این اگر کانالِ اجباری داشتیم، اول آن پرسیده می‌شد و درِ بسته
+    # پشتِ همان گیت گیر می‌کرد).
+    if await _registrations_closed_for_newcomer(message, session, message.from_user.id):
+        return
+
     if not await _show_gate_or_continue(message, session):
         return
 
-    existing_owner = await shop_owner_service.get_by_telegram_id(session, message.from_user.id)
-    if existing_owner is None:
-        admin_settings = await get_admin_settings(session)
-        if not admin_settings.allow_new_registrations:
-            await message.answer(texts.registration_closed_text(admin_settings))
-            return
-
     data = await state.get_data()
-    owner = await shop_owner_service.get_or_create_shop_owner(session, message.from_user.id, data.get("referred_by_code"))
+    owner = await shop_owner_service.get_or_create_shop_owner(
+        session, message.from_user.id, data.get("referred_by_code"), message.from_user.first_name
+    )
 
     if not owner.registration_completed:
         if await state.get_state() in _STATE_STEP:
@@ -159,11 +180,19 @@ async def cb_check_channels_membership(callback: CallbackQuery, session: AsyncSe
         await callback.answer(texts.CHANNELS_GATE_STILL_NOT_MEMBER, show_alert=True)
         return
 
+    # P42 · موردِ ۴۲: درِ «ثبت‌نامِ کاربرانِ جدید» فقط در `/start` چک می‌شد و همین مسیرِ کانال-گیت
+    # (و بعداً OTP و تاییدِ نهاییِ ویزارد) آن را دور می‌زدند ⇒ ادمین خاموش می‌کرد ولی کاربرِ تازه
+    # ثبت می‌شد. گیتِ مرکزیِ پایین، همهٔ مسیرهایی که *اولین* ردیفِ ShopOwner را می‌سازند می‌گیرد.
+    if await _registrations_closed_for_newcomer(callback, session, callback.from_user.id):
+        return
+
     await callback.answer(texts.CHANNELS_GATE_PASSED)
     await callback.message.delete()
 
     data = await state.get_data()
-    owner = await shop_owner_service.get_or_create_shop_owner(session, callback.from_user.id, data.get("referred_by_code"))
+    owner = await shop_owner_service.get_or_create_shop_owner(
+        session, callback.from_user.id, data.get("referred_by_code"), callback.from_user.first_name
+    )
 
     if not owner.registration_completed:
         await _start_registration(callback.message, state)
@@ -332,7 +361,9 @@ async def reg_email(message: Message, state: FSMContext, session: AsyncSession) 
 
 async def _send_phone_otp(message: Message, state: FSMContext, session: AsyncSession) -> None:
     data = await state.get_data()
-    owner = await shop_owner_service.get_or_create_shop_owner(session, message.from_user.id, data.get("referred_by_code"))
+    owner = await shop_owner_service.get_or_create_shop_owner(
+        session, message.from_user.id, data.get("referred_by_code"), message.from_user.first_name
+    )
     admin_settings_row = await get_admin_settings(session)
     phone = data["phone_number"]
     # A3: درِ سرویسِ پیامک، سقفِ ساعتیِ هر شماره و جایگزینِ روشنِ «کد در چت» همه در یک نقطه.
@@ -352,7 +383,9 @@ async def _send_phone_otp(message: Message, state: FSMContext, session: AsyncSes
 
 async def _send_email_otp(message: Message, state: FSMContext, session: AsyncSession) -> None:
     data = await state.get_data()
-    owner = await shop_owner_service.get_or_create_shop_owner(session, message.from_user.id, data.get("referred_by_code"))
+    owner = await shop_owner_service.get_or_create_shop_owner(
+        session, message.from_user.id, data.get("referred_by_code"), message.from_user.first_name
+    )
     code = await otp_service.generate_otp(session, owner.id, "registration_email")
 
     try:
@@ -409,7 +442,14 @@ async def cb_reg_confirm(callback: CallbackQuery, state: FSMContext, session: As
         await _start_registration(callback.message, state)
         return
 
-    owner = await shop_owner_service.get_or_create_shop_owner(session, callback.from_user.id, data.get("referred_by_code"))
+    # P42 · موردِ ۴۲: آخرین گامِ ثبت‌نام هم باید پشتِ درِ بسته بایستد (FSMِ ویزارد می‌تواند
+    # از ری‌استارتِ کانتینر رد شده و بعد ازِ بستنِ در برگردد).
+    if await _registrations_closed_for_newcomer(callback, session, callback.from_user.id):
+        return
+
+    owner = await shop_owner_service.get_or_create_shop_owner(
+        session, callback.from_user.id, data.get("referred_by_code"), callback.from_user.first_name
+    )
     owner = await shop_owner_service.complete_registration(
         session, owner, data["first_name"], data["last_name"], data["phone_number"], data["email"],
         bool(data.get("phone_verified")), bool(data.get("email_verified")),
@@ -453,7 +493,7 @@ async def cb_activate_trial(callback: CallbackQuery, session: AsyncSession) -> N
         return
     await callback.answer()
     await callback.message.edit_text(texts.trial_activated(admin_settings.wallet_trial_credit_toman))
-    await callback.message.answer(texts.PANEL_WELCOME_BACK, reply_markup=keyboards.shop_owner_panel_keyboard(owner.business_mode, bale_visible=await bale_bot_service.visible_for(session)))
+    await callback.message.answer(texts.PANEL_WELCOME_BACK, reply_markup=await panel_keyboard(session, owner.business_mode))
 
 
 @router.message(Command("panel"))

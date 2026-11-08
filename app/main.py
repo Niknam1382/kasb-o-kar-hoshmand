@@ -1185,6 +1185,20 @@ async def zarinpal_callback(Authority: str, Status: str, request: Request) -> HT
 
 
 if __name__ == "__main__":
+    # P42 · موردِ ۳ (علتِ ریشه‌ایِ «پرداختِ واقعیِ بله‌پی تایید نشد»): `python -m app.main` این
+    # فایل را با نامِ `__main__` بالا می‌آورد، پس `from app import main as app_main` در
+    # `bot_manager._handle_bale_payment_update` یکِ *کپیِ دوم* ازِ همان ماژول می‌سازد که
+    # `_state`ش خالی است ⇒ درست یک لحظه بعد ازِ commitِ پرداخت، `KeyError: 'main_bot'`
+    # می‌گیرد: پول و وضعیت ذخیره شده‌اند ولی اطلاع‌رسانی به فروشگاه‌دار/مشتری و فاکتور هرگز
+    # فرستاده نمی‌شوند (و کاربر همان را «تایید نشدنِ پرداخت» می‌بیند). با ثبتِ نامِ `app.main`
+    # رویِ همان ماژولِ زنده، کپیِ دوم ساخته نمی‌شود.
+    import sys as _sys
+
+    _live = _sys.modules[__name__]
+    _sys.modules.setdefault("app.main", _live)
+    _pkg = _sys.modules.get("app")
+    if _pkg is not None:
+        setattr(_pkg, "main", _live)
     validate_runtime_config()
     if settings.run_mode == RunMode.POLLING:
         asyncio.run(run_polling())
