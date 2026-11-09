@@ -145,16 +145,20 @@ async def test_circuit_is_per_key_and_model() -> None:
 
 async def test_pool_moves_to_next_key_after_whole_chain_fails() -> None:
     """وقتی همه‌یِ مدل‌هایِ کلیدِ اول می‌افتند، کلیدِ دوم امتحان می‌شود؛ و کلیدی که همه‌یِ مدل‌هایش
-    در cooldown اند، بدونِ ثبتِ شکست رد می‌شود."""
+    در cooldown اند، بدونِ ثبتِ شکست رد می‌شود.
+
+    P47: نقطهٔ شروعِ پیمایش دیگر «تصادفی» نیست؛ کم‌بارترینِ کلید با نشانگرِ چرخشی انتخاب می‌شود.
+    پس به‌جایِ قفلِ کردنِ انتخابِ تصادفی، state استخر را صفر می‌کنیم تا اولینِ درخواست
+    از کلیدِ اول شروع شود (چرخشِ واقعی در `test_p47_ai_key_load_balance.py` سنجیده می‌شود).
+    """
     ai_service.reset_all_circuits_for_tests()
     original = _patch_clients()
-    original_randrange = ai_service.random.randrange
     _FakeClient.fail_on = frozenset({"a1", "a2"})
     try:
         key_a = ai_service.ModelChainAiService(1, "ka", "u", ["a1", "a2"])
         key_b = ai_service.ModelChainAiService(2, "kb", "u", ["b1"])
         pooled = ai_service.PooledAiService([(1, key_a), (2, key_b)])
-        ai_service.random.randrange = lambda *_a, **_k: 0  # شروعِ قطعی از کلیدِ خراب
+        ai_service.reset_pool_state_for_tests()  # شروعِ قطعی از کلیدِ خراب
         result = await pooled.get_reply("s", [], "hi")
         assert result.text == "b1", "بعد از آخرین مدلِ کلیدِ اول باید به کلیدِ دوم برود"
         tried = [c.model for c in _FakeClient.instances if c.calls]
@@ -182,9 +186,9 @@ async def test_pool_moves_to_next_key_after_whole_chain_fails() -> None:
             raise AssertionError("استخرِ کاملاً سرد باید AiServiceError بدهد")
     finally:
         ai_service.OpenAiCompatibleAiService = original
-        ai_service.random.randrange = original_randrange
         _FakeClient.fail_on = frozenset()
         ai_service.reset_all_circuits_for_tests()
+        ai_service.reset_pool_state_for_tests()
     print("✅ test_pool_moves_to_next_key_after_whole_chain_fails PASSED")
 
 

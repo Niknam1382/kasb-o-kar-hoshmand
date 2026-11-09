@@ -5,10 +5,11 @@ import asyncio
 import base64
 import dataclasses
 import logging
-import random
 import time
 
 import aiohttp
+
+from app.utils.validators import fa_number
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,14 @@ def _get_http_session() -> aiohttp.ClientSession:
         # عددِ ثابتِ ۶۰ ثانیه می‌شد.
         from app.config import settings
 
-        _http_session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=settings.ai_timeout_seconds))
+        # P47: پیش‌فرضِ aiohttp فقط ۱۰۰ سوکت هم‌زمان به *هر میزبان* می‌دهد. با ۲٬۰۰۰ درخواستِ
+        # درِ لحظه رویِ یکِ سرویس‌دهنده، ۱٬۹۰۰ تای آن‌ها پیش ازِ رسیدن به هر کلیدی در صفِ
+        # سوکت می‌نشستند و semaphoreِ ما هم پرِ بی‌کار می‌ماند. governorِ واقعی همان
+        # AI_MAX_CONCURRENT_CALLS است، پس اینجا سقفی نمی‌گذاریم (۰ = بی‌سقف).
+        connector = aiohttp.TCPConnector(limit=max(0, int(settings.ai_http_pool_limit)), ttl_dns_cache=300)
+        _http_session = aiohttp.ClientSession(
+            timeout=aiohttp.ClientTimeout(total=settings.ai_timeout_seconds), connector=connector
+        )
     return _http_session
 
 
@@ -73,6 +81,102 @@ def _ai_semaphore() -> asyncio.Semaphore:
 
 class AiServiceError(Exception):
     pass
+
+
+# =============================================================================
+# P47 · سقفِ همزمانیِ *هرِ کلید* + توزیعِ مساویِ بار
+# =============================================================================
+#
+# چرا شمارنده و نه Semaphore: ادمین وسطِ کار عددِ یکِ کلید را عوض می‌کند، و Semaphoreِ
+# ساخته‌شده سقفِ قدیمی را قفل می‌کند. اینجا `cap` فقط درِ ورودِ بعدی را اندازه می‌دهد و
+# شمارنده‌یِ در حالِ کار دست‌نخورده می‌ماند ⇒ نه ری‌استارت لازم است نه صفِ سرِجایش‌مانده.
+
+
+class _KeySlots:
+    """جایِ کارِ هرِ کلید: «چند درخواستِ این کلید الان درِ حالِ اجراست» + علامتِ آزادشدن."""
+
+    __slots__ = ("inflight", "_released")
+
+    def __init__(self) -> None:
+        self.inflight = 0
+        self._released = asyncio.Event()
+
+    def try_acquire(self, cap: int) -> bool:
+        if self.inflight >= max(1, int(cap)):
+            return False
+        self.inflight += 1
+        return True
+
+    def release(self) -> None:
+        self.inflight = max(0, self.inflight - 1)
+        self._released.set()
+
+    async def acquire(self, cap: int, deadline: float) -> bool:
+        """یکِ جا می‌گیرد؛ اگر همه پر بود تا `deadline` (time.monotonic) صبر می‌کند."""
+        if self.try_acquire(cap):
+            return True
+        while True:
+            # ترتیبِ مهم: اول clear، بعدِ دوباره‌خوانی، بعدِ wait — وگرنه آزادشدنی که دقیقاً
+            # بینِ اینِ دو رخ می‌دهد گم می‌شود و درخواستِ بی‌دلیل تا تایم‌اوت می‌خوابد.
+            self._released.clear()
+            if self.try_acquire(cap):
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            try:
+                await asyncio.wait_for(self._released.wait(), remaining)
+            except (asyncio.TimeoutError, TimeoutError):
+                return self.try_acquire(cap)
+
+
+# کلیدِ (idِ event loop، شناسهٔ کلید) ⇒ جایگاهِ کار. loopها در تست‌ها جدا هستند؛ شمارنده باید
+# به همان loop وابسته بماند (همین دلیلی است که `_ai_semaphores` هم loop-key است).
+_key_slots: dict[tuple[int, int], _KeySlots] = {}
+
+# نشانگرِ چرخشی هم per-loop است، نه per-instance: سرویسِ استخر *برایِ هر درخواست از نو*
+# ساخته می‌شود (`build_ai_service`)، پس اگر شمارنده داخلِ instance می‌ماند، هر درخواست از
+# کلیدِ اول شروع می‌کرد و توزیعِ «مساوی» فقط زیرِ بارِ سنگین درست می‌شد.
+_pool_cursor: dict[int, int] = {}
+
+
+def slots_for(key_id: int) -> _KeySlots:
+    key = (id(asyncio.get_running_loop()), key_id)
+    slots = _key_slots.get(key)
+    if slots is None:
+        slots = _KeySlots()
+        _key_slots[key] = slots
+    return slots
+
+
+def _rotate(size: int) -> int:
+    """نقطهٔ شروعِ اینِ درخواست در فهرستِ کلیدها (چرخشی، تا تساوی‌ها نوبتی شوند)."""
+    if size <= 0:
+        return 0
+    loop_key = id(asyncio.get_running_loop())
+    offset = _pool_cursor.get(loop_key, 0) % size
+    _pool_cursor[loop_key] = (offset + 1) % size
+    return offset
+
+
+def platform_ceiling() -> int:
+    """سقفِ کلِ پلتفرم از `.env` (AI_MAX_CONCURRENT_CALLS)."""
+    from app.config import settings
+
+    return max(1, int(settings.ai_max_concurrent_calls))
+
+
+def equal_share_cap(ceiling: int, key_count: int) -> int:
+    """کلیدهایی که عددی ننوشته‌اند، سهمِ مساوی از سقفِ پلتفرم می‌گیرند (سقفِ پلتفرم گلوگاه است)."""
+    if key_count <= 0:
+        return max(1, int(ceiling))
+    return max(1, -(-int(ceiling) // int(key_count)))
+
+
+def reset_pool_state_for_tests() -> None:
+    """فقط برای تست: جایگاه‌هایِ کارِ همه‌ی loopها و نشانگرِ چرخشی صفر می‌شود."""
+    _key_slots.clear()
+    _pool_cursor.clear()
 
 
 @dataclasses.dataclass
@@ -407,21 +511,47 @@ class ModelChainAiService(BaseAiService):
 
 class PooledAiService(BaseAiService):
     """
-    یه استخر از N سرویسِ AI (هرکدوم با کلید/مدل/آدرسِ خودش). هر فراخوانی از
-    یه نقطه‌ی تصادفی توی استخر شروع می‌کنه (برای پخشِ یکنواختِ بار بینِ
-    کلیدها) و کلیدهایی که مدارشون باز باشه رو رد می‌کنه. اگه یه کلید شکست
-    بخوره، بلافاصله کلیدِ بعدی امتحان می‌شه؛ فقط اگه *همه* شکست بخورن یا
-    مدارشون باز باشه، خطای آخر رو بالا می‌ده.
+    یه استخر از N سرویسِ AI (هرکدوم با کلید/مدل/آدرسِ خودش و سقفِ همزمانیِ خودش).
+
+    P47: انتخابِ کلید دیگر «تصادفی» نیست. هر کلید یک نسبتِ بار دارد
+    (`درخواست‌هایِ در حالِ اجرا ÷ سقفِ همان کلید`) و همیشه کم‌بارترینِ آن‌ها که مدارش
+    بسته است انتخاب می‌شود؛ کلیدهایی که نسبتشان مساوی است با یکِ نشانگرِ چرخشی نوبت
+    می‌گیرند، پس هیچ کلیدی برایِ همیشه جلویِ بقیه نمی‌افتد. نتیجه: با N کلیدِ هم‌سقف،
+    بار *تقریباً مساوی و هم‌زمان* پخش می‌شود؛ با سقفهایِ متفاوت، پخش به نسبتِ همان
+    سقفهاست (دقیقاً چیزی که ادمین از سرویس‌دهنده‌ها گرفته).
+
+    اگه کلیدی پر باشد، درخواست تا سقفِ زمانِ صف (`AI_QUEUE_TIMEOUT_SECONDS`) همان‌جا
+    می‌ایستد و بعد کلیدِ بعدی امتحان می‌شود؛ اگه یه کلید شکست بخوره بلافاصله کلیدِ بعدی
+    می‌رود. فقط اگه *همه* شکست بخورن یا مدارشون باز باشه، خطای آخر بالا می‌ره.
     """
 
-    def __init__(self, entries: list[tuple[int, BaseAiService]]) -> None:
+    def __init__(self, entries: list[tuple[int, BaseAiService]], caps: dict[int, int] | None = None) -> None:
         if not entries:
             raise ValueError("PooledAiService به حداقل یه کلید نیاز داره")
         self._entries = entries
+        self._caps = dict(caps or {})
 
-    def _ordered_entries(self) -> list[tuple[int, BaseAiService]]:
-        start = random.randrange(len(self._entries))
-        return self._entries[start:] + self._entries[:start]
+    def cap_of(self, key_id: int) -> int:
+        cap = self._caps.get(key_id)
+        if cap is None:
+            cap = equal_share_cap(platform_ceiling(), len(self._entries))
+        return max(1, int(cap))
+
+    def _ranked(self, candidates: list[tuple[int, BaseAiService]]) -> list[tuple[int, BaseAiService, int, _KeySlots]]:
+        """کم‌بارترین اول؛ تساوی با چرخشِ نشانگر (sorted پایدار است، پس چرخش حفظ می‌شود)."""
+        if not candidates:
+            return []
+        start = _rotate(len(candidates))
+        rotated = candidates[start:] + candidates[:start]
+        scored = [(key_id, service, self.cap_of(key_id), slots_for(key_id)) for key_id, service in rotated]
+        return sorted(scored, key=lambda item: item[3].inflight / item[2])
+
+    def load_snapshot(self) -> list[dict[str, int]]:
+        """نمایِ زندهٔ بارِ هر کلید برایِ پنلِ ادمین (هیچ دادهٔ حساسی ندارد: فقط عدد)."""
+        return [
+            {"key_id": key_id, "cap": self.cap_of(key_id), "inflight": slots_for(key_id).inflight}
+            for key_id, _service in self._entries
+        ]
 
     def _entry_is_usable(self, service: BaseAiService, key_id: int) -> bool:
         if _circuit_is_open(key_id):
@@ -431,23 +561,37 @@ class PooledAiService(BaseAiService):
         return True if probe is None else bool(probe())
 
     async def _run(self, method_name: str, *args) -> object:
+        from app.config import settings
+
+        deadline = time.monotonic() + max(1.0, float(settings.ai_queue_timeout_seconds))
         last_exc: Exception | None = None
         tried_any = False
-        for key_id, service in self._ordered_entries():
-            if not self._entry_is_usable(service, key_id):
+        candidates = [(key_id, service) for key_id, service in self._entries if self._entry_is_usable(service, key_id)]
+        if not candidates:
+            raise AiServiceError("همه‌ی کلیدهای AI در استخر موقتاً مدارشون بازه (شکست‌های پیاپیِ اخیر).")
+        for key_id, service, cap, slots in self._ranked(candidates):
+            if not await slots.acquire(cap, deadline):
+                last_exc = AiServiceError(f"صفِ درخواست‌هایِ اینِ کلیدِ AI شلوغ بود (سقفِ آن: {fa_number(cap)}).")
                 continue
             tried_any = True
+            # `finally` (نه `except Exception`): اگر تسکِ درخواست لغو شود (ری‌استارتِ سرویس،
+            # تایم‌اوتِ لایهٔ بالاتر) جایگاهِ کارِ آنِ کلید باید آزاد شود، وگرنه کلید پس از
+            # چند لغو برایِ همیشه «پر» می‌ماند.
             try:
-                result = await getattr(service, method_name)(*args)
+                try:
+                    result = await getattr(service, method_name)(*args)
+                except AiServiceError as exc:
+                    _record_circuit_failure(key_id)
+                    last_exc = exc
+                    logger.warning("یه کلیدِ AI در استخر شکست خورد (%s)، امتحانِ کلیدِ بعدی...", method_name)
+                    continue
                 _record_circuit_success(key_id)
                 return result
-            except AiServiceError as exc:
-                _record_circuit_failure(key_id)
-                last_exc = exc
-                logger.warning("یه کلیدِ AI در استخر شکست خورد (%s)، امتحانِ کلیدِ بعدی...", method_name)
+            finally:
+                slots.release()
 
         if not tried_any:
-            raise AiServiceError("همه‌ی کلیدهای AI در استخر موقتاً مدارشون بازه (شکست‌های پیاپیِ اخیر).")
+            raise last_exc or AiServiceError("همه‌ی کلیدهای AI در استخر موقتاً شلوغن (سقفِ همزمانیِ خودشون پر بود).")
         raise last_exc or AiServiceError("همه‌ی کلیدهای استخرِ AI شکست خوردن.")
 
     async def get_reply(self, system_prompt: str, history: list[dict[str, str]], user_message: str) -> AiCallResult:

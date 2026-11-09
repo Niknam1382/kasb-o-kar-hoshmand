@@ -56,6 +56,28 @@ def ram_for_poller(shops_in_shard: int) -> float:
     return BASE_RSS_MB + shops_in_shard * MB_PER_BOT
 
 
+def effective_ai_ceiling(platform_ceiling: int, key_caps: list[int | None]) -> tuple[int, int]:
+    """P47: هرِ درخواست باید داخلِ جایگاهِ کارِ یکِ کلید بنشیند ⇒ ظرفیتِ *قابلِ استفاده*
+    کمینهٔ «سقفِ پلتفرم» و «جمعِ سقفِ کلیدها» است. کلیدهایی که عددی ننوشته‌اند سهمِ مساوی
+    می‌گیرند، پس جمعِ آن‌ها عملاً همان سقفِ پلتفرم می‌شود و گلوگاهِ تازه‌ای نمی‌سازند.
+
+    بازگشت: (ظرفیتِ مؤثر، جمعِ سقفِ کلیدهایی که خودشان عدد نوشته‌اند).
+    """
+    if not key_caps:
+        return platform_ceiling, 0
+    explicit = [int(cap) for cap in key_caps if cap]
+    share = -(-platform_ceiling // max(1, len(key_caps)))
+    total = sum(explicit) + share * (len(key_caps) - len(explicit))
+    return min(platform_ceiling, total), sum(explicit)
+
+
+async def read_key_caps() -> list[int | None]:
+    """سقفِ هرِ کلیدِ فعال از دیتابیس (بدونِ خواندنِ خودِ کلیدها)."""
+    async with engine.connect() as connection:
+        rows = await connection.execute(sql_text("SELECT max_concurrent FROM ai_api_key_pool WHERE is_active"))
+    return [row[0] for row in rows]
+
+
 async def read_max_connections() -> int:
     async with engine.connect() as connection:
         value = (await connection.execute(sql_text("SHOW max_connections"))).scalar_one()
@@ -101,10 +123,22 @@ def main() -> int:
 
     if args.users:
         needed = ai_concurrency_needed(args.users, args.latency)
+        platform = int(settings.ai_max_concurrent_calls)
+        try:
+            key_caps = asyncio.run(read_key_caps())
+        except Exception as exc:  # noqa: BLE001 - ابزارِ تشخیصی نباید با نبودِ دیتابیس بشکند
+            key_caps = []
+            print(f"  (استخرِ کلیدها خوانده نشد: {type(exc).__name__} — فقط سقفِ پلتفرم محاسبه می‌شود)")
+        usable, explicit_sum = effective_ai_ceiling(platform, key_caps)
         print(f"\nبرایِ {args.users} مشتریِ هم‌زمان با تأخیرِ {args.latency} ثانیه:")
         print(f"  سقفِ هم‌زمانیِ لازمِ سرویسِ هوشِ مصنوعی ≈ {needed:.0f} درخواست (AI_MAX_CONCURRENT)")
-        print(f"  با تنظیمِ فعلی ({settings.ai_max_concurrent_calls}) ظرفیت ≈ "
-              f"{users_supported(settings.ai_max_concurrent_calls, args.latency)} کاربرِ هم‌زمان")
+        print(f"  سقفِ پلتفرم (env): {platform} · استخرِ کلیدها: {len(key_caps)} کلیدِ فعال "
+              f"(جمعِ سقفهایِ نوشته‌شده: {explicit_sum}) ⇒ قابلِ استفاده: {usable}")
+        print(f"  با این پیکربندی ظرفیت ≈ {users_supported(usable, args.latency)} کاربرِ هم‌زمان")
+        if key_caps and usable < needed:
+            print(f"  گلوگاه: {('جمعِ سقفِ کلیدها' if explicit_sum and usable == explicit_sum else 'سقفِ پلتفرم')} کمتر ازِ {needed:.0f} لازم است.")
+            print("     · اگر سرویس‌دهنده اجازه می‌دهد: در پنل، «سقفِ همزمانیِ همینِ کلید» را برایِ هرِ کلید بالا ببر")
+            print("     · و در .env عددِ AI_MAX_CONCURRENT_CALLS را به همان مقدار (یا بیشتر) برسان")
         print("  ⚠️ این درِ اصلیِ ماست، نه CPUِ سرور. اول از ارائه‌دهندهٔ کلید بپرس چند درخواستِ")
         print("     هم‌زمان مجاز است؛ اگر کمتر از عددِ بالاست، سرورِ قوی‌تر هیچ فرقی نمی‌کند.")
 

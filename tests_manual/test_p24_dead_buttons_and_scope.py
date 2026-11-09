@@ -331,7 +331,12 @@ def test_texts_match_service_limits() -> None:
     assert scheduled_broadcast_service.MAX_ACTIVE_PER_SHOP == 5 and "فقط ۵ ارسال" in main_texts.SCHEDULE_MAX_REACHED
     assert admin_handlers._INT_FIELDS_MAX["referral_reward_value"] == 100
     assert admin_handlers._INT_FIELDS_MAX["usd_to_toman_rate"] == 500_000
-    assert admin_handlers._URL_FIELDS == frozenset({"ai_base_url", "ai_fallback_base_url"})
+    # P47: «آدرسِ پشتیبان» از پنل رفت (جایش کلید ۱ تا ۱۰ است) و همان گاردِ ضدSSRF رویِ
+    # `base_url` هرِ کلیدِ تازه هم اجرا می‌شود ⇒ این دو پین می‌کنند که درِ دوم بسته نماند.
+    assert admin_handlers._URL_FIELDS == frozenset({"ai_base_url"})
+    admin_source = pathlib.Path("app/bots/main_bot/handlers/admin.py").read_text(encoding="utf-8")
+    pool_block = admin_source.split("async def ai_pool_entry_received")[1].split("async def cb_ai_pool_models")[0]
+    assert "_url_value_error(base_url)" in pool_block, "افزودنِ کلید باید همان گاردِ آدرس را داشته باشد"
     buttons = [btn for row in main_keyboards.empty_screen_keyboard().inline_keyboard for btn in row]
     assert buttons and buttons[-1].callback_data == "main_menu", "دکمهٔ بازگشتِ صفحه‌هایِ خالی همان پیشوندی است که هندلر مصرف می‌کند"
     print("✅ test_texts_match_service_limits PASSED")

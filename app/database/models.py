@@ -1120,6 +1120,10 @@ class AiApiKeyPoolEntry(Base, CreatedAtMixin):
     *همان کلید* را هم دارد (`fallback_models`؛ با ویرگول/خطِ جدید جدا می‌شن).
     اولِ همان کلید تا آخرِ فهرست امتحان می‌شود و بعد کلیدِ بعدیِ استخر؛
     سلامت و cooldown به‌ازایِ (کلید + مدل) ثبت می‌شود.
+
+    P47 · هر کلید سقفِ همزمانیِ *خودش* را در همین پنل دارد (`max_concurrent`؛ NULL یعنی
+    «سهمِ مساوی از سقفِ پلتفرم»). عددِ `AI_MAX_CONCURRENT_CALLS` در `.env` فقط سقفِ کلِ
+    پلتفرم است، پس برایِ بالا بردنِ ظرفیت لازم نیست `.env` دست‌کاری شود.
     """
 
     __tablename__ = "ai_api_key_pool"
@@ -1132,6 +1136,7 @@ class AiApiKeyPoolEntry(Base, CreatedAtMixin):
     base_url: Mapped[str] = mapped_column(String(255), nullable=False)
     capability: Mapped[AiKeyCapability] = _enum_column(AiKeyCapability, default=AiKeyCapability.CHAT, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    max_concurrent: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class AuditLogEntry(Base, CreatedAtMixin):

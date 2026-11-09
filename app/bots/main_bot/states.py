@@ -163,6 +163,7 @@ class ModerationStates(StatesGroup):
 class AiPoolStates(StatesGroup):
     waiting_entry_details = State()
     waiting_fallback_models = State()
+    waiting_max_concurrent = State()  # P47 · سقفِ همزمانیِ همینِ کلید (در پنل، نه در .env)
 
 
 class AdminRoleStates(StatesGroup):

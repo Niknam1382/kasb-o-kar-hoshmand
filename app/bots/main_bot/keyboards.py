@@ -882,14 +882,20 @@ def moderation_rule_detail_keyboard(rule_id: int, is_active: bool) -> InlineKeyb
     )
 
 
-def ai_pool_list_keyboard(entries) -> InlineKeyboardMarkup:
+def ai_pool_list_keyboard(entries, can_import_legacy: bool = False) -> InlineKeyboardMarkup:
+    """فهرستِ کلیدها با شمارهٔ ترتیبی (کلید ۱ … کلید ۱۰) + سهمِ همزمانیِ هرِ کلید."""
     rows = []
-    for entry in entries:
+    for index, entry in enumerate(entries, start=1):
         status_icon = "🟢" if entry.is_active else "⚪️"
         cap = entry.capability.value if hasattr(entry.capability, "value") else entry.capability
-        label = f"{status_icon} {entry.label} ({cap})"
-        rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"ai_pool_view:{entry.id}")])
+        share = entry.max_concurrent if entry.max_concurrent else "مساوی"
+        if share != "مساوی":
+            share = fa_number(share)
+        label = f"{status_icon} کلید {fa_number(index)} · {entry.label} ({cap}) · همزمان: {share}"
+        rows.append([InlineKeyboardButton(text=label[:64], callback_data=f"ai_pool_view:{entry.id}")])
     rows.append([InlineKeyboardButton(text="➕ افزودنِ کلیدِ جدید", callback_data="ai_pool_add")])
+    if can_import_legacy:
+        rows.append([InlineKeyboardButton(text="⬆️ انتقالِ کلیدِ قدیمی به کلیدِ ۱", callback_data="ai_pool_import")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -898,6 +904,7 @@ def ai_pool_entry_detail_keyboard(entry_id: int, is_active: bool) -> InlineKeybo
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=toggle_label, callback_data=f"ai_pool_toggle:{entry_id}")],
+            [InlineKeyboardButton(text="🔢 سقفِ همزمانیِ همینِ کلید", callback_data=f"ai_pool_cap:{entry_id}")],
             [InlineKeyboardButton(text="🧵 مدل‌هایِ پشتیبانِ همین کلید", callback_data=f"ai_pool_models:{entry_id}")],
             [InlineKeyboardButton(text="🗑 حذف", callback_data=f"ai_pool_delete:{entry_id}")],
             [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="ai_pool_list")],

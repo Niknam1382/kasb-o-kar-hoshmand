@@ -1891,13 +1891,18 @@ ADMIN_SETTINGS_GROUPS: tuple[tuple[str, str], ...] = (
 ADMIN_SETTINGS_GROUP_LABELS: dict[str, str] = dict(ADMIN_SETTINGS_GROUPS)
 ADMIN_SETTINGS_GROUP_KEYS: frozenset[str] = frozenset(ADMIN_SETTINGS_GROUP_LABELS)
 
+# P47: درِ «کلیدها» حالا یکی است: کلید ۱ تا کلید ۱۰، هرِ کلید با مدل/آدرس/سقفِ همزمانیِ خودش.
+ADMIN_AI_GROUP_KEYS_POINTER = (
+    "🔑 برایِ واردکردنِ کلیدِ API به منویِ «🔑 استخرِ کلیدهایِ AI» برو: تا ۱۰ کلید، هرِ کلید با "
+    "مدل، آدرس و سقفِ همزمانیِ خودش. دو مقدارِ این صفحه فقط پیش‌فرضِ سراسری هستند."
+)
+
 ADMIN_SETTING_GROUP: dict[str, str] = {
-    "ai_api_key": "ai",
+    # P47: چهار کلید/آدرسِ «اصلی و پشتیبان» از این صفحه رفتند؛ جایِ آن‌ها «کلید ۱ … کلید ۱۰» است
+    # (هرِ کلید با مدل، آدرس و سقفِ همزمانیِ خودش). این دو پیش‌فرضِ سراسری می‌مانند تا نصبی که
+    # استخر نسازد دقیقاً مثلِ قبل کار کند.
     "ai_model": "ai",
     "ai_base_url": "ai",
-    "ai_fallback_api_key": "ai",
-    "ai_fallback_model": "ai",
-    "ai_fallback_base_url": "ai",
     "global_ai_system_prompt": "ai",
     "global_ai_prompt_sales": "ai",
     "global_ai_prompt_consultation": "ai",
@@ -2030,12 +2035,8 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
     labels = [
         ("sms_api_key", f"📲 کلید پیامک (کاوه‌نگار): {_mask_secret(admin_settings.sms_api_key)}"),        ("sms_sender_number", f"📲 سرشماره‌یِ پیامک: {admin_settings.sms_sender_number or 'تنظیم‌نشده'}"),
         ("sms_otp_template", f"📲 قالبِ OTP: {admin_settings.sms_otp_template or DEFAULT_OTP_TEMPLATE + ' (پیش‌فرض)'}"),
-        ("ai_api_key", f"🤖 کلید هوش مصنوعی: {_mask_secret(admin_settings.ai_api_key)}"),
-        ("ai_model", f"🧠 مدل هوش مصنوعی: {admin_settings.ai_model}"),
-        ("ai_base_url", f"🌐 آدرس سرویس هوش مصنوعی: {admin_settings.ai_base_url}"),
-        ("ai_fallback_api_key", f"🛟 کلید هوش‌مصنوعیِ پشتیبان: {_mask_secret(admin_settings.ai_fallback_api_key)}"),
-        ("ai_fallback_model", f"🛟 مدلِ پشتیبان: {admin_settings.ai_fallback_model or 'تنظیم‌نشده'}"),
-        ("ai_fallback_base_url", f"🛟 آدرسِ سرویسِ پشتیبان: {admin_settings.ai_fallback_base_url or 'تنظیم‌نشده'}"),
+        ("ai_model", f"🧠 مدل هوش مصنوعی (پیش‌فرضِ سراسری): {admin_settings.ai_model}"),
+        ("ai_base_url", f"🌐 آدرس سرویس هوش مصنوعی (پیش‌فرضِ سراسری): {admin_settings.ai_base_url}"),
         ("zarinpal_merchant_id", f"🏦 مرچنت آیدی زرین‌پال: {_mask_secret(admin_settings.zarinpal_merchant_id)}"),
         ("bale_bot_token", _bale_bot_token_label(admin_settings.bale_bot_token)),
         ("bale_provider_token", f"🔵 توکنِ درگاهِ بله‌پی: {_mask_secret(admin_settings.bale_provider_token)}"),
@@ -2322,12 +2323,38 @@ def audit_csv_headers() -> list[str]:
     ]
 
 AI_POOL_MENU_INTRO = (
-    "🔑 استخرِ کلیدهایِ AI\n\n"
-    "می‌تونی چند کلیدِ API ثبت کنی. هر فراخوانی از یه کلیدِ تصادفی شروع می‌کنه؛ اگه یکی شکست خورد "
-    "(یا به‌خاطرِ شکست‌های پیاپیِ اخیر موقتاً کنار گذاشته شده بود)، خودکار میره سراغِ بعدی. "
-    "اگه اینجا هیچ کلیدی ثبت نکنی، همون تنظیماتِ قدیمیِ «تنظیماتِ کلیدها» (ai_api_key) کار می‌کنه."
+    "🔑 کلیدهایِ AI (کلید ۱ تا کلید ۱۰)\n\n"
+    "تا ۱۰ کلیدِ API ثبت کن؛ هر کلید مدل، آدرس و *سقفِ همزمانیِ خودش* را دارد. هر درخواست "
+    "سراغِ کلیدی می‌رود که الان کم‌ترین بار را دارد (تقسیمِ بار به نسبتِ سقفِ هرِ کلید)، پس "
+    "درخواست‌ها تقریباً مساوی و هم‌زمان بینِ کلیدها پخش می‌شود. اگر یک کلید خطا بدهد یا "
+    "موقتاً کنار گذاشته شده باشد، کلیدِ بعدی امتحان می‌شود.\n\n"
+    "سقفِ کلِ پلتفرم از تنظیماتِ محیطی (AI_MAX_CONCURRENT_CALLS) خوانده می‌شود؛ کلیدهایی که "
+    "سقفِ خودشان را ننویسی، سهمِ مساوی از همان سقفِ کلی می‌گیرند."
 )
-AI_POOL_EMPTY = "هنوز هیچ کلیدی به استخر اضافه نشده."
+AI_POOL_EMPTY = "هنوز هیچ کلیدی اضافه نشده. با «➕ افزودنِ کلید» کلیدِ اول را ثبت کن."
+AI_POOL_MAX_KEYS_REACHED = "به سقفِ ۱۰ کلید رسیدی؛ برایِ کلیدِ جدید اول یکی را حذف یا غیرفعال کن."
+AI_POOL_LEGACY_AVAILABLE = (
+    "ℹ️ در تنظیماتِ قدیمی یکِ «کلیدِ AIِ سراسری» داری که هنوز به این فهرست نیامده. با دکمهِٔ "
+    "زیر همان کلید را بیاور داخلِ «کلیدِ ۱» تا مدل، آدرس و سقفِ همزمانی‌اش را همین‌جا مدیریت کنی."
+)
+AI_POOL_IMPORTED = "✅ کلیدِ قدیمی به «کلیدِ ۱» تبدیل شد؛ از این به بعد همین‌جا مدیریت می‌شود."
+
+
+def ai_pool_capacity_line(report: dict[str, int]) -> str:
+    """عددهایِ ظرفیت: چه‌قدر جا در پلتفرم و چه‌قدر جا در خودِ کلیدها هست (فقط شمارش، بدونِ کلید)."""
+    if not report.get("keys"):
+        return ""
+    ceiling = fa_number(report["ceiling"])
+    total = fa_number(report["sum_caps"])
+    line = f"\n\n📊 ظرفیتِ فعلی: {fa_number(report['keys'])} کلیدِ فعال · جمعِ سقفِ کلیدها: {total} · سقفِ پلتفرم: {ceiling}"
+    if report.get("bottleneck") == "keys":
+        line += (
+            "\n⚠️ گلوگاه: جمعِ سقفِ کلیدها از سقفِ پلتفرم کمتر است. یا سقفِ هرِ کلید را در همین "
+            "پنل بالا ببر، یا با سرویس‌دهنده قراردادِ همزمانیِ بیشتر ببند."
+        )
+    else:
+        line += "\n✅ گلوگاه: سقفِ کلِ پلتفرم. با بالا بردنِ AI_MAX_CONCURRENT_CALLS در تنظیماتِ محیطی ظرفیتِ بیشتر می‌شود."
+    return line
 
 
 def ai_pool_health_line(health: dict[str, int]) -> str:
@@ -2340,17 +2367,18 @@ def ai_pool_health_line(health: dict[str, int]) -> str:
         "هر کلیدِ بازشده ۶۰ ثانیه بعد دوباره امتحان می‌شود."
     )
 ASK_AI_POOL_ENTRY = (
-    "اطلاعاتِ کلیدِ جدید را در ۵ یا ۶ خط بفرست (دقیقاً به همین ترتیب):\n\n"
+    "اطلاعاتِ کلیدِ جدید را در ۵ تا ۷ خط بفرست (دقیقاً به همین ترتیب):\n\n"
     "برچسب (فقط برایِ خودت، تا کلیدها را از هم تشخیص بدی)\n"
     "کلیدِ API\n"
     "نامِ مدل\n"
     "آدرسِ base_url کاملِ chat/completions\n"
     "نوع: chat یا vision یا both یا stt\n"
-    "خطِ ششم (اختیاری): مدل‌هایِ پشتیبانِ همین کلید، با ویرگول و به همان ترتیبِ امتحان شدن"
+    "خطِ ششم (اختیاری): مدل‌هایِ پشتیبانِ همین کلید، با ویرگول و به همان ترتیبِ امتحان شدن (برایِ نداشتنِ پشتیبان بنویس «-»)\n"
+    "خطِ هفتم (اختیاری): سقفِ همزمانیِ همین کلید (عدد؛ مثلاً ۲۰۰). خالی بگذار تا سهمِ مساوی از سقفِ پلتفرم بگیرد"
 )
 AI_POOL_ENTRY_INVALID_FORMAT = (
-    "۵ خط لازم است (برچسب، کلید، مدل، base_url، نوع) — خطِ ششم اختیاری است و مدل‌هایِ پشتیبان را می‌گیرد. "
-    "دوباره امتحان کن یا با «لغو» برگرد."
+    "۵ خط لازم است (برچسب، کلید، مدل، base_url، نوع) — خطِ ششم مدل‌هایِ پشتیبان و خطِ هفتم سقفِ همزمانیِ "
+    "همانِ کلید است، هر دو اختیاری. دوباره امتحان کن یا با «لغو» برگرد."
 )
 AI_POOL_ENTRY_INVALID_CAPABILITY = "خطِ پنجم باید دقیقاً یکی از این‌ها باشه: chat یا vision یا both یا stt."
 AI_POOL_ENTRY_DELETED = "🗑 کلید حذف شد."
@@ -2361,6 +2389,25 @@ ASK_AI_POOL_FALLBACK_MODELS = (
     "⚠️ این مدل‌ها فقط وقتی امتحان می‌شوند که مدلِ قبلیِ همان کلید خطا بدهد؛ پس باید همان capability را داشته باشند."
 )
 AI_POOL_FALLBACK_SAVED = "✅ مدل‌هایِ پشتیبان ذخیره شد."
+
+ASK_AI_POOL_CAP = (
+    "سقفِ همزمانیِ همینِ کلید را بنویس: چند درخواستِ اینِ کلید می‌تواند *هم‌زمان* در حالِ اجرا باشد؟\n\n"
+    "· عددِ مجاز: ۱ تا ۵۰۰\n"
+    "· اگر نمی‌دانی از سرویس‌دهنده بپرس؛ هرچه بالاتر، همان‌قدر درخواستِ بیشتر در لحظه (به شرطِ این‌که "
+    "سقفِ کلِ پلتفرم هم بالاتر باشد)\n"
+    "· برایِ بازگشت به سهمِ مساوی بنویس «خالی»\n\n"
+    "این عدد در پنل ذخیره می‌شود و *به تنظیماتِ محیطی نیازی ندارد*."
+)
+AI_POOL_CAP_SAVED = "✅ سقفِ همزمانیِ اینِ کلید ذخیره شد و از درخواستِ بعدی اعمال می‌شود."
+
+
+def ai_pool_cap_screen_text(cap_label: str, report: dict[str, int]) -> str:
+    """خلاصهٔ عددیِ بالایِ فرمِ سقفِ همزمانی: همینِ کلید + سقفِ پلتفرم + جمعِ همه."""
+    return (
+        f"سقفِ فعلیِ اینِ کلید: {cap_label}\n"
+        f"سقفِ کلِ پلتفرم (تنظیماتِ محیطی): {fa_number(report['ceiling'])} درخواستِ هم‌زمان\n"
+        f"جمعِ سقفِ {fa_number(report['keys'])} کلیدِ فعال: {fa_number(report['sum_caps'])} درخواستِ هم‌زمان"
+    )
 
 
 def ai_pool_entry_added_confirmation(label: str) -> str:
@@ -2374,6 +2421,8 @@ def _mask_api_key(api_key: str) -> str:
 
 
 def ai_pool_entry_detail_text(entry) -> str:
+    from app.services import ai_pool_service
+
     cap = entry.capability.value if hasattr(entry.capability, "value") else entry.capability
     status = "فعال 🟢" if entry.is_active else "غیرفعال ⚪️"
     # P18 · A4: زنجیره‌یِ مدل‌ها باید دیده شود تا ادمین بداند واقعاً چه چیزی امتحان می‌شود.
@@ -2385,6 +2434,8 @@ def ai_pool_entry_detail_text(entry) -> str:
         f"پشتیبان‌هایِ همین کلید: {fallbacks or '—'}\n"
         f"base_url: {entry.base_url}\n"
         f"نوع: {cap}\n"
+        # P47: سقفِ همزمانیِ همینِ کلید — همان عددی که ادمین از سرویس‌دهنده می‌پرسد و همین‌جا می‌نویسد.
+        f"سقفِ همزمانی: {ai_pool_service.key_cap_label(entry)}\n"
         f"وضعیت: {status}"
     )
 

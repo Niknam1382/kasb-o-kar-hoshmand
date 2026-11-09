@@ -12,7 +12,7 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
@@ -839,7 +839,9 @@ async def discount_max_uses_entered(message: Message, state: FSMContext, session
 # =============================================================================
 _TEXT_FIELDS: dict[str, str] = {
     "sms_api_key": texts.ADMIN_ASK_SMS_API_KEY,
-    "ai_api_key": texts.ADMIN_ASK_AI_API_KEY,
+    # P47: «کلیدِ AIِ اصلی/پشتیبان» از این صفحه برداشته شد؛ کلیدها حالا «کلید ۱ … کلید ۱۰»
+    # هستند و هرِ کلید مدل/آدرس/سقفِ همزمانیِ خودش را در همان بخش دارد. دو عددِ زیر فقط
+    # پیش‌فرضِ مدلِ سراسری و آدرسِ سرویس‌دهنده‌یِ قدیمی‌اند (تا نصبی که استخر نسازد، مثلِ قبل کار کند).
     "ai_model": texts.ADMIN_ASK_AI_MODEL,
     "ai_base_url": texts.ADMIN_ASK_AI_BASE_URL,
     "zarinpal_merchant_id": texts.ADMIN_ASK_ZARINPAL_MERCHANT_ID,
@@ -952,9 +954,7 @@ _NULLABLE_TEXT_FIELDS: dict[str, str] = {
     "global_ai_prompt_sales": texts.ADMIN_ASK_PROMPT_SALES,
     "global_ai_prompt_consultation": texts.ADMIN_ASK_PROMPT_CONSULTATION,
     "reference_channel_link": texts.ADMIN_ASK_REFERENCE_CHANNEL_LINK,
-    "ai_fallback_api_key": texts.ADMIN_ASK_AI_FALLBACK_API_KEY,
-    "ai_fallback_model": texts.ADMIN_ASK_AI_FALLBACK_MODEL,
-    "ai_fallback_base_url": texts.ADMIN_ASK_AI_FALLBACK_BASE_URL,
+    # P47: کلید/مدل/آدرسِ «پشتیبان» هم مثلِ کلیدِ اصلی به بخشِ «کلیدهایِ AI» رفت (کلید ۱ تا ۱۰).
     # P18 · A1: هر دو توکنِ بله از پنل قابلِ تنظیم و پاک‌کردن‌اند (رمزنگاری‌شده، اعمال بدونِ ری‌استارت).
     "bale_bot_token": texts.ADMIN_ASK_BALE_BOT_TOKEN,
     "bale_provider_token": texts.ADMIN_ASK_BALE_PROVIDER_TOKEN,
@@ -980,10 +980,12 @@ def _sms_value_error(field: str, raw: str) -> str | None:
 
 _BALE_TOKEN_FIELDS: frozenset[str] = frozenset({"bale_bot_token", "bale_provider_token"})
 
-# P24 (امنیت): این دو آدرس با `aiohttp.post` در app/services/ai_service.py زده می‌شوند و هدرِ
-# Authorization را با خود می‌برند ⇒ اگر «آدرس سرویس هوش مصنوعی» به هاستِ داخلی برگردد، کلیدِ AI
+# P24 (امنیت): این آدرس با `aiohttp.post` در app/services/ai_service.py زده می‌شود و هدرِ
+# Authorization را با خود می‌برد ⇒ اگر «آدرس سرویس هوش مصنوعی» به هاستِ داخلی برگردد، کلیدِ AI
 # به آنجا می‌رود و SSRF به شبکهٔ داخلیِ سرور ممکن می‌شود. فقط https + ردِ آدرس‌هایِ لوکال.
-_URL_FIELDS: frozenset[str] = frozenset({"ai_base_url", "ai_fallback_base_url"})
+# P47: همان گارد رویِ `base_url` هرِ کلیدِ تازه در بخشِ «کلیدهایِ AI» هم اجرا می‌شود (چرا که
+# کلیدها حالا از همان راه به سرویس‌دهنده می‌روند).
+_URL_FIELDS: frozenset[str] = frozenset({"ai_base_url"})
 _INTERNAL_HOST_RE = re.compile(
     r"^(?:localhost|0\.0\.0\.0|::1|\[::1\]|127\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)",
     re.IGNORECASE,
@@ -1048,10 +1050,12 @@ async def _refresh_settings_menu(message: Message, session: AsyncSession, group:
 
 
 def _settings_group_text(group: str, admin_settings) -> str:
-    """دستهٔ «ops» علاوه برِ فهرست، وضعیتِ زندهٔ پوشهٔ بکاپ را هم می‌گوید (چند فایل هست، آخرین ارسالی)."""
+    """دستهٔ «ops» علاوه برِ فهرست، وضعیتِ زندهٔ پوشهٔ بکاپ را هم می‌گوید؛ دستهٔ «ai» راهِ کلیدها."""
     body = texts.admin_settings_group_intro(group)
     if group == "ops":
         body += "\n\n" + "\n".join(backup_service.status_lines(admin_settings))
+    if group == "ai":
+        body += "\n\n" + texts.ADMIN_AI_GROUP_KEYS_POINTER
     return body
 
 
@@ -1860,27 +1864,58 @@ async def cb_moderation_rule_delete(callback: CallbackQuery, session: AsyncSessi
 # استخرِ کلیدهایِ AI (AI Key Pool)
 
 
+async def _ai_pool_screen(session: AsyncSession) -> tuple[str, object]:
+    """صفحهٔ «کلیدهایِ AI»: معرفی + عددهایِ ظرفیت + سلامتِ استخر + (درِ صورتِ نیاز) پلِ عبورِ کلیدِ قدیمی."""
+    entries = await ai_pool_service.get_all_entries(session)
+    admin_settings = await admin_settings_service.get_admin_settings(session)
+    can_import = bool(admin_settings.ai_api_key)
+    text = texts.AI_POOL_MENU_INTRO
+    if not entries:
+        text += "\n\n" + texts.AI_POOL_EMPTY
+    else:
+        text += texts.ai_pool_capacity_line(ai_pool_service.capacity_report(entries))
+    text += texts.ai_pool_health_line(ai_service.circuit_health())
+    if len(entries) >= ai_pool_service.MAX_KEYS:
+        text += "\n\n" + texts.AI_POOL_MAX_KEYS_REACHED
+    if can_import:
+        text += "\n\n" + texts.AI_POOL_LEGACY_AVAILABLE
+    return text, keyboards.ai_pool_list_keyboard(entries, can_import_legacy=can_import)
+
+
 @super_router.message(F.text == "🔑 استخرِ کلیدهایِ AI")
 async def open_ai_pool(message: Message, session: AsyncSession) -> None:
-    entries = await ai_pool_service.get_all_entries(session)
-    text = (texts.AI_POOL_MENU_INTRO if entries else texts.AI_POOL_MENU_INTRO + "\n\n" + texts.AI_POOL_EMPTY) + texts.ai_pool_health_line(
-        ai_service.circuit_health()
-    )
-    await message.answer(text, reply_markup=keyboards.ai_pool_list_keyboard(entries))
+    text, markup = await _ai_pool_screen(session)
+    await message.answer(text, reply_markup=markup)
 
 
 @super_router.callback_query(F.data == "ai_pool_list")
 async def cb_ai_pool_list(callback: CallbackQuery, session: AsyncSession) -> None:
-    entries = await ai_pool_service.get_all_entries(session)
+    text, markup = await _ai_pool_screen(session)
     await callback.answer()
-    text = (texts.AI_POOL_MENU_INTRO if entries else texts.AI_POOL_MENU_INTRO + "\n\n" + texts.AI_POOL_EMPTY) + texts.ai_pool_health_line(
-        ai_service.circuit_health()
-    )
-    await callback.message.edit_text(text, reply_markup=keyboards.ai_pool_list_keyboard(entries))
+    await callback.message.edit_text(text, reply_markup=markup)
+
+
+@super_router.callback_query(F.data == "ai_pool_import")
+async def cb_ai_pool_import(callback: CallbackQuery, session: AsyncSession) -> None:
+    """کلیدِ قدیمیِ سراسری را به «کلیدِ ۱» تبدیل می‌کند تا از این به بعد همان یک جا مدیریت شود."""
+    admin_settings = await admin_settings_service.get_admin_settings(session)
+    if await ai_pool_service.count_entries(session) >= ai_pool_service.MAX_KEYS:
+        await callback.answer(texts.AI_POOL_MAX_KEYS_REACHED, show_alert=True)
+        return
+    entry = await ai_pool_service.import_legacy_key(session, admin_settings)
+    if entry is None:
+        await callback.answer("کلیدِ قدیمیِ تنظیم‌شده‌ای پیدا نشد.", show_alert=True)
+        return
+    await callback.answer(texts.AI_POOL_IMPORTED)
+    text, markup = await _ai_pool_screen(session)
+    await callback.message.edit_text(text, reply_markup=markup)
 
 
 @super_router.callback_query(F.data == "ai_pool_add")
-async def cb_ai_pool_add(callback: CallbackQuery, state: FSMContext) -> None:
+async def cb_ai_pool_add(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    if await ai_pool_service.count_entries(session) >= ai_pool_service.MAX_KEYS:
+        await callback.answer(texts.AI_POOL_MAX_KEYS_REACHED, show_alert=True)
+        return
     await callback.answer()
     await state.set_state(AiPoolStates.waiting_entry_details)
     await callback.message.answer(texts.ASK_AI_POOL_ENTRY)
@@ -1889,26 +1924,48 @@ async def cb_ai_pool_add(callback: CallbackQuery, state: FSMContext) -> None:
 @super_router.message(AiPoolStates.waiting_entry_details, F.text)
 async def ai_pool_entry_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
     lines = [line.strip() for line in message.text.strip().splitlines() if line.strip()]
-    if len(lines) not in (5, 6):
+    if len(lines) not in (5, 6, 7):
         await message.answer(texts.AI_POOL_ENTRY_INVALID_FORMAT)
         return
 
     label, api_key, model, base_url, capability_raw = lines[:5]
-    fallback_raw = lines[5] if len(lines) == 6 else None
+    fallback_raw = lines[5] if len(lines) >= 6 else None
+    # خطِ ششم و هفتم هر دو اختیاری‌اند و خطِ خالی در شمارش نمی‌آید ⇒ «-» یعنی «پشتیبان ندارد»
+    # تا ادمین بتواند فقط سقفِ همزمانی (خطِ هفتم) را پر کند.
+    if fallback_raw in ("-", "خالی", "—"):
+        fallback_raw = None
     capability = capability_raw.lower()
     if capability not in {item.value for item in AiKeyCapability}:
         await message.answer(texts.AI_POOL_ENTRY_INVALID_CAPABILITY)
         return
+    # P47: همان گاردِ ضدSSRFِ «آدرس سرویس هوش مصنوعی» رویِ آدرسِ هرِ کلید هم اعمال می‌شود.
+    url_error = _url_value_error(base_url)
+    if url_error is not None:
+        await message.answer(url_error)
+        return
+    cap_value, cap_error = ai_pool_service.parse_key_cap(lines[6] if len(lines) == 7 else None)
+    if cap_error:
+        await message.answer(cap_error)
+        return
 
-    entry = await ai_pool_service.add_entry(session, label, api_key, model, base_url, capability, fallback_raw)
+    entry = await ai_pool_service.add_entry(
+        session,
+        label[:100],
+        api_key,
+        model[: ai_pool_service.MAX_MODEL_NAME_LENGTH],
+        base_url[:255],
+        capability,
+        fallback_raw,
+        cap_value,
+    )
     await state.clear()
     await message.answer(texts.ai_pool_entry_added_confirmation(label))
     await message.answer(
         texts.ai_pool_entry_detail_text(entry), reply_markup=keyboards.ai_pool_entry_detail_keyboard(entry.id, entry.is_active)
     )
 
-    entries = await ai_pool_service.get_all_entries(session)
-    await message.answer(texts.AI_POOL_MENU_INTRO, reply_markup=keyboards.ai_pool_list_keyboard(entries))
+    text, markup = await _ai_pool_screen(session)
+    await message.answer(text, reply_markup=markup)
 
 
 @super_router.callback_query(F.data.startswith("ai_pool_models:"))
@@ -1947,6 +2004,49 @@ async def ai_pool_models_received(message: Message, state: FSMContext, session: 
     await message.answer(
         texts.ai_pool_entry_detail_text(entry) + ("\nترتیبِ امتحان: " + " ← ".join([entry.model, *saved]) if saved else ""),
         reply_markup=keyboards.ai_pool_entry_detail_keyboard(entry.id, entry.is_active),
+    )
+
+
+@super_router.callback_query(F.data.startswith("ai_pool_cap:"))
+async def cb_ai_pool_cap(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    entry_id = int(callback.data.split(":")[1])
+    entry = await ai_pool_service.get_by_id(session, entry_id)
+    if entry is None:
+        await callback.answer(texts.GENERIC_ERROR, show_alert=True)
+        return
+    await callback.answer()
+    await state.set_state(AiPoolStates.waiting_max_concurrent)
+    await state.update_data(pool_entry_id=entry.id)
+    report = ai_pool_service.capacity_report(await ai_pool_service.get_all_entries(session))
+    await callback.message.answer(
+        texts.ASK_AI_POOL_CAP
+        + "\n\n"
+        + texts.ai_pool_cap_screen_text(ai_pool_service.key_cap_label(entry), report)
+    )
+
+
+@super_router.message(AiPoolStates.waiting_max_concurrent, F.text)
+async def ai_pool_cap_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    raw = message.text.strip()
+    if raw in ("انصراف", "لغو", "/cancel"):
+        await state.clear()
+        await message.answer("↩️ لغو شد؛ سقفِ همزمانیِ اینِ کلید عوض نشد.")
+        return
+    value, error = ai_pool_service.parse_key_cap(raw)
+    if error:
+        await message.answer(error)
+        return
+    entry = await ai_pool_service.get_by_id(session, int(data["pool_entry_id"]))
+    if entry is None:
+        await state.clear()
+        await message.answer(texts.GENERIC_ERROR)
+        return
+    await ai_pool_service.set_max_concurrent(session, entry, value)
+    await state.clear()
+    await message.answer(texts.AI_POOL_CAP_SAVED)
+    await message.answer(
+        texts.ai_pool_entry_detail_text(entry), reply_markup=keyboards.ai_pool_entry_detail_keyboard(entry.id, entry.is_active)
     )
 
 

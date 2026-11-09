@@ -23,18 +23,20 @@ from app.services.admin_settings_service import get_admin_settings  # noqa: E402
 ADMIN_TG_ID = 12345
 
 
-async def test_save_text_field_ai_api_key(main_dp) -> None:
+async def test_save_text_field_ai_model(main_dp) -> None:
+    """P47: «کلیدِ AI» از این صفحه برداشته شد (جایش کلید ۱ تا ۱۰ در بخشِ «کلیدهایِ AI» است)،
+    پس همین تستِ ذخیره‌یِ فیلدِ متنی رویِ «مدلِ سراسری» (که مانده) اجرا می‌شود."""
     await reset_database()
     admin_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
 
-    await main_dp.feed_update(admin_bot, make_callback_update(1, data="admin_setting_edit:ai_api_key", user_id=ADMIN_TG_ID))
-    await main_dp.feed_update(admin_bot, make_message_update(2, text="sk-test-1234567890", user_id=ADMIN_TG_ID))
+    await main_dp.feed_update(admin_bot, make_callback_update(1, data="admin_setting_edit:ai_model", user_id=ADMIN_TG_ID))
+    await main_dp.feed_update(admin_bot, make_message_update(2, text="glm-4-flash", user_id=ADMIN_TG_ID))
 
     async with session_scope() as session:
         admin_settings = await get_admin_settings(session)
-        assert admin_settings.ai_api_key == "sk-test-1234567890"
+        assert admin_settings.ai_model == "glm-4-flash"
 
-    print("✅ test_save_text_field_ai_api_key PASSED")
+    print("✅ test_save_text_field_ai_model PASSED")
 
 
 async def test_save_int_field_periodic_report_frequency(main_dp) -> None:
@@ -182,7 +184,7 @@ async def test_settings_menu_is_grouped_and_complete(main_dp) -> None:
 
 async def main() -> None:
     main_dp, shop_dp, bot_manager, main_bot = build_test_dispatchers()
-    await test_save_text_field_ai_api_key(main_dp)
+    await test_save_text_field_ai_model(main_dp)
     await test_save_int_field_periodic_report_frequency(main_dp)
     await test_invalid_int_field_rejected(main_dp)
     await test_nullable_field_global_prompt_set_and_cleared(main_dp)
