@@ -101,7 +101,10 @@ async def test_admin_panel_no_longer_offers_them(main_dp) -> None:
     # باقیِ تنظیم‌هایِ واقعیِ پلتفرم هنوز در پنلِ ادمین‌اند ⇒ حذفِ بی‌جا انجام نشده
     assert "grace_period_hours" in admin_handlers._INT_FIELDS
     assert "periodic_report_frequency_days" in admin_handlers._INT_FIELDS
-    assert "conversation_history_limit" in admin_handlers._INT_FIELDS
+    # P46 · موردِ ۱۴ (تغییرِ عمدیِ ثبت‌شده در docs/PROGRESS.md §۴۰): «حافظهٔ مکالمه» و «سقفِ پیام» هم
+    # per-shop شدند، پس از پنلِ ادمین بیرون رفتند؛ ستون‌هایِ سراسری به‌عنوانِ پیش‌فرض می‌مانند.
+    assert "conversation_history_limit" not in admin_handlers._INT_FIELDS
+    assert "rate_limit" not in admin_handlers._INT_FIELDS
 
     admin_source = pathlib.Path("app/bots/main_bot/handlers/admin.py").read_text(encoding="utf-8")
     for key in REMOVED_KEYS:
@@ -150,8 +153,17 @@ def test_resolve_prefers_shop_then_global() -> None:
 
     sales = prefs.prefs_for(False)
     consultation = prefs.prefs_for(True)
-    assert {p.key for p in consultation} == {"conversation_retention_days", "knowledge_items_limit"}
-    assert len(sales) == 5 and "payment_reservation_minutes" not in {p.key for p in consultation}
+    # P46 · موردِ ۳۷ (تغییرِ عمدیِ ثبت‌شده در docs/changelog-p46.md §۴): سه تنظیمِ تازه (حافظهٔ
+    # مکالمه + سقفِ پیام + پنجره‌یِ آن) در *هر دو* مود معنا دارند، پس فهرستِ مشاوره بزرگ شد.
+    assert {p.key for p in consultation} == {
+        "conversation_retention_days",
+        "knowledge_items_limit",
+        "history_limit_messages",
+        "rate_limit_messages",
+        "rate_limit_seconds",
+    }
+    assert len(sales) == 8 and len(consultation) == 5, (len(sales), len(consultation))
+    assert "payment_reservation_minutes" not in {p.key for p in consultation}
 
     assert prefs.parse_value(prefs.ORDER_RESERVATION, "۴۵") == 45, "ارقامِ فارسی"
     assert prefs.parse_value(prefs.ORDER_RESERVATION, "0") is None and prefs.parse_value(prefs.ORDER_RESERVATION, "10081") is None

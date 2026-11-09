@@ -881,3 +881,23 @@ MEASURED (قبل ← بعد): `shop_owners` ۵←۰، `shop_bots` ۳←۰، `pro
 تستِ تازه: `tests_manual/test_p45_capacity_layers.py` (۷ تست؛ شارد، نقش، load_all، webhook_entry،
 dedupe، ریاضِ لایه‌ها، پارس‌شدنِ overlayها و بودجهٔ اتصال).
 عددِ سوئیت: **MEASURED ۱۲۷/۱۲۷ فایل · ۷۸۶ تست · صفر fail · exit=0** (اجرا: ۲۰۲۶-۱۱-۰۹، رباتِ خاموش؛ مبنایِ پیش ازِ این فاز ۱۲۶ فایل · ۷۸۰ تست ⇒ +۱ فایل و +۶ تستِ تازه، صفر تستِ حذف‌شده). پنج گیت OK و ruff (`F,E9`) تمیز؛ `alembic heads` = `c7d3a91e5b48 (head)` (تک‌head). اعتبارسنجیِ overlayها: `docker compose -f docker-compose.yml -f deploy/docker-compose.t2.yml config` و `… -f deploy/docker-compose.t3.yml -f deploy/docker-compose.webhook.yml config` هر دو درست پارس می‌شوند و در لایهٔ وب‌هوک، پروسه‌هایِ poller با profile خاموش می‌مانند.
+
+## ۴۰) پ۴۶ — حافظهٔ هر گفتگو و سقفِ پیام per-shop (مواردِ ۳۷ و ۱۴؛ ۱۴۰۵-۰۸-۱۸)
+
+- سه `IntPref`ِ تازه در `shop_prefs_service` (حافظهٔ مکالمه ۱..۲۰۰ پیام، سقفِ پیام ۱..۱۰۰۰،
+  پنجره ۵..۳۶۰۰ ثانیه) + سه ستونِ nullable رویِ `shop_bots` (مایگریشنِ `d8a4c2f6b913`).
+  NULL ⇒ همان پیش‌فرضِ سراسری، پس هیچ فروشگاهِ موجودی رفتارِ تازه‌ای پیدا نمی‌کند.
+- مصرف‌کننده‌ها: `customer._generate_and_send_reply` (طولِ تاریخچه) و `customer._check_access`
+  (سقفِ نرخ). صفحهٔ «تنظیماتِ ربات» در هر دو پنل خودکار از `ALL_PREFS` ساخته می‌شود؛ فقط برچسبِ
+  فارسی و واحد اضافه شد.
+- از پنلِ ادمین برداشته شد: `💭 حافظه‌ی مکالمه`، `🚦 محدودیت پیام`، دو هندلرِ FSMِ سقفِ پیام و
+  states‌هایش. ستون‌هایِ سراسری به‌عنوانِ پیش‌فرض/guardrail ماندند (هیچ داده‌ای حذف نشد).
+- «زمانِ گزارشِ دوره‌ای» که در موردِ ۱۴ خواسته شده بود، **از P18** per-shop است
+  (`weekly_report_weekday/hour/enabled`)؛ عددِ سراسریِ `periodic_report_frequency_days` فقط متنِ
+  «گزارشِ چندروزه» را می‌سازد، پس عمداً در پنلِ ادمین ماند.
+- تغییرِ عمدیِ دو تستِ قدیمی (قاعدهٔ ۸): `test_p18_per_shop_settings` (انتظارِ نبودِ فیلد در پنلِ
+  ادمین) و `test_admin_settings` (دو تستِ ماشینِ ویرایشِ عددی به `periodic_report_frequency_days`
+  منتقل شدند تا همان پوشش از دست نرود). دلیل در `docs/changelog-p46.md` §۴.
+
+تستِ تازه: `tests_manual/test_p46_per_shop_memory_and_rate_limit.py` (۵ تست).
+عددِ سوئیت: **MEASURED ۱۲۸/۱۲۸ فایل · ۷۹۲ تست · صفر fail · exit=0** (اجرا: ۲۰۲۶-۱۱-۰۹، رباتِ خاموش؛ مبنایِ پیش ازِ این فاز ۱۲۷ فایل · ۷۸۶ تست ⇒ +۱ فایل و +۶ تستِ تازه، صفر تستِ حذف‌شده). پنج گیت OK (۲۹۶ فایل، ۳۲۰ شکلِ callback_data)، ruff تمیز، `alembic heads` = `d8a4c2f6b913 (head)`.

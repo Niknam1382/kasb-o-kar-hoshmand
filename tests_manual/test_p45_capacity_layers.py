@@ -118,6 +118,7 @@ def test_role_gating() -> None:
     finally:
         settings.run_mode = original_mode
         settings.app_role = "all"
+    print("✅ test_role_gating PASSED")
 
 
 # ============================================================================= ۳ — ثبتِ فقط شاردِ خودی

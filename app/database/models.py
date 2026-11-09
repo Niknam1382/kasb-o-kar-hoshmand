@@ -672,6 +672,12 @@ class ShopBot(Base):
     order_confirmation_timeout_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     conversation_retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     knowledge_items_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # P46 · مواردِ ۳۷ و ۱۴: حافظهٔ هر گفتگو و سقفِ پیام هم per-shop شدند (NULL ⇒ پیش‌فرضِ سراسری).
+    # دقتِ حقوقی: این سه ستونِ تازه رویِ `shop_bots`اند و با ستون‌هایِ هم‌نامِ سراسریِ `admin_settings`
+    # اشتباه نشوند — آن‌ها «پیش‌فرضِ پلتفرم» می‌مانند و این‌ها «ارادهٔ خودِ فروشگاه».
+    history_limit_messages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rate_limit_messages: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rate_limit_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # P18 · B9: روشن/خاموش‌بودن و متنِ پرسشِ پنج گامِ ثابتِ چک‌اوت. JSONِ متنی (نه ستونِ JSONB) تا با
     # بقیه‌یِ ذخیره‌سازیِ این پروژه هم‌خوان باشد؛ NULL ⇒ همه‌یِ گام‌ها روشن با متنِ پیش‌فرض (رفتارِ امروز).
     checkout_config: Mapped[str | None] = mapped_column(Text, nullable=True)

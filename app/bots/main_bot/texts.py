@@ -1680,8 +1680,6 @@ ADMIN_ASK_BALE_BOT_TOKEN = (
 ADMIN_ASK_PLATFORM_CARD_NUMBER = "شماره کارت پلتفرم برای دریافت پرداخت‌های کارت‌به‌کارت رو بفرست:"
 ADMIN_ASK_PLATFORM_CARD_HOLDER = "نام صاحب کارت رو بفرست:"
 ADMIN_ASK_GRACE_PERIOD_HOURS = "چند ساعت مهلت (گریس‌پیریود) بعد از پایان اشتراک داده بشه؟"
-ADMIN_ASK_RATE_LIMIT_MAX_MESSAGES = "حداکثر چند پیام از هر مشتری در بازه‌ی زمانی مجاز باشه؟"
-ADMIN_ASK_RATE_LIMIT_WINDOW_SECONDS = "این محدودیت روی چند ثانیه اعمال بشه؟"
 ADMIN_ASK_REPORT_FREQUENCY_DAYS = "گزارش دوره‌ای هر چند روز یک‌بار برای فروشگاه‌دارها ارسال بشه؟"
 ADMIN_ASK_NIGHTLY_REPORT_HOUR = "گزارشِ شبانه سرِ چه ساعتی (به‌وقتِ UTC، عددِ ۰ تا ۲۳) فرستاده بشه؟ ساعتِ تهران سه ساعت و نیم جلوتر از UTC است."
 ADMIN_ASK_REFERRAL_PERCENT = (
@@ -1904,7 +1902,6 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
     "global_ai_prompt_sales": "ai",
     "global_ai_prompt_consultation": "ai",
     "reference_channel_link": "ai",
-    "conversation_history_limit": "ai",
     "wallet_cost_per_1k_tokens_toman": "pricing",
     "ai_cost_usd_per_1m_tokens": "pricing",
     "usd_to_toman_rate": "pricing",
@@ -1933,7 +1930,6 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
     "platform_support_text": "messaging",
     "referral_reward_value": "shops",
     "grace_period_hours": "shops",
-    "rate_limit": "shops",
     "periodic_report_frequency_days": "shops",
     "nightly_report_hour_utc": "shops",
     "branding_text": "branding",
@@ -2050,16 +2046,11 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         ("branding_check_minutes", f"⏱ فاصلهِ بازرسیِ بیو: هر {fa_number(admin_settings.branding_check_minutes)} دقیقه"),
         ("referral_reward_value", f"🎁 پورسانتِ معرف: {_percent_label(admin_settings.referral_reward_value)} از اولین شارژ (فقط به معرف)"),
         ("grace_period_hours", f"⏳ مهلت گریس‌پیریود: {admin_settings.grace_period_hours} ساعت"),
-        (
-            "rate_limit",
-            f"🚦 محدودیت پیام: {fa_number(admin_settings.rate_limit_max_messages)} پیام / {fa_number(admin_settings.rate_limit_window_seconds)} ثانیه",
-        ),
         ("periodic_report_frequency_days", f"📈 بازه‌ی گزارش دوره‌ای: هر {fa_number(admin_settings.periodic_report_frequency_days)} روز"),
         (
             "nightly_report_hour_utc",
             f"🌙 ساعتِ گزارشِ شبانه: {fa_number(admin_settings.nightly_report_hour_utc)}:00 UTC (≈ {fa_number((admin_settings.nightly_report_hour_utc + 3) % 24)}:30 تهران)",
         ),
-        ("conversation_history_limit", f"💭 حافظه‌ی مکالمه: {fa_number(admin_settings.conversation_history_limit)} پیام"),
         ("wallet_cost_per_1k_tokens_toman", f"🪙 هزینه‌ی هر ۱۰۰۰ توکن: {format_toman(admin_settings.wallet_cost_per_1k_tokens_toman)}"),
         ("ai_cost_usd_per_1m_tokens", f"💵 هزینه‌ی خامِ AI: ${admin_settings.ai_cost_usd_per_1m_tokens}/۱M توکن"),
         ("usd_to_toman_rate", f"💱 نرخِ دلار: {format_toman(admin_settings.usd_to_toman_rate)}"),
@@ -3082,6 +3073,25 @@ SHOP_PREF_LABELS = {
         "📚 حافظه‌ی کانالِ دانش",
         "پست",
         "حداکثر چند پستِ آخرِ کانالِ دانش‌افزایی به‌عنوان حافظه به هوش مصنوعی داده شود.",
+    ),
+    # P46 · موردِ ۳۷: «حافظهٔ این گفتگو» تصمیمِ خودِ فروشگاه است.
+    "history_limit_messages": (
+        "💭 حافظه‌ی مکالمه",
+        "پیام",
+        "هر بار که ربات جواب می‌دهد، چند پیامِ آخرِ همان گفتگو به هوش مصنوعی نشان داده می‌شود. "
+        "عددِ بیشتر یعنی جوابِ باحافظه‌تر و توکنِ بیشتر (هزینه با خودت است).",
+    ),
+    # P46 · نیمهٔ کاربرمحورِ موردِ ۱۴: سقفِ پیام هم per-shop.
+    "rate_limit_messages": (
+        "🚦 سقفِ پیامِ هر مشتری",
+        "پیام",
+        "هر مشتری در یکِ پنجره‌یِ زمانی چند پیام بفرستد، پیامِ بعدی‌اش موقتاً رد می‌شود. "
+        "بالا بردنِ این عدد هزینه‌یِ خودت و فشارِ بیشتر رویِ سرویسِ هوش مصنوعی است.",
+    ),
+    "rate_limit_seconds": (
+        "🚦 طولِ پنجره‌یِ سقفِ پیام",
+        "ثانیه",
+        "همان سقفِ پیام در این چند ثانیه شمرده می‌شود.",
     ),
 }
 

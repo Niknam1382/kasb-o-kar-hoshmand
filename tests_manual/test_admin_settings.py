@@ -37,19 +37,20 @@ async def test_save_text_field_ai_api_key(main_dp) -> None:
     print("✅ test_save_text_field_ai_api_key PASSED")
 
 
-async def test_save_int_field_conversation_history_limit(main_dp) -> None:
+async def test_save_int_field_periodic_report_frequency(main_dp) -> None:
     await reset_database()
     admin_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
 
-    # P18 · A5: «حافظه‌ی کانال دانش» per-shop شد؛ این فیلد هنوز سراسری است.
-    await main_dp.feed_update(admin_bot, make_callback_update(1, data="admin_setting_edit:conversation_history_limit", user_id=ADMIN_TG_ID))
+    # P46 · موردِ ۱۴: «حافظهٔ مکالمه» و «سقفِ پیام» per-shop شدند و دکمه‌شان از پنلِ ادمین رفت،
+    # پس این تستِ ماشینِ «فیلدِ عددیِ سراسری» به «بازهٔ گزارشِ دوره‌ای» منتقل شده (همان مسیرِ کد).
+    await main_dp.feed_update(admin_bot, make_callback_update(1, data="admin_setting_edit:periodic_report_frequency_days", user_id=ADMIN_TG_ID))
     await main_dp.feed_update(admin_bot, make_message_update(2, text="25", user_id=ADMIN_TG_ID))
 
     async with session_scope() as session:
         admin_settings = await get_admin_settings(session)
-        assert admin_settings.conversation_history_limit == 25
+        assert admin_settings.periodic_report_frequency_days == 25
 
-    print("✅ test_save_int_field_conversation_history_limit PASSED")
+    print("✅ test_save_int_field_periodic_report_frequency PASSED")
 
 
 async def test_invalid_int_field_rejected(main_dp) -> None:
@@ -57,7 +58,7 @@ async def test_invalid_int_field_rejected(main_dp) -> None:
     admin_bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
     session_obj: FakeSession = admin_bot.session  # type: ignore[assignment]
 
-    await main_dp.feed_update(admin_bot, make_callback_update(1, data="admin_setting_edit:conversation_history_limit", user_id=ADMIN_TG_ID))
+    await main_dp.feed_update(admin_bot, make_callback_update(1, data="admin_setting_edit:periodic_report_frequency_days", user_id=ADMIN_TG_ID))
     await main_dp.feed_update(admin_bot, make_message_update(2, text="منفیه: -5", user_id=ADMIN_TG_ID))
 
     assert any("نامعتبر" in m["text"] or "عدد" in m["text"] for m in session_obj.sent_messages[-1:])
@@ -182,7 +183,7 @@ async def test_settings_menu_is_grouped_and_complete(main_dp) -> None:
 async def main() -> None:
     main_dp, shop_dp, bot_manager, main_bot = build_test_dispatchers()
     await test_save_text_field_ai_api_key(main_dp)
-    await test_save_int_field_conversation_history_limit(main_dp)
+    await test_save_int_field_periodic_report_frequency(main_dp)
     await test_invalid_int_field_rejected(main_dp)
     await test_nullable_field_global_prompt_set_and_cleared(main_dp)
     await test_reference_channel_link_setting(main_dp)

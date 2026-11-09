@@ -74,6 +74,35 @@ KNOWLEDGE_ITEMS = IntPref(
     zero_disables=False,
     consultation=True,
 )
+# P46 · موردِ ۳۷: «حافظهٔ این چت» تصمیمِ خودِ فروشگاه است (هرچه بیشتر، هم کیفیتِ پاسخ هم توکنِ بیشتر).
+HISTORY_LIMIT = IntPref(
+    key="history_limit_messages",
+    admin_key="conversation_history_limit",
+    presets=(5, 10, 20, 40),
+    low=1,
+    high=200,
+    zero_disables=False,
+    consultation=True,
+)
+# P46 · نیمهٔ کاربرمحورِ موردِ ۱۴: سقفِ پیام هم per-shop (پیش‌فرضِ سراسری به‌عنوانِ guardrail می‌ماند).
+RATE_LIMIT_MESSAGES = IntPref(
+    key="rate_limit_messages",
+    admin_key="rate_limit_max_messages",
+    presets=(5, 15, 30, 60),
+    low=1,
+    high=1000,
+    zero_disables=False,
+    consultation=True,
+)
+RATE_LIMIT_SECONDS = IntPref(
+    key="rate_limit_seconds",
+    admin_key="rate_limit_window_seconds",
+    presets=(30, 60, 300, 600),
+    low=5,
+    high=3600,
+    zero_disables=False,
+    consultation=True,
+)
 
 ALL_PREFS: tuple[IntPref, ...] = (
     PAYMENT_RESERVATION,
@@ -81,6 +110,9 @@ ALL_PREFS: tuple[IntPref, ...] = (
     CONFIRMATION_TIMEOUT,
     CONVERSATION_RETENTION,
     KNOWLEDGE_ITEMS,
+    HISTORY_LIMIT,
+    RATE_LIMIT_MESSAGES,
+    RATE_LIMIT_SECONDS,
 )
 BY_KEY: dict[str, IntPref] = {pref.key: pref for pref in ALL_PREFS}
 # این چهارتایی که پیش‌تر از پنلِ ادمین تنظیم می‌شدند و دیگر نباید دکمه‌ای آنجا داشته باشند (A5 + بازه‌هایِ W5).
@@ -96,6 +128,9 @@ REMOVED_FROM_ADMIN: frozenset[str] = frozenset(
         "wallet_cost_photo_analysis_toman",
     }
 )
+# P46 · موردِ ۱۴: «حافظهٔ AI» و «سقفِ پیام» هم از پنلِ ادمین برداشته شدند و per-shop شدند؛
+# ستون‌هایِ سراسری (conversation_history_limit / rate_limit_max_messages / rate_limit_window_seconds)
+# به‌عنوانِ پیش‌فرضِ پلتفرم سرِ جایشان‌اند، فقط دیگر دکمه ندارند.
 
 
 def prefs_for(consultation: bool) -> tuple[IntPref, ...]:

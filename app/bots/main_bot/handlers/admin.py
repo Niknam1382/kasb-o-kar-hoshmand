@@ -851,7 +851,6 @@ _INT_FIELDS: dict[str, str] = {
     "grace_period_hours": texts.ADMIN_ASK_GRACE_PERIOD_HOURS,
     "periodic_report_frequency_days": texts.ADMIN_ASK_REPORT_FREQUENCY_DAYS,
     "nightly_report_hour_utc": texts.ADMIN_ASK_NIGHTLY_REPORT_HOUR,
-    "conversation_history_limit": texts.ADMIN_ASK_CONVERSATION_HISTORY_LIMIT,
     "referral_reward_value": texts.ADMIN_ASK_REFERRAL_PERCENT,
     "wallet_cost_per_1k_tokens_toman": texts.ADMIN_ASK_WALLET_COST_PER_1K_TOKENS,
     # P18 · A4: تحلیلِ عکسِ عمومی حذف شد ⇒ این هزینه دیگر تنظیم نمی‌شود (ستون و داده می‌مانند).
@@ -928,7 +927,6 @@ _INT_FIELDS_MAX: dict[str, int] = {
     "usd_to_toman_rate": 500_000,
     "grace_period_hours": 720,  # ۳۰ روز
     "periodic_report_frequency_days": 365,
-    "conversation_history_limit": 1000,
     "wallet_topup_validity_months": 120,
     "backup_retention_days": 60,
 }
@@ -1254,11 +1252,6 @@ async def cb_setting_edit(callback: CallbackQuery, state: FSMContext) -> None:
     field = callback.data.split(":", 1)[1]
     await callback.answer()
 
-    if field == "rate_limit":
-        await state.set_state(AdminSettingsStates.waiting_rate_limit_max)
-        await callback.message.answer(texts.ADMIN_ASK_RATE_LIMIT_MAX_MESSAGES)
-        return
-
     support_asks = {
         "platform_support_username": ("support_username", texts.ADMIN_ASK_SUPPORT_USERNAME),
         "platform_support_phone": ("support_phone", texts.ADMIN_ASK_SUPPORT_PHONE),
@@ -1414,42 +1407,6 @@ async def setting_value_entered(
     await state.clear()
     await message.answer(texts.ADMIN_SETTING_SAVED)
     await _refresh_settings_menu(message, session, _setting_group(field))
-
-
-@super_router.message(AdminSettingsStates.waiting_rate_limit_max, F.text)
-async def rate_limit_max_entered(message: Message, state: FSMContext) -> None:
-    try:
-        max_messages = int(message.text.strip())
-        if max_messages <= 0:
-            raise ValueError
-    except ValueError:
-        await message.answer(texts.ADMIN_INVALID_NUMBER)
-        return
-
-    await state.update_data(rate_limit_max=max_messages)
-    await state.set_state(AdminSettingsStates.waiting_rate_limit_window)
-    await message.answer(texts.ADMIN_ASK_RATE_LIMIT_WINDOW_SECONDS)
-
-
-@super_router.message(AdminSettingsStates.waiting_rate_limit_window, F.text)
-async def rate_limit_window_entered(message: Message, state: FSMContext, session: AsyncSession) -> None:
-    try:
-        window_seconds = int(message.text.strip())
-        if window_seconds <= 0:
-            raise ValueError
-    except ValueError:
-        await message.answer(texts.ADMIN_INVALID_NUMBER)
-        return
-
-    data = await state.get_data()
-    admin_settings = await admin_settings_service.get_admin_settings(session)
-    admin_settings.rate_limit_max_messages = data["rate_limit_max"]
-    admin_settings.rate_limit_window_seconds = window_seconds
-    await session.flush()
-
-    await state.clear()
-    await message.answer(texts.ADMIN_SETTING_SAVED)
-    await _refresh_settings_menu(message, session, _setting_group("rate_limit"))
 
 
 # =============================================================================

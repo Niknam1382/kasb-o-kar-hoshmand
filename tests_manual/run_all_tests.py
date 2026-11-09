@@ -149,6 +149,7 @@ TEST_FILES = [
     "test_p43_moderation_reports.py",
     "test_p44_month_length_and_backup.py",
     "test_p45_capacity_layers.py",
+    "test_p46_per_shop_memory_and_rate_limit.py",
 ]
 
 

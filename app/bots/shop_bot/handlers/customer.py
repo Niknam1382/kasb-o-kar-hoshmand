@@ -183,8 +183,12 @@ async def _check_access(message: Message, session: AsyncSession, shop_bot, main_
                 logger.exception("اطلاع‌رسانیِ اتمامِ کیف‌پول به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
         return False
 
+    # P46 · موردِ ۱۴: سقفِ پیام حالا per-shop است (NULL ⇒ همان پیش‌فرضِ سراسریِ ادمین).
     if not rate_limiter.check_and_record(
-        shop_bot.id, message.from_user.id, admin_settings.rate_limit_max_messages, admin_settings.rate_limit_window_seconds,
+        shop_bot.id,
+        message.from_user.id,
+        shop_prefs_service.resolve(shop_prefs_service.RATE_LIMIT_MESSAGES, shop_bot, admin_settings),
+        shop_prefs_service.resolve(shop_prefs_service.RATE_LIMIT_SECONDS, shop_bot, admin_settings),
     ):
         await message.answer(texts.RATE_LIMITED)
         return False
@@ -709,7 +713,10 @@ async def _generate_and_send_reply(
         gap_detection=admin_settings.knowledge_gap_enabled,
         bot_tools=prompt_defaults.build_bot_tools(shop_bot.tenant_mode, bool(shop_bot.support_enabled), texts),
     )
-    history = await conversation_service.get_recent_history(session, customer.id, admin_settings.conversation_history_limit)
+    # P46 · موردِ ۳۷: طولِ حافظهٔ همین گفتگو را خودِ فروشگاه تعیین می‌کند (پیش‌فرضِ سراسری اگر نزند).
+    history = await conversation_service.get_recent_history(
+        session, customer.id, shop_prefs_service.resolve(shop_prefs_service.HISTORY_LIMIT, shop_bot, admin_settings)
+    )
 
     ai = await ai_pool_service.build_ai_service(session, admin_settings, "chat")
     if ai is None:

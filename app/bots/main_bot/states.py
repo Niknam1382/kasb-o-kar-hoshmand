@@ -144,8 +144,6 @@ class AdminPricingStates(StatesGroup):
 class AdminSettingsStates(StatesGroup):
     waiting_value = State()
     waiting_referral_amount = State()
-    waiting_rate_limit_max = State()
-    waiting_rate_limit_window = State()
 
 
 class AdminGiftStates(StatesGroup):
