@@ -717,6 +717,17 @@ def admin_settings_group_keyboard(group: str, admin_settings) -> InlineKeyboardM
         rows.append([InlineKeyboardButton(text="📮 صفِ اعلان‌هایِ ارسال‌نشده", callback_data="admin_notification_queue")])
     if group == "payments":
         rows.append([InlineKeyboardButton(text="🧾 طلبِ کمیسیونِ فروشگاه‌ها", callback_data="admin_commission_debt")])
+    if group == "ops":
+        # P44 · موردِ ۵۱: بکاپِ خودکار + دریافتِ دستیِ تازه‌ترین فایل
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=switch_label("ارسالِ خودکارِ بکاپ به ادمین", admin_settings.nightly_backup_enabled),
+                    callback_data="admin_toggle_nightly_backup",
+                )
+            ]
+        )
+        rows.append([InlineKeyboardButton(text="📦 ارسالِ دستیِ آخرین بکاپ", callback_data="admin_send_last_backup")])
     rows.append([InlineKeyboardButton(text="⬅️ بازگشت به فهرستِ تنظیمات", callback_data="admin_settings_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

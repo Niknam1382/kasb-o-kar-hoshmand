@@ -147,6 +147,7 @@ TEST_FILES = [
     "test_p41_order_payment_never_platform.py",
     "test_p42_bale_split_and_money.py",
     "test_p43_moderation_reports.py",
+    "test_p44_month_length_and_backup.py",
 ]
 
 

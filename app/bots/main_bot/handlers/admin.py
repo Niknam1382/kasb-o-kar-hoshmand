@@ -39,6 +39,7 @@ from app.services import (
     ai_pool_service,
     ai_service,
     audit_log_service,
+    backup_service,
     bale_bot_service,
     bale_credentials_service,
     bale_service,
@@ -714,6 +715,30 @@ async def cb_toggle_knowledge_gap(callback: CallbackQuery, session: AsyncSession
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
+@super_router.callback_query(F.data == "admin_toggle_nightly_backup")
+async def cb_toggle_nightly_backup(callback: CallbackQuery, session: AsyncSession) -> None:
+    """P44 · موردِ ۵۱: روشن/خاموشِ «هر شب فایلِ بکاپ را برایِ ادمین‌ها بفرست»."""
+    admin_settings = await get_admin_settings(session)
+    admin_settings.nightly_backup_enabled = not admin_settings.nightly_backup_enabled
+    await audit_log_service.log(
+        session,
+        AuditEventType.KILL_SWITCH_TOGGLED,
+        actor_telegram_id=callback.from_user.id,
+        details=f"nightly_backup_enabled -> {admin_settings.nightly_backup_enabled}",
+    )
+    await session.flush()
+    await callback.answer(texts.switch_toast("ارسالِ خودکارِ بکاپ", admin_settings.nightly_backup_enabled))
+    await _refresh_settings_menu(callback.message, session, "ops")
+
+
+@super_router.callback_query(F.data == "admin_send_last_backup")
+async def cb_send_last_backup(callback: CallbackQuery, session: AsyncSession, bot: Bot) -> None:
+    """درخواستِ دستی: تازه‌ترین فایلِ موجود را همین لحظه برایِ ادمین‌ها بفرست (بدِ انتظارِ جابِ شبانه)."""
+    result = await backup_service.send_latest_now(session, bot)
+    await callback.answer(texts.admin_backup_toast(result))
+    await callback.message.answer(texts.admin_backup_result_text(result))
+
+
 # --- کدهای تخفیف ---
 async def _render_discounts_list(message: Message, session: AsyncSession) -> None:
     codes = await discount_service.get_all_codes(session)
@@ -837,6 +862,9 @@ _INT_FIELDS: dict[str, str] = {
     "wallet_cost_receipt_per_1k_tokens": texts.ADMIN_ASK_WALLET_COST_RECEIPT_PER_1K_TOKENS,
     "wallet_cost_order_detection_toman": texts.ADMIN_ASK_WALLET_COST_ORDER_DETECTION,
     "wallet_topup_validity_months": texts.ADMIN_ASK_WALLET_TOPUP_VALIDITY_MONTHS,
+    # P44 · موردِ ۵۱: «ماه» چند روز باشد + چند فایلِ بکاپ بماند.
+    "month_length_days": texts.ADMIN_ASK_MONTH_LENGTH_DAYS,
+    "backup_retention_days": texts.ADMIN_ASK_BACKUP_RETENTION_DAYS,
     # PHASE 5A: کمترینِ مبلغِ شارژِ کیف‌پول (سمتِ سرور هم در payment_service چک می‌شود).
     "min_topup_amount_toman": texts.ADMIN_ASK_MIN_TOPUP_AMOUNT,
     "wallet_trial_credit_toman": texts.ADMIN_ASK_WALLET_TRIAL_CREDIT,
@@ -872,6 +900,8 @@ _INT_FIELDS_ALLOW_ZERO: frozenset[str] = frozenset(
         "wallet_cost_receipt_per_1k_tokens",
         # P30: ۰ یعنی «بی‌سقف» — ادامهٔ سفارش بدونِ مهارِ بدهی.
         "commission_debt_ceiling_toman",
+        # P44 · موردِ ۵۱: ۰ = تقویمی (رفتارِ همیشگی)، نه «خاموش».
+        "month_length_days",
     }
 )
 
@@ -900,6 +930,13 @@ _INT_FIELDS_MAX: dict[str, int] = {
     "periodic_report_frequency_days": 365,
     "conversation_history_limit": 1000,
     "wallet_topup_validity_months": 120,
+    "backup_retention_days": 60,
+}
+
+# P44 · موردِ ۵۱: بعضی عددِ آزاد نمی‌پذیرد — فقط مجموعهٔ اعلامی. (۰/۳۰/۳۱ برایِ «طولِ ماه»)
+# پیامِ خطا هم کنارِ مجموعه می‌آید تا ادمین بفهمد کدامِ سه را می‌تواند بنویسد.
+_INT_FIELDS_ALLOWED: dict[str, tuple[frozenset[int], str]] = {
+    "month_length_days": (frozenset(texts.MONTH_LENGTH_CHOICES), texts.ADMIN_INVALID_MONTH_LENGTH),
 }
 
 # کفِ مجاز برایِ بعضی فیلدها (پیش‌فرضِ عمومی ۱ است). بازدیدِ بیو زیرِ ۵ دقیقه یعنی هر لوپِ
@@ -1005,10 +1042,19 @@ async def _refresh_settings_menu(message: Message, session: AsyncSession, group:
     admin_settings = await admin_settings_service.get_admin_settings(session)
     if group in texts.ADMIN_SETTINGS_GROUP_KEYS:
         await message.answer(
-            texts.admin_settings_group_intro(group), reply_markup=keyboards.admin_settings_group_keyboard(group, admin_settings)
+            _settings_group_text(group, admin_settings),
+            reply_markup=keyboards.admin_settings_group_keyboard(group, admin_settings),
         )
         return
     await message.answer(texts.ADMIN_SETTINGS_MENU_INTRO, reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
+
+
+def _settings_group_text(group: str, admin_settings) -> str:
+    """دستهٔ «ops» علاوه برِ فهرست، وضعیتِ زندهٔ پوشهٔ بکاپ را هم می‌گوید (چند فایل هست، آخرین ارسالی)."""
+    body = texts.admin_settings_group_intro(group)
+    if group == "ops":
+        body += "\n\n" + "\n".join(backup_service.status_lines(admin_settings))
+    return body
 
 
 def _setting_group(field: str) -> str | None:
@@ -1033,7 +1079,7 @@ async def cb_admin_settings_group(callback: CallbackQuery, session: AsyncSession
     admin_settings = await admin_settings_service.get_admin_settings(session)
     await callback.answer()
     await callback.message.edit_text(
-        texts.admin_settings_group_intro(group), reply_markup=keyboards.admin_settings_group_keyboard(group, admin_settings)
+        _settings_group_text(group, admin_settings), reply_markup=keyboards.admin_settings_group_keyboard(group, admin_settings)
     )
 
 
@@ -1270,6 +1316,10 @@ async def setting_value_entered(
             maximum = _INT_FIELDS_MAX.get(field)
             if value < minimum or (maximum is not None and value > maximum):
                 raise ValueError
+            allowed = _INT_FIELDS_ALLOWED.get(field)
+            if allowed is not None and value not in allowed[0]:
+                await message.answer(allowed[1])
+                return  # state می‌ماند و دوباره می‌پرسد
         except ValueError:
             await message.answer(texts.ADMIN_INVALID_NUMBER)
             return

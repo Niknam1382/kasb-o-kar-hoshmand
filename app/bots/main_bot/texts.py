@@ -1887,6 +1887,7 @@ ADMIN_SETTINGS_GROUPS: tuple[tuple[str, str], ...] = (
     ("messaging", "📩 پیامک و پشتیبانیِ پلتفرم"),
     ("shops", "🏪 فروشگاه‌دارها و گزارش‌ها"),
     ("branding", "🧴 بیوگرافیِ ربات‌ها"),
+    ("ops", "🗄 بکاپ و نگهداریِ دیتابیس"),
 )
 
 ADMIN_SETTINGS_GROUP_LABELS: dict[str, str] = dict(ADMIN_SETTINGS_GROUPS)
@@ -1937,9 +1938,75 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
     "nightly_report_hour_utc": "shops",
     "branding_text": "branding",
     "branding_check_minutes": "branding",
+    # P44 · موردِ ۵۱: «ماه» چند روز باشد + نگهداریِ فایل‌هایِ بکاپ — هر دو در دستهٔ تازهٔ «ops».
+    "month_length_days": "ops",
+    "backup_retention_days": "ops",
 }
 
 ADMIN_SETTINGS_STALE_GROUP = "این دسته باز نیست. «🔑 تنظیمات کلیدها» را دوباره باز کن."
+
+# --- P44 · موردِ ۵۱: «ماه» چند روز باشد + بکاپِ خودکارِ دیتابیس ---
+MONTH_LENGTH_CHOICES: tuple[int, ...] = (0, 30, 31)
+MONTH_LENGTH_LABELS: dict[int, str] = {
+    0: "تقویمی (همان رفتارِ امروز)",
+    30: "دقیقاً ۳۰ روزِ کامل",
+    31: "دقیقاً ۳۱ روزِ کامل",
+}
+
+
+def month_length_label(value: int | None) -> str:
+    return MONTH_LENGTH_LABELS.get(int(value or 0), "نامعتبر — دوباره انتخاب کن")
+
+
+ADMIN_ASK_MONTH_LENGTH_DAYS = (
+    "«ماهِ اعتبار» چند روز باشد؟\n\n"
+    "· ۰ = تقویمی: ۱ مهر + ۱ ماه ⇒ ۱ آبان (در ماهِ ۳۱ روزه هم ۳۱ روز می‌شود)\n"
+    "· ۳۰ = همیشه ۳۰ روزِ ۲۴ ساعته\n"
+    "· ۳۱ = همیشه ۳۱ روزِ ۲۴ ساعته\n\n"
+    "این عدد فقط رویِ شارژ یا اشتراکی اثر می‌گذارد که از این به بعد ساخته می‌شود؛ "
+    "اعتبارِ فعلیِ هیچ فروشگاه‌داری جلو نمی‌افتد."
+)
+ADMIN_INVALID_MONTH_LENGTH = "فقط ۰، ۳۰ یا ۳۱. (۰ یعنی تقویمی)"
+ADMIN_ASK_BACKUP_RETENTION_DAYS = (
+    "فایل‌هایِ بکاپ چند روز نگه داشته شوند؟ (۱ تا ۶۰)\n\n"
+    "قدیمی‌تر از این را ربات خودش پاک می‌کند تا دیسکِ سرور پر نشود."
+)
+ADMIN_BACKUP_TOO_LARGE_TEXT = (
+    "📦 فایلِ بکاپ ساخته شده ولی {size_mb} مگابایت است و ربات نمی‌تواند چنین فایلی را بفرستد.\n\n"
+    "فایل رویِ سرور سالم است؛ برایِ برداشتنش راهنمایِ استقرار §بکاپ را ببین."
+)
+
+
+def admin_backup_caption(file_name: str, size_bytes: int, manual: bool = False) -> str:
+    size_mb = max(1, round(int(size_bytes) / (1024 * 1024)))
+    head = "📦 بکاپی که خودت خواستی" if manual else "📦 بکاپِ شبانهٔ دیتابیس"
+    return f"{head}\n• فایل: {file_name}\n• اندازه: {fa_number(size_mb)} مگابایت"
+
+
+def admin_backup_result_text(result: dict) -> str:
+    status = result.get("status")
+    if status == "sent":
+        return (
+            "📦 بکاپ ارسال شد.\n"
+            f"• فایل: {result.get('file', '—')}\n"
+            f"• برایِ {fa_number(int(result.get('sent', 0)))} ادمین"
+        )
+    if status == "no-file":
+        return "📦 هنوز هیچ فایلِ بکاپی در پوشه نیست؛ سرویسِ بکاپ را روشن کن (راهنمایِ استقرار §بکاپ)."
+    if status == "off":
+        return "📦 ارسالِ خودکار خاموش است."
+    if status == "no-admin":
+        return "📦 فایل هست ولی هیچ ادمینی برایِ ارسال تنظیم نشده."
+    if status == "already-sent":
+        return "📦 این فایل پیش‌تر ارسال شده و فایلِ تازه‌ای ساخته نشده."
+    return "📦 ارسال ناموفق بود؛ فایل رویِ سرور سالم است و دوباره قابلِ درخواست است."
+
+
+def admin_backup_toast(result: dict) -> str:
+    if result.get("status") == "sent":
+        return f"بکاپ برایِ {fa_number(int(result.get('sent', 0)))} ادمین ارسال شد"
+    return {"no-file": "فایلی نیست", "off": "خاموش است", "no-admin": "ادمینی تنظیم نشده",
+            "already-sent": "قبلاً رفته"}.get(str(result.get("status")), "ناموفق بود")
 
 
 def admin_settings_group_intro(group: str) -> str:
@@ -2015,6 +2082,9 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         ),
         ("wallet_cost_order_detection_toman", f"🔎 هزینه‌ی پیش‌فرضِ تشخیصِ سفارش: {format_toman(admin_settings.wallet_cost_order_detection_toman)}"),
         ("wallet_topup_validity_months", f"📅 اعتبارِ هر شارژ: {admin_settings.wallet_topup_validity_months} ماه"),
+        # P44 · موردِ ۵۱: «چند روزِ کامل» یا «تقویمی» — فقط رویِ شارژ/اشتراکِ تازه اثر می‌گذارد.
+        ("month_length_days", f"📐 طولِ ماهِ اعتبار: {month_length_label(admin_settings.month_length_days)}"),
+        ("backup_retention_days", f"🗄 نگه‌داشتنِ فایلِ بکاپ: {fa_number(int(admin_settings.backup_retention_days))} روز"),
         ("min_topup_amount_toman", f"🧾 کمترینِ شارژِ کیف‌پول: {format_toman(admin_settings.min_topup_amount_toman)}"),
         ("wallet_trial_credit_toman", f"🎁 اعتبارِ آزمایشیِ فروشگاه‌دارِ جدید: {format_toman(admin_settings.wallet_trial_credit_toman)}"),
         ("wallet_low_balance_warning_toman", f"🟡 آستانه‌ی هشدارِ کمبودِ موجودی: {format_toman(admin_settings.wallet_low_balance_warning_toman)}"),
@@ -3507,19 +3577,31 @@ def receipt_review_warning(code: str, hours_left: float) -> str:
 # =============================================================================
 # P21-D — خلاصهٔ روزانهٔ پولی، پخشِ زمان‌بندی‌شده، اخطارِ موجودی
 # =============================================================================
-def digest_wallet_line(balance_toman: int, usable_toman: int, expiring_toman: int, expiring_days: int | None, debt_toman: int) -> str:
+def digest_wallet_line(
+    balance_toman: int,
+    usable_toman: int,
+    expiring_toman: int,
+    expiring_days: int | None,
+    debt_toman: int,
+    window_days: int | None = None,
+) -> str:
     """چند خطِ پولی به انتهایِ گزارشِ شبانه (پیش‌تر فقط تعدادِ سفارش/مشتری داشت).
 
     `format_toman` خودش «تومان» دارد؛ افزودنِ دوبارهٔ آن واحدِ تکراری می‌ساخت
-    («۱٬۰۰۰٬۰۰۰ تومان تومان») — P22 اصلاح شد."""
+    («۱٬۰۰۰٬۰۰۰ تومان تومان») — P22 اصلاح شد.
+    P44 · موردِ ۵۱: عددِ پنجرهِ انقضا («ظرفِ N روزِ آینده») دیگر در متنِ ثابت ننوشته می‌شود؛
+    فراخوانِ واقعی (`report_service`) آن را از `wallet_service.EXPIRING_SOON_DAYS` می‌گیرد، پس
+    اگر آن آستانه روزی عوض شود، گزارشِ شبانه دروغ نمی‌گوید. با پیش‌فرضِ همین‌جا همان ۳۰ روز است."""
     lines = ["", "💼 کیف‌پول:"]
     lines.append(f"• موجودی: {format_toman(balance_toman)}")
     if usable_toman != balance_toman:
         lines.append(f"• قابل‌استفاده الان: {format_toman(usable_toman)} (بقیه رزروِ کمیسیونِ سفارش‌هایِ درجریان است)")
     if expiring_toman > 0 and expiring_days is not None:
+        window = int(window_days) if window_days else 30
         lines.append(
             f"• نزدیک‌ترین انقضا: {fa_number(expiring_days)} روزِ دیگر — "
-            f"{format_toman(expiring_toman)} تا ۳۰ روزِ دیگر منقضی می‌شود (هر شارژ انقضایِ خودش دارد)"
+            f"{format_toman(expiring_toman)} ظرفِ {fa_number(window)} روزِ آینده منقضی می‌شود "
+            "(هر شارژ انقضایِ خودش دارد)"
         )
     if debt_toman > 0:
         lines.append(f"• طلبِ کمیسیونِ وصول‌نشده: {format_toman(debt_toman)} (با شارژِ بعدی خودکار کسر می‌شود)")

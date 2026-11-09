@@ -18,10 +18,14 @@ COPY . .
 
 # د(ب): اجرای کانتینر با کاربرِ غیرroot. مالکیتِ /app به همان کاربر داده می‌شود چون پایتون
 # `__pycache__` می‌سازد و entrypoint فایلِ موقتِ بررسیِ تنظیمات می‌نویسد.
+# P44 · موردِ ۵۱: /backups هم مالکِ همان کاربر می‌شود تا volumeِ مشترک (در docker-compose) وقتی
+# برایِ اولینِ بار ساخته می‌شود، مالکیتِ پوشه را از ایمیج به ارث ببرد؛ بدونِ این، جابِ نگهداری
+# نمی‌تواند فایلِ قدیمی را پاک کند (فقط خواندن ممکن است).
 RUN chmod +x /app/entrypoint.sh \
     && groupadd --system app \
     && useradd --system --gid app --home-dir /app --no-create-home app \
-    && chown -R app:app /app
+    && mkdir -p /backups \
+    && chown -R app:app /app /backups
 
 USER app
 

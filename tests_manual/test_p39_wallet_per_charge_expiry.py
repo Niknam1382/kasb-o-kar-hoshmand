@@ -134,7 +134,8 @@ async def test_same_day_charges_stay_separate_and_long_lists_fold() -> None:
 def test_digest_line_is_honest_about_nearest_expiry() -> None:
     line = texts.digest_wallet_line(500_000, 420_000, 90_000, 12, 30_000)
     assert "نزدیک‌ترین انقضا: ۱۲ روزِ دیگر" in line, line
-    assert "۹۰٬۰۰۰ تومان تا ۳۰ روزِ دیگر منقضی می‌شود" in line, line
+    # P44 · موردِ ۵۱: عددِ پنجره از متنِ ثابت بیرون رفت («ظرفِ N روزِ آینده»؛ N را فراخوان می‌دهد).
+    assert "۹۰٬۰۰۰ تومان ظرفِ ۳۰ روزِ آینده منقضی می‌شود" in line, line
     assert "انقضایِ خودش" in line, line
     none_due = texts.digest_wallet_line(500_000, 500_000, 0, None, 0)
     assert "انقضا" not in none_due, none_due

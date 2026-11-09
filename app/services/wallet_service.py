@@ -28,7 +28,7 @@ from app.database.models import ShopOwner, WalletCharge, WalletTransaction, Wall
 from app import observability
 from app.services import time_freeze_service
 from app.services.admin_settings_service import get_admin_settings
-from app.utils.dates import add_months
+from app.utils.dates import add_validity_months
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +129,8 @@ async def add_charge(
             await session.flush()
             return latest
 
+    admin_settings = await get_admin_settings(session)
     if validity_months is None:
-        admin_settings = await get_admin_settings(session)
         validity_months = admin_settings.wallet_topup_validity_months
 
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -138,7 +138,7 @@ async def add_charge(
     # می‌شد و کیف‌پول ۳۰×N؛ یعنی «۱ ماه»ِ کیف‌پول در ماه‌هایِ ۳۱ روزه دو روز زودتر
     # می‌رسید و پیامِ انقضا با اشتراکِ همان فروشگاه نمی‌خواند. روزِ سرِ ماه هم clamp می‌شود
     # (۳۱ فروردین + ۱ ماه ⇒ ۲۹/۳۰ ماه بعد، نه خطا).
-    expires_at = add_months(now, validity_months)
+    expires_at = add_validity_months(now, validity_months, getattr(admin_settings, "month_length_days", 0) or 0)
 
     charge = WalletCharge(
         shop_owner_id=owner.id,

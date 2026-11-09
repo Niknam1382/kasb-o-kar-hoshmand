@@ -335,6 +335,20 @@ class AdminSettings(Base):
 
     # --- تنظیماتِ سیستمِ کیف‌پول (جایگزینِ اشتراکِ ثابت) ---
     wallet_topup_validity_months: Mapped[int] = mapped_column(Integer, default=12, nullable=False)
+    # P44 · موردِ ۵۱: «ماه» چند روز باشد؟ ۰ = تقویمی (رفتارِ همیشگیِ این محصول، با `relativedelta`
+    # و clampِ سرِ ماه)؛ ۳۰ یا ۳۱ = روزشمارِ دقیق (۳۱ یعنی ۳۱ × ۲۴ ساعت کامل). این عدد فقط رویِ
+    # **ساختنِ** ردیفِ تازه اثر دارد؛ ردیف‌هایِ قدیمی انقضایِ خودشان را در دیتابیس نگه می‌دارند و
+    # هیچ جابِ دسته‌جمعی برایِ بازنویسی‌شان وجود ندارد (خواستِ صریحِ مالکِ محصول: «قدیمیا دست
+    # نخورده بمونه»).
+    month_length_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    # P44 · موردِ ۵۱ (نیمهٔ دوم): بکاپِ خودکارِ دیتابیس. فایل‌ها را سرویسِ جانبیِ `backup`
+    # (ایمیجِ خودِ postgres:16 ⇒ نسخهٔ pg_dump همیشه با سر یکی است) در پوشهٔ مشترک می‌سازد؛
+    # جابِ شبانهٔ همین اپ تازه‌ترینِ آن‌ها را یک‌بار برایِ ادمین‌ها می‌فرستد و قدیمی‌ترها را پاک می‌کند.
+    # عمداً خاموشِ پیش‌فرض: تا ادمین خودِ فایل را به ادمین‌ها نفرستیده باشد، نه فرستاده می‌شود و
+    # نه فایلی از دیسک پاک می‌شود (هیچ عملِ «غیرقابل‌بازگشت» با پیش‌فرضِ نصب فعال نمی‌شود).
+    nightly_backup_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    backup_retention_days: Mapped[int] = mapped_column(Integer, default=7, server_default="7", nullable=False)
+    backup_last_sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # PHASE 5A: کمترینِ مبلغِ «شارژِ کیف‌پول». تصمیمِ ادمین است، ولی در *سرویسِ* پرداخت
     # هم چک می‌شود (نه فقط در UI) تا فراخوانِ جعلی یا ورودیِ دستکاری‌شده رد شود.
     min_topup_amount_toman: Mapped[int] = mapped_column(Integer, default=50_000, server_default="50000", nullable=False)

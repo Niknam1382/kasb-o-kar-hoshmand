@@ -143,7 +143,12 @@ async def send_due_nightly_reports(session: AsyncSession, main_bot: Bot, now: da
         debt = debts.get(shop_bot.shop_owner_id, 0)
         message = texts.nightly_report_text(stats, consultation=shop_bot.tenant_mode == TenantMode.CONSULTATION)
         message += "\n" + texts.digest_wallet_line(
-            int(owner.wallet_balance_toman or 0), usable, expiring, nearest_days, debt
+            int(owner.wallet_balance_toman or 0),
+            usable,
+            expiring,
+            nearest_days,
+            debt,
+            window_days=wallet_service.EXPIRING_SOON_DAYS,
         )
         try:
             await main_bot.send_message(owner.telegram_id, message)

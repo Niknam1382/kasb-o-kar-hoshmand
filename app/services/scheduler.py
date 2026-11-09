@@ -11,6 +11,7 @@ from app.database.session import session_scope
 from app.utils.validators import fa_number
 from app.services import (
     admin_alert_service,
+    backup_service,
     commission_receivable_service,
     conversation_service,
     grace_period_service,
@@ -146,6 +147,14 @@ async def _run_periodic_pass_locked(main_bot: Bot, bot_manager) -> None:
                 logger.info("پاک‌سازیِ FSM: %s حالتِ کهنه حذف شد.", fsm_pruned)
         if pruned:
             logger.info("پاک‌سازیِ صفِ اعلان‌ها: %s ردیفِ کهنه حذف شد.", pruned)
+    # P44 · موردِ ۵۱: بکاپِ دیتابیس. فایل را سرویسِ جانبیِ `backup` می‌سازد؛ این‌جا تازه‌ترینِ
+    # فرستاده‌نشده یک‌بار به ادمین‌ها می‌رسد و فایل‌هایِ قدیمی‌تر از مهلتِ ادمین پاک می‌شوند.
+    # با سوییچِ خاموش (پیش‌فرض) هیچ چیزی خوانده/پاک/ارسال نمی‌شود.
+    if not job_gate_service.is_paused(admin_settings, "backup"):
+        async with session_scope() as session:
+            backup_result = await backup_service.run_nightly(session, main_bot)
+        if backup_result.get("sent") or backup_result.get("deleted"):
+            logger.info("جابِ بکاپ: %s", backup_result)
 
 
 async def reconcile_wallet_ledgers() -> int:

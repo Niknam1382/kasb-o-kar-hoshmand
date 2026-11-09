@@ -1,0 +1,13 @@
+# P44 · موردِ ۵۱: اسکریپتِ بکاپ داخلِ کانتینرِ لینوکسی اجرا می‌شود؛ یکِ `\r` آخرِ خط آن را می‌شکند.
+# رویِ این ماشین core.autocrlf روشن است، پس مسیرهایِ shell عمداً LF می‌مانند.
+*.sh text eol=lf
+entrypoint.sh text eol=lf
+
+# فایل‌هایِ دودویی هرگز نرمال‌سازیِ خط‌پایان نباید ببینند (PDFِ مستندات، فونت، تصویر، اکسل).
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.ttf binary
+*.xlsx binary
