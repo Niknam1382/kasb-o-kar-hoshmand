@@ -1,0 +1,30 @@
+{
+	# P45 · لایهٔ ۳-وب: Caddy خودش گواهینامهٔ HTTPS را از Let's Encrypt می‌گیرد و تمدید می‌کند.
+	# اگر می‌خواهی TLS را nginx/Certbot نگه دارد، همین بلوک را به پراکسیِ خودت منتقل کن؛
+	# برنامه فقط پشتِ 127.0.0.1:8000 است و هیچ درِ دیگری باز نمی‌شود.
+	email you@yourdomain.example
+	grace_period 30s
+}
+
+yourdomain.example {
+	encode zstd gzip
+
+	# تلگرام و بله آپدیت را تک‌تنها و با timeoutِ کوتاه می‌فرستند؛ پاسخِ سریع‌تر = دوباره‌دریافتِ کمتر.
+	request_body {
+		max_size 2MB
+	}
+
+	handle {
+		reverse_proxy web0:8000 web1:8000 {
+			# چرخشیِ ساده. اگر یکِ پروسه افتاد، Caddy خودش تا healthcheck بعدی کنارش می‌گذارد.
+			fail_timeout 10s
+			max_fails 3
+		}
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		Strict-Transport-Security "max-age=31536000"
+	}
+}

@@ -1,0 +1,131 @@
+# P45 · لایهٔ ۳ — ~۱٬۵۰۰ فروشگاه و ~۱٬۰۰۰ مشتریِ هم‌زمان رویِ ۱۶ هسته / ۳۲ گیگ
+#
+# اجرا:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.t3.yml up -d
+#
+# سه چیزِ لایهٔ ۳:
+# ۱) شش پروسهٔ poller ⇒ ~۲۵۰ فروشگاه در هر پروسه ⇒ ~۲۵۰ سوکتِ باز و ~۱۵۰ مگابایت رم به‌جای
+#    ۱٬۵۰۰ سوکت و ~۷۵۰ مگابایت در یکِ پروسه (MEASURED: ~۰٫۴–۰٫۷ مگابایت و یکِ سوکت به‌ازایِ هر ربات).
+# ۲) دیتابیس با `max_connections=200` و `shared_buffers=2GB` — چون جمعِ استخرها بالا می‌رود:
+#    ۶×۱۰ + ۲۵ (core) = ۸۵ اتصالِ برنامه + بکاپ/مدیریت < ۲۰۰.
+# ۳) همان `core` فقط یکِ پروسه است (جاب‌ها، پنلِ مرکزی، اعلان‌ها، بله‌پیِ مرکزی).
+#
+# ⚠️ درِ اصلیِ این لایه، سرورِ ما نیست: سقفِ هم‌زمانیِ سرویسِ هوشِ مصنوعی است. با `AI_MAX_CONCURRENT`
+#    و تأخیرِ واقعیِ خودت: کاربرِ هم‌زمان ≈ (سقفِ هم‌زمانی ÷ تأخیرِ ثانیه) × ۶۰ ÷ پیامِ هر کاربر در
+#    دقیقه. برایِ ۱٬۰۰۰ نفر با ۲ پیام در دقیقه و تأخیرِ ۴ ثانیه ⇒ سقفِ ~۱۳۰ درخواستِ هم‌زمان لازم است.
+#    قبلِ خریدِ سرورِ بزرگ، این عدد را از ارائه‌دهندهٔ خودت بگیر (اسکریپتِ `scripts/scale_readiness.py`).
+
+x-poller: &poller
+  build: .
+  image: kasb-o-kar-hoshmand-bot
+  restart: unless-stopped
+  env_file:
+    - .env
+  depends_on:
+    db:
+      condition: service_healthy
+  stop_grace_period: 30s
+  mem_limit: ${POLLER_MEM_LIMIT:-1500m}
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+  volumes:
+    - backups:/backups
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  db:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=8GB
+      - -c
+      - max_connections=200
+      - -c
+      - wal_compression=on
+      - -c
+      - jit=off
+      - -c
+      - log_min_duration_statement=250ms
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - autovacuum_work_mem=256MB
+    shm_size: 1g
+    mem_limit: 6g
+
+  bot:
+    environment:
+      APP_ROLE: core
+      SHARD_COUNT: "1"
+      SHARD_INDEX: "0"
+      DB_POOL_SIZE: "25"
+      AI_MAX_CONCURRENT: ${AI_MAX_CONCURRENT:-120}
+    mem_limit: ${CORE_MEM_LIMIT:-3g}
+
+  poller0:
+    <<: *poller
+    environment: { APP_ROLE: poller, SHARD_INDEX: "0", SHARD_COUNT: "6", DB_POOL_SIZE: "10", WEBHOOK_LISTEN_PORT: "8110" }
+    healthcheck: &poller-health-0
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8110/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-60s}
+
+  poller1:
+    <<: *poller
+    environment: { APP_ROLE: poller, SHARD_INDEX: "1", SHARD_COUNT: "6", DB_POOL_SIZE: "10", WEBHOOK_LISTEN_PORT: "8111" }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8111/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-60s}
+
+  poller2:
+    <<: *poller
+    environment: { APP_ROLE: poller, SHARD_INDEX: "2", SHARD_COUNT: "6", DB_POOL_SIZE: "10", WEBHOOK_LISTEN_PORT: "8112" }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8112/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-60s}
+
+  poller3:
+    <<: *poller
+    environment: { APP_ROLE: poller, SHARD_INDEX: "3", SHARD_COUNT: "6", DB_POOL_SIZE: "10", WEBHOOK_LISTEN_PORT: "8113" }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8113/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-60s}
+
+  poller4:
+    <<: *poller
+    environment: { APP_ROLE: poller, SHARD_INDEX: "4", SHARD_COUNT: "6", DB_POOL_SIZE: "10", WEBHOOK_LISTEN_PORT: "8114" }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8114/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-60s}
+
+  poller5:
+    <<: *poller
+    environment: { APP_ROLE: poller, SHARD_INDEX: "5", SHARD_COUNT: "6", DB_POOL_SIZE: "10", WEBHOOK_LISTEN_PORT: "8115" }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8115/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-60s}

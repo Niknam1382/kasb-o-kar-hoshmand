@@ -11,6 +11,7 @@ from app.database.session import session_scope
 from app.utils.validators import fa_number
 from app.services import (
     admin_alert_service,
+    app_roles,
     backup_service,
     commission_receivable_service,
     conversation_service,
@@ -25,6 +26,7 @@ from app.services import (
     shop_prefs_service,
     stock_alert_service,
     time_freeze_service,
+    update_dedupe_service,
     wallet_expiry_service,
     wallet_service,
 )
@@ -138,6 +140,12 @@ async def _run_periodic_pass_locked(main_bot: Bot, bot_manager) -> None:
             await conversation_service.prune_old_messages_for_shops(session, retention_by_shop, default_days)
             # P21-B (O3): خودِ صفِ اعلان هم باید پاک‌سازی شود (در P20 ساخته شد و هیچ مهلتی نداشت).
             pruned = await notification_service.prune_aged(session)
+            # P45: جدولِ «آپدیتِ دیده‌شده» فقط در حالتِ webhookِ چندپروسه‌ای پر می‌شود؛ همان
+            # پنجره‌یِ نیم‌ساعته کافی است و وگرنه بی‌نهایت رشد می‌کرد.
+            if app_roles.shard_count() > 1:
+                dedupe_pruned = await update_dedupe_service.prune(session)
+                if dedupe_pruned:
+                    logger.info("پاک‌سازیِ update_dedupe: %s ردیفِ کهنه حذف شد.", dedupe_pruned)
             # P32: حالت‌هایِ FSMِ رهاشده (مشتری که چک‌اوت را نیمه‌کاره گذاشت) هم باید پاک شوند؛
             # فقط وقتی مسیرِ postgres روشن باشد ردیفی وجود دارد، وگرنه صفر برمی‌گردد.
             from app.services import fsm_storage

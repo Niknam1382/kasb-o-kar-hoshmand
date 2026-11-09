@@ -148,6 +148,7 @@ TEST_FILES = [
     "test_p42_bale_split_and_money.py",
     "test_p43_moderation_reports.py",
     "test_p44_month_length_and_backup.py",
+    "test_p45_capacity_layers.py",
 ]
 
 

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import OrderedDict
 
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramAPIError, TelegramUnauthorizedError
 
 from app.config import RunMode, settings
@@ -13,6 +15,30 @@ from app.services import bale_bot_service, platform_service
 from app.utils.encryption import decrypt_token
 
 logger = logging.getLogger(__name__)
+
+
+class _SharedAiohttpSession:
+    """استخرِ اشتراکیِ HTTP برایِ ربات‌هایی که در حالتِ webhook lazily ساخته می‌شوند (P45).
+
+    هر `Bot` در aiogram یک `AiohttpSession` با `TCPConnector`ِ خودش می‌سازد؛ با ۱٬۵۰۰ فروشگاه
+    یعنی ۱٬۵۰۰ استخرِ اتصال و ~۰٫۵ مگابایت رم به‌ازایِ هر اتصال (MEASURED در scale_probe). این
+    پوششِ نازک همان `close()` را برایِ همهٔ ربات‌ها به یکِ connector برمی‌گرداند، پس ساختنِ ربات
+    تقریباً رایگان است و بستنِ یکی، بقیه را نمی‌شکند. (استخرِ polling عمداً دست‌نخورده ماند:
+    درخواستِ ۲۰ ثانیه‌ایِ بلندِ `getUpdates` رویِ connector مشترک، سقفِ اتصالِ کلِ پروسه را می‌بلعد.)
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self._refs = 0
+
+    def __getattr__(self, item):
+        return getattr(self._inner, item)
+
+    async def close(self) -> None:
+        return None
+
+    async def dispose(self) -> None:
+        await self._inner.close()
 
 
 class ShopBotManager:
@@ -42,6 +68,10 @@ class ShopBotManager:
         # (۲۰ ربات = ۵٫۰ ثانیه ⇒ ۵۰۰ ربات ≈ ۱۲۵ ثانیه). این درِ نیمه‌باز هر دو را به
         # N/limit × RTT می‌رساند و هیچ رباتی را جا نمی‌اندازد.
         self._start_gate = asyncio.Semaphore(max(1, settings.bot_register_concurrency))
+        # P45 · ظرفیت: ربات‌هایِ ساخته‌شده برایِ webhook (استخرِ HTTP مشترک + LRU) و رازِ همان‌ها.
+        self._webhook_bots: OrderedDict[int, Bot] = OrderedDict()
+        self._webhook_secrets: dict[int, str | None] = {}
+        self._shared_session: _SharedAiohttpSession | None = None
 
     def get_bot(self, shop_bot_id: int) -> Bot | None:
         return self._bots.get(shop_bot_id)
@@ -67,6 +97,63 @@ class ShopBotManager:
 
     def get_secret(self, shop_bot_id: int) -> str | None:
         return self._secrets.get(shop_bot_id)
+
+    @staticmethod
+    def owns_shard(shop_bot_id: int) -> bool:
+        """P45: آیا این پروسه صاحبِ pollingِ این فروشگاه است؟
+
+        فقط برایِ حالتِ polling معنا دارد؛ در حالتِ webhook هر پروسهٔ دریافت می‌تواند به هر
+        فروشگاه جواب بدهد (پراکسی round-robin می‌کند) و آنجا شارد نمی‌شناسیم."""
+        count = max(1, int(settings.shard_count or 1))
+        if count == 1:
+            return True
+        index = int(settings.shard_index or 0) % count
+        return int(shop_bot_id) % count == index
+
+    async def webhook_entry(self, shop_bot_id: int) -> tuple[Bot, str | None] | None:
+        """(ربات، رازِ وب‌هوک) برایِ `/webhook/shop/{id}` — بدونِ آن‌که این پروسه لازم باشد همهٔ
+        ربات‌ها را از لحظهٔ بوت ثبت کرده باشد (P45). None ⇒ وجود ندارد یا غیرفعال است.
+
+        ربات‌هایِ تازه رویِ یکِ استخرِ HTTPِ مشترکی ساخته و در یکِ LRU نگه‌داشته می‌شوند، پس رمِ
+        هر پروسه با فروشگاه‌هایِ *پرمصرف* رشد می‌کند نه با تعدادِ کلِ فروشگاه‌ها. هیچ‌چیز از
+        دیتابیس پاک یا نوشته نمی‌شود؛ فقط خواندن."""
+        bot = self._bots.get(shop_bot_id)
+        if bot is not None:
+            return bot, self._secrets.get(shop_bot_id)
+        cached = self._webhook_bots.get(shop_bot_id)
+        if cached is not None:
+            self._webhook_bots.move_to_end(shop_bot_id)
+            self._trim_webhook_cache()
+            return cached, self._webhook_secrets.get(shop_bot_id)
+
+        async with session_scope() as session:
+            shop_bot = await session.get(ShopBot, int(shop_bot_id))
+        if shop_bot is None or not shop_bot.is_active:
+            return None
+        built = self._build_shared_bot(shop_bot)
+        if built is None:
+            return None
+        self._webhook_bots[shop_bot_id] = built[0]
+        self._webhook_secrets[shop_bot_id] = built[1]
+        self._trim_webhook_cache()
+        return built
+
+    def _trim_webhook_cache(self) -> None:
+        """سقفِ LRU همیشه برقرار می‌ماند، حتی اگر ادمین عدد را پایین بیاورد."""
+        while len(self._webhook_bots) > max(1, int(settings.webhook_bot_cache_size)):
+            evicted_id, _evicted = self._webhook_bots.popitem(last=False)
+            self._webhook_secrets.pop(evicted_id, None)
+
+    def _build_shared_bot(self, shop_bot: ShopBot) -> tuple[Bot, str | None] | None:
+        if self._shared_session is None:
+            self._shared_session = _SharedAiohttpSession(AiohttpSession())
+        try:
+            bot = Bot(token=decrypt_token(shop_bot.encrypted_token), session=self._shared_session)
+        except Exception:  # noqa: BLE001 - توکنِ خراب/ناخوانا نباید مسیرِ webhook را پایین بیاورد
+            logger.exception("ساختنِ رباتِ webhook برایِ فروشگاه %s ناموفق بود.", shop_bot.id)
+            return None
+        self._shared_session._refs += 1
+        return bot, shop_bot.webhook_secret_token
 
     async def register(self, shop_bot: ShopBot) -> None:
         raw_token = decrypt_token(shop_bot.encrypted_token)
@@ -239,6 +326,11 @@ class ShopBotManager:
         """
 
         async def _one(shop_bot: ShopBot) -> None:
+            # P45 · شارد: در حالتِ polling هر پروسه فقط شاردِ خودش را نگه می‌دارد ⇒ سوکت‌ها و رمِ
+            # هر پروسه با تعدادِ پروسه‌ها تقسیم می‌شود. در حالتِ webhook هیچ socketِ بازِ بلندمدتی
+            # نداریم، پس همه ثبت می‌شوند (set_webhook) و ترافیک بینِ پروسه‌ها تقسیم می‌شود.
+            if settings.run_mode != RunMode.WEBHOOK and not self.owns_shard(shop_bot.id):
+                return
             async with self._start_gate:
                 try:
                     await self.register(shop_bot)
@@ -290,4 +382,11 @@ class ShopBotManager:
         bale_ids = self.registered_bale_bot_ids()
         if bale_ids:
             await asyncio.gather(*(_close_bale(shop_bot_id) for shop_bot_id in bale_ids))
+        # P45: استخرِ مشترکِ webhook یک‌بار و در پایان بسته می‌شود (بستنِ هر رباتِ تنها، بقیه را
+        # از کار می‌انداخت).
+        if self._shared_session is not None:
+            await self._shared_session.dispose()
+            self._shared_session = None
+        self._webhook_bots.clear()
+        self._webhook_secrets.clear()
 

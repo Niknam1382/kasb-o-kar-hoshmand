@@ -1,0 +1,108 @@
+# P45 · لایهٔ ۲ — ~۵۰۰ تا ۸۰۰ فروشگاه رویِ یکِ ماشینِ ۸ هسته / ۱۶ گیگ
+#
+# اجرا (همیشه با فایلِ اصلیِ پروژه؛ این فایل فقط *اضافه* می‌شود):
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.t2.yml up -d
+#
+# چه چیزی عوض می‌شود:
+# · ربات‌هایِ فروشگاهی بینِ چهار پروسه تقسیم می‌شوند (`SHARD_COUNT=4`) ⇒ هر فروشگاه فقط در یکِ
+#   پروسه polling می‌شود، پس سوکت‌ها و رمِ هر پروسه یک‌چهارم می‌شود و debounceِ درِحافظه همچنان
+#   درست است (پیام‌هایِ یکِ فروشگاه همیشه به همان یک پروسه می‌رسند).
+# · `core` تنها جایی است که پنلِ صاحبِ کسب‌وکار، جاب‌ها، صفِ اعلان و پرداختِ بله‌پیِ مرکزی اجرا
+#   می‌شود؛ دو نسخهٔ جاب یعنی گزارش و یادآوریِ دوباره.
+# · جمعِ اتصال‌هایِ دیتابیس: ۴×۱۲ + ۲۵ = ۷۳ < ۱۰۰ِ پیش‌فرضِ postgres. با هر پروسهٔ تازه این جمع
+#   را دوباره ببین: `python scripts/scale_readiness.py --check`
+#
+# چیزی که عوض نمی‌شود: هیچ کد، هیچ جدول، هیچ رفتارِ محصولی. لازم نیست `.env` را دست بزنی.
+
+x-poller: &poller
+  build: .
+  image: kasb-o-kar-hoshmand-bot
+  restart: unless-stopped
+  env_file:
+    - .env
+  depends_on:
+    db:
+      condition: service_healthy
+  stop_grace_period: 30s
+  mem_limit: ${POLLER_MEM_LIMIT:-1500m}
+  ulimits:
+    nofile:
+      soft: 65536
+      hard: 65536
+  volumes:
+    - backups:/backups
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  bot:
+    # در لایهٔ ۲، سرویسِ `bot` همان `core` است.
+    environment:
+      APP_ROLE: core
+      SHARD_COUNT: "1"
+      SHARD_INDEX: "0"
+      DB_POOL_SIZE: "25"
+    mem_limit: ${CORE_MEM_LIMIT:-2g}
+
+  poller0:
+    <<: *poller
+    environment:
+      APP_ROLE: poller
+      SHARD_INDEX: "0"
+      SHARD_COUNT: "4"
+      DB_POOL_SIZE: "12"
+      WEBHOOK_LISTEN_PORT: "8100"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-40s}
+
+  poller1:
+    <<: *poller
+    environment:
+      APP_ROLE: poller
+      SHARD_INDEX: "1"
+      SHARD_COUNT: "4"
+      DB_POOL_SIZE: "12"
+      WEBHOOK_LISTEN_PORT: "8101"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8101/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-40s}
+
+  poller2:
+    <<: *poller
+    environment:
+      APP_ROLE: poller
+      SHARD_INDEX: "2"
+      SHARD_COUNT: "4"
+      DB_POOL_SIZE: "12"
+      WEBHOOK_LISTEN_PORT: "8102"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8102/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-40s}
+
+  poller3:
+    <<: *poller
+    environment:
+      APP_ROLE: poller
+      SHARD_INDEX: "3"
+      SHARD_COUNT: "4"
+      DB_POOL_SIZE: "12"
+      WEBHOOK_LISTEN_PORT: "8103"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8103/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-40s}

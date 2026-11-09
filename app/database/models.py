@@ -413,6 +413,25 @@ class AdminSettings(Base):
     global_ai_prompt_consultation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class UpdateDedupe(Base):
+    """P45 · ظرفیت: «این آپدیت را دیدم» برایِ حالتِ webhookِ چندپروسه‌ای.
+
+    تلگرام همان update_id را وقتی پاسخِ HTTP دیر برسد دوباره می‌فرستد، و آن دوباره ممکن است به
+    پروسهٔ دیگری برسد؛ لیستِ درِحافظهٔ هر پروسه («دیدم») در آن حالت فراموش‌کار است ⇒ پیامِ دو‌بار
+    = کسرِ دو‌بارهٔ کیف‌پول. سطرِ `INSERT … ON CONFLICT DO NOTHING` تنها راهِ اتمیکِ بدونِ سرویسِ
+    تازه است. فقط در حالتِ webhook نوشته می‌شود (مسیرِ polling همان offset و قفلِ شارد را دارد).
+    """
+
+    __tablename__ = "update_dedupe"
+    __table_args__ = (Index("ix_update_dedupe_seen_at", "seen_at"),)
+
+    bot_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    update_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    seen_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc), nullable=False
+    )
+
+
 class DiscountCode(Base):
     __tablename__ = "discount_codes"
 

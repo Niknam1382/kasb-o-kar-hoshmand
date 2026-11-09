@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import signal
 import time
 from collections import OrderedDict
 
@@ -26,6 +27,7 @@ from app.database.models import OrderPayment, PaymentPurpose, PaymentStatus, Sho
 from app.database.session import session_scope
 from app.services import (
     admin_alert_service,
+    app_roles,
     bot_branding_service,
     ai_service,
     bale_bot_service,
@@ -43,6 +45,7 @@ from app.services import (
     scheduler,
     shop_bot_service,
     shop_owner_service,
+    update_dedupe_service,
     zarinpal_service,
 )
 from app.services.admin_settings_service import get_admin_settings
@@ -206,17 +209,34 @@ async def release_polling_lock(connection, key: int = POLLING_LOCK_KEY) -> None:
     await connection.close()
 
 
+async def _wait_until_stopped(stop_event: asyncio.Event) -> None:
+    """نگه‌داشتنِ پروسه تا SIGTERM/SIGINT (برایِ نقشی که pollingِ مرکزی ندارد).
+
+    رویِ لینوکس سیگنال به `stop_event` وصل می‌شود تا حلقه‌ها و اتصال‌ها تمیز بسته شوند؛ اگر
+    پلتفرمی add_signal_handler را پشتیبانی نکند، همان `stop_event.wait()` می‌ماند و خاموش‌شدنِ
+    کرید‌شده از راهِ دیگری انجام می‌شود (نه کرش)."""
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop_event.set)
+        except (NotImplementedError, RuntimeError):  # pragma: no cover - ویندوز/استخرهایِ غیرلینوکسی
+            pass
+    await stop_event.wait()
+
+
 async def run_polling() -> None:
     admin_alert_service.install()
+    lock_key = app_roles.lock_key(POLLING_LOCK_KEY)
     try:
-        lock_connection = await acquire_polling_lock()
+        lock_connection = await acquire_polling_lock(lock_key)
     except Exception:  # noqa: BLE001 - اگر دیتابیس قفل را نشناسد، مثلِ قبل کار کن (به‌جایِ توقفِ ربات)
         logger.exception("قفلِ anti-double-polling خوانده نشد؛ ربات بدونِ آن بالا می‌آید.")
         lock_connection = None
     if lock_connection is None:
         logger.error(
-            "نسخهٔ دیگری از این ربات در حالِ polling است (قفلِ دیتابیس آزاد نیست). "
-            "اینِ دومین هیچ getUpdates‌ای شروع نمی‌کند تا پیام‌ها دوباره پاسخ نگیرند و کیف‌پول دوباره کم نشود."
+            "نسخهٔ دیگری با همین شارد در حالِ polling است (قفلِ دیتابیس آزاد نیست؛ %s). "
+            "اینِ دومین هیچ getUpdates‌ای شروع نمی‌کند تا پیام‌ها دوباره پاسخ نگیرند و کیف‌پول دوباره کم نشود.",
+            app_roles.describe(),
         )
         await admin_alert_service.shutdown()
         return
@@ -225,35 +245,46 @@ async def run_polling() -> None:
     bot_manager = ShopBotManager(shop_dispatcher)
     main_dispatcher = create_main_dispatcher(bot_manager)
 
-    await _load_active_shop_bots(bot_manager, main_bot)
+    if app_roles.is_poller():
+        await _load_active_shop_bots(bot_manager, main_bot)
+    else:
+        logger.info("نقش=%s ⇒ ربات‌هایِ فروشگاهی در این پروسه polling نمی‌شوند.", app_roles.describe())
 
+    core = app_roles.is_core()
     stop_event = asyncio.Event()
     # O2: /health و /metrics در حالتِ polling هم در دسترس‌اند (اپِ سلامت، بدونِ مسیرِ وب‌هوک)
     _state["main_bot"] = main_bot
     _state["bot_manager"] = bot_manager
     _state["stop_event"] = stop_event
     health = _start_health_server()
-    scheduler_task = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, stop_event, bot_manager))
-    payment_expiry_task = asyncio.create_task(scheduler.run_payment_expiry_loop(main_bot, bot_manager, stop_event))
-    notification_task = asyncio.create_task(scheduler.run_notification_loop(main_bot, bot_manager, stop_event))
-    bale_updates_task = await _start_bale_updates_polling(stop_event)  # B6: بدونِ سرورِ HTTP هم پرداختِ بله‌پی دریافت می‌شه
+    scheduler_task = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, stop_event, bot_manager)) if core else None
+    payment_expiry_task = (
+        asyncio.create_task(scheduler.run_payment_expiry_loop(main_bot, bot_manager, stop_event)) if core else None
+    )
+    notification_task = (
+        asyncio.create_task(scheduler.run_notification_loop(main_bot, bot_manager, stop_event)) if core else None
+    )
+    bale_updates_task = await _start_bale_updates_polling(stop_event) if core else None
 
     try:
-        await main_bot.delete_webhook(drop_pending_updates=True)
-        await main_dispatcher.start_polling(main_bot)
+        if core:
+            await main_bot.delete_webhook(drop_pending_updates=True)
+            await main_dispatcher.start_polling(main_bot)
+        else:
+            logger.info("پروسهٔ pollingِ شارد بالا آمد؛ پنلِ مرکزی و جاب‌ها رویِ پروسهٔ core است.")
+            await _wait_until_stopped(stop_event)
     finally:
         stop_event.set()
-        await scheduler_task
-        await payment_expiry_task
-        notification_task.cancel()
-        if bale_updates_task is not None:
-            await bale_updates_task
+        for task in (scheduler_task, payment_expiry_task, notification_task, bale_updates_task):
+            if task is not None:
+                await task
         _stop_health_server(health)
+        await bot_manager.shutdown()
         await ai_service.close_http_session()
         await bale_service.close_http_session()
         await admin_alert_service.shutdown()
         await main_bot.session.close()
-        await release_polling_lock(lock_connection)
+        await release_polling_lock(lock_connection, key=lock_key)
 
 
 # =============================================================================
@@ -312,14 +343,20 @@ async def on_startup() -> None:
 
     # P36: pollingِ رباتِ بلهٔ فروشگاه‌ها مستقل از run_mode است، پس مالکیتش را با قفلِ جدا نگه
     # می‌داریم تا در دیپلویِ چندرونشتی یکِ پیامِ بله‌ای دو بار پاسخ نگیرد و دو بار کم نشود.
+    core = app_roles.is_core()
     try:
-        _state["bale_polling_lock"] = await acquire_polling_lock(BALE_POLLING_LOCK_KEY)
+        _state["bale_polling_lock"] = await acquire_polling_lock(app_roles.lock_key(BALE_POLLING_LOCK_KEY))
     except Exception:  # noqa: BLE001 - اگر دیتابیس قفل را نشناسد، این رونوشت را صاحب بدان
         logger.exception("قفلِ pollingِ بله خوانده نشد؛ این رونوشت صاحبِ pollingِ بله در نظر گرفته می‌شود.")
         _state["bale_polling_lock"] = None
-    await _load_active_shop_bots(bot_manager, main_bot, bale_polling_owner=_state["bale_polling_lock"] is not None)
+    if app_roles.is_poller():
+        await _load_active_shop_bots(
+            bot_manager, main_bot, bale_polling_owner=_state["bale_polling_lock"] is not None
+        )
+    else:
+        logger.info("نقش=%s ⇒ ربات‌هایِ فروشگاهی در این پروسه ثبت نمی‌شوند.", app_roles.describe())
 
-    if settings.run_mode == RunMode.WEBHOOK:
+    if settings.run_mode == RunMode.WEBHOOK and core:
         webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/main"
         await main_bot.set_webhook(
             webhook_url,
@@ -327,16 +364,17 @@ async def on_startup() -> None:
             drop_pending_updates=True,
         )
         logger.info("وب‌هوکِ ربات اصلی روی %s تنظیم شد.", webhook_url)
-    else:
+    elif core:
         await main_bot.delete_webhook(drop_pending_updates=True)
         _state["polling_task"] = asyncio.create_task(main_dispatcher.start_polling(main_bot))
 
     # وب‌هوکِ بله‌پی مستقل از run_mode ـه (چون فقط برای پرداخته، نه برای چت
     # کردن با مشتری) — اگه توکن ست شده باشه، همیشه ثبتش می‌کنیم.
-    await _refresh_bale_credentials()
-    if settings.bale_updates_mode == "polling":
+    if core:
+        await _refresh_bale_credentials()
+    if settings.bale_updates_mode == "polling" and core:
         _state["bale_updates_task"] = await _start_bale_updates_polling(_state["stop_event"])
-    elif bale_credentials_service.bot_token():
+    elif core and settings.run_mode == RunMode.WEBHOOK and bale_credentials_service.bot_token():
         # B5: بله هدرِ secret نمی‌فرسته؛ پس رازِ وب‌هوک (اگه تنظیم شده) توی خودِ مسیره
         bale_webhook_url = f"{settings.webhook_base_url.rstrip('/')}/webhook/bale" + (f"/{bale_credentials_service.webhook_secret()}" if bale_credentials_service.webhook_secret() else "")
         try:
@@ -347,21 +385,25 @@ async def on_startup() -> None:
                 "تنظیمِ وب‌هوکِ بله‌پی ناموفق بود — Bale Pay غیرفعال می‌مونه تا این مشکل برطرف بشه."
             )
 
-    _state["scheduler_task"] = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, _state["stop_event"], bot_manager))
-    _state["payment_expiry_task"] = asyncio.create_task(
-        scheduler.run_payment_expiry_loop(main_bot, bot_manager, _state["stop_event"])
-    )
-    # P21-F: تخلیهٔ صندوقِ اعلان هر ۶۰ ثانیه (خبرِ پرداخت نباید تا ۳۰ دقیقه معطل بماند)
-    _state["notification_task"] = asyncio.create_task(
-        scheduler.run_notification_loop(main_bot, bot_manager, _state["stop_event"])
-    )
+    if core:
+        _state["scheduler_task"] = asyncio.create_task(scheduler.run_periodic_tasks(main_bot, _state["stop_event"], bot_manager))
+        _state["payment_expiry_task"] = asyncio.create_task(
+            scheduler.run_payment_expiry_loop(main_bot, bot_manager, _state["stop_event"])
+        )
+        # P21-F: تخلیهٔ صندوقِ اعلان هر ۶۰ ثانیه (خبرِ پرداخت نباید تا ۳۰ دقیقه معطل بماند)
+        _state["notification_task"] = asyncio.create_task(
+            scheduler.run_notification_loop(main_bot, bot_manager, _state["stop_event"])
+        )
 
 
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     _state["stop_event"].set()
-    await _state["scheduler_task"]
-    await _state["payment_expiry_task"]
+    # P45: در نقش‌هایِ غیرِ core این حلقه‌ها ساخته نمی‌شوند، پس با `.get()` خوانده می‌شوند.
+    for key in ("scheduler_task", "payment_expiry_task"):
+        task = _state.get(key)
+        if task is not None:
+            await task
     # حلقه‌ها با stop_event خودشان بیرون می‌آیند (wait_for رویِ event بیدار می‌شود) ⇒ await امن است
     notification_task = _state.get("notification_task")
     if notification_task is not None:
@@ -454,19 +496,27 @@ async def webhook_shop(shop_bot_id: int, request: Request) -> Response:
     if limited is not None:
         return limited
     bot_manager: ShopBotManager = _state["bot_manager"]
-    bot = bot_manager.get_bot(shop_bot_id)
-    if bot is None:
+    # P45: این پروسه لازم نیست همهٔ ۱٬۵۰۰ ربات را از لحظهٔ بوت ثبت کرده باشد؛ ربات و رازِ وب‌هوک
+    # از دیتابیس خوانده و در یکِ LRU نگه‌داشته می‌شوند (پروسهٔ web با هر فروشگاه سروکله می‌زند).
+    entry = await bot_manager.webhook_entry(shop_bot_id)
+    if entry is None:
         return Response(status_code=404)
+    bot, expected_secret = entry
 
     secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-    if not _secrets_equal(secret, bot_manager.get_secret(shop_bot_id)):
+    if not _secrets_equal(secret, expected_secret):
         return _forbidden(f"webhook/shop/{shop_bot_id}: رازِ وب‌هوکِ نامعتبر")
 
     data = await request.json()
     update = Update.model_validate(data)
     observability.bind_correlation(observability.correlate("wh", "shop", shop_bot_id, update.update_id))
     observability.count("webhook.shop")
-    if _is_duplicate_update(bot.id, update.update_id):
+    if app_roles.shard_count() > 1:
+        # P45: با چند پروسه، «این آپدیت را دیدم» باید بینِ پروسه‌ها مشترک باشد؛ وگرنه دوباره‌دریافتِ
+        # تلگرام از پروسهٔ دوم هم رد می‌شود ⇒ دو پاسخ به یکِ مشتری و دو کسرِ کیف‌پول.
+        if not await update_dedupe_service.claim(bot.id, update.update_id):
+            return Response(status_code=200)
+    elif _is_duplicate_update(bot.id, update.update_id):
         return Response(status_code=200)
     await _state["shop_dispatcher"].feed_update(bot, update)
     return Response(status_code=200)
@@ -1200,9 +1250,11 @@ if __name__ == "__main__":
     if _pkg is not None:
         setattr(_pkg, "main", _live)
     validate_runtime_config()
-    if settings.run_mode == RunMode.POLLING:
-        asyncio.run(run_polling())
-    else:
+    if app_roles.serves_http():
+        # P45: پورت/آدرسِ گوش‌دادن از تنظیمات خوانده می‌شود تا چند پروسه رویِ یکِ ماشین
+        # (یا پشتِ پراکسی) بتوانند هرکدام درِ خودشان را داشته باشند.
         import uvicorn
 
-        uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
+        uvicorn.run("app.main:app", host=settings.webhook_listen_host, port=int(settings.webhook_listen_port))
+    else:
+        asyncio.run(run_polling())

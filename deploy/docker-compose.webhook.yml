@@ -1,0 +1,148 @@
+# P45 · لایهٔ ۳-وب — حالتِ webhook (هیچ socketِ بازِ بلندمدتی در هیچ پروسه نیست)
+#
+# این لایه *اختیاری* است و سه چیز می‌خواهد: دامنه، HTTPS، و این‌که تلگرام/بله بتوانند به سرورِ تو
+# وصل شوند. تا آن‌ها را نداری، همان لایهٔ ۲ (pollingِ شاردشده) کار می‌کند و چیزی لازم نیست.
+#
+# اجرا:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.t3.yml -f deploy/docker-compose.webhook.yml up -d
+#   # و در .env:   RUN_MODE=webhook   WEBHOOK_BASE_URL=https://دامنهٔ‌تو   MAIN_BOT_WEBHOOK_secret…
+#   # (MAIN_BOT_WEBHOOK_SECRET را با `python -c "import secrets;print(secrets.token_urlsafe(32))"` بساز)
+#
+# چرا این حالت برایِ ۱٬۵۰۰ فروشگاه بهتر است:
+# · هر ربات به‌جای یکِ اتصالِ ۲۰ ثانیه‌ایِ باز، فقط وقتی پیامی هست یکِ درخواستِ HTTP می‌سازد.
+# · پروسه‌هایِ `web` ربات‌ها را lazily می‌سازند (LRU با استخرِ HTTPِ مشترک) ⇒ رم با فروشگاه‌هایِ
+#   پرمصرف رشد می‌کند، نه با تعدادِ کل.
+# · `update_dedupe` رویِ دیتابیس، دوباره‌دریافتِ تلگرام را بینِ پروسه‌ها هم مهار می‌کند
+#   (پیش‌فرضِ `SHARD_COUNT=1` آن را خاموش می‌گذارد: مسیرِ polling همان ۱۲ جمله به‌ازایِ هر پیام می‌ماند).
+#
+# ⚠️ دو نکتهٔ مهم قبلِ روشن‌کردن:
+# ۱) `TRUST_PROXY_HEADERS=true` لازم است، وگرنه IPِ هر درخواست همانِ پراکسی است و سقفِ نرخِ
+#    دقیقه‌ای (`WEBHOOK_RATE_LIMIT_PER_MINUTE`) همه را با هم می‌بندد.
+# ۲) پرداختِ بله و جاب‌ها رویِ `core` می‌مانند؛ پروسه‌هایِ `web` فقط دریافت و پاسخ‌اند.
+
+services:
+  bot:
+    environment:
+      APP_ROLE: core
+      RUN_MODE: webhook
+      SHARD_COUNT: "1"
+      SHARD_INDEX: "0"
+      DB_POOL_SIZE: "25"
+      TRUST_PROXY_HEADERS: "true"
+      WEBHOOK_RATE_LIMIT_PER_MINUTE: ${WEBHOOK_RATE_LIMIT_PER_MINUTE:-3000}
+    mem_limit: ${CORE_MEM_LIMIT:-3g}
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  web0:
+    build: .
+    image: kasb-o-kar-hoshmand-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python -m app.main
+    environment:
+      APP_ROLE: web
+      RUN_MODE: webhook
+      SHARD_COUNT: "1"
+      DB_POOL_SIZE: "12"
+      TRUST_PROXY_HEADERS: "true"
+      WEBHOOK_LISTEN_PORT: "8000"
+      WEBHOOK_RATE_LIMIT_PER_MINUTE: ${WEBHOOK_RATE_LIMIT_PER_MINUTE:-3000}
+    mem_limit: ${WEB_MEM_LIMIT:-1g}
+    stop_grace_period: 30s
+    volumes:
+      - backups:/backups
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-60s}
+
+  web1:
+    build: .
+    image: kasb-o-kar-hoshmand-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python -m app.main
+    environment:
+      APP_ROLE: web
+      RUN_MODE: webhook
+      SHARD_COUNT: "1"
+      DB_POOL_SIZE: "12"
+      TRUST_PROXY_HEADERS: "true"
+      WEBHOOK_LISTEN_PORT: "8000"
+      WEBHOOK_RATE_LIMIT_PER_MINUTE: ${WEBHOOK_RATE_LIMIT_PER_MINUTE:-3000}
+    mem_limit: ${WEB_MEM_LIMIT:-1g}
+    stop_grace_period: 30s
+    volumes:
+      - backups:/backups
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: ${BOT_HEALTH_START_PERIOD:-60s}
+
+  # پراکسیِ HTTPS. `deploy/Caddyfile` کنارِ همین فایل است و خودش گواهینامه می‌گیرد.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - web0
+      - web1
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # P45: در این لایه polling خاموش است، پس پروسه‌هایِ pollerِ لایهٔ ۳ لازم نیستند. با profile
+  # «polling» فقط وقتی بالا می‌آیند که خودت صریح فعالشان کنی (`--profile polling`).
+
+  poller0:
+    profiles: ["polling"]
+
+  poller1:
+    profiles: ["polling"]
+
+  poller2:
+    profiles: ["polling"]
+
+  poller3:
+    profiles: ["polling"]
+
+  poller4:
+    profiles: ["polling"]
+
+  poller5:
+    profiles: ["polling"]
+
+volumes:
+  caddy_data:
+  caddy_config:
