@@ -103,9 +103,13 @@ async def _load_active_shop_bots(
     except Exception:
         logger.exception("بازنویسیِ رمزنگاری‌شدهٔ رازهایِ وب‌هوک ناموفق بود (ربات‌ها کار می‌کنند).")
     await bot_manager.load_all(shop_bots, bale_enabled=bale_enabled)
+    # P45: شمارِ *ثبت‌شده* در این پروسه گزارش می‌شود، نه شمارِ ردیف‌هایِ دیتابیس؛ با شارد، هر پروسه
+    # فقط بخشِ خودش را نگه می‌دارد و عددِ «همه» لاگِ چند پروسه را گمراه‌کننده می‌کرد.
     logger.info(
-        "%d ربات فروشگاهی‌ِ فعال بارگذاری شد (اتصالِ بله: %s، ربات‌هایِ بله‌دار: %d).",
+        "%d از %d رباتِ فروشگاهیِ فعال در این پروسه بارگذاری شد (%s؛ اتصالِ بله: %s، ربات‌هایِ بله‌دار: %d).",
+        len(bot_manager.registered_shop_bot_ids()),
         len(shop_bots),
+        app_roles.describe(),
         "روشن" if bale_enabled else "خاموش",
         len(bot_manager.registered_bale_bot_ids()),
     )
