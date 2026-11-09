@@ -1097,6 +1097,69 @@ def wallet_empty_notification() -> str:
     )
 
 
+# =============================================================================
+# P43 · مواردِ ۳۰/۳۱/۱۰ — شاکلهٔ گزارشِ نگهبانِ محتوا
+# =============================================================================
+MODERATION_GUARD_BUTTON = "🛡 نگهبانِ محتوا"
+MODERATION_GUARD_ADMIN_BUTTON = "🛡 گزارشِ نگهبانِ محتوا"
+MODERATION_REPORTS_EMPTY = "هیچِ گزارشِ بازِ نگهبانِ محتوا نداری. یعنی هیچ پیامی به قانونِ ممنوعه نخورده است."
+MODERATION_REPORT_REVIEWED = "✅ گزارش بسته شد و از فهرستِ «باز» می‌رود. خودِ پیام و دفترِ ممیزی دست‌نخورده می‌مانند."
+MODERATION_REPORT_NOT_FOUND = "این گزارش پیدا نشد یا به تو مربوط نیست."
+MODERATION_BLOCK_RESULT = {True: "🚫 کاربر بلاک شد؛ رباتِ تو دیگر به پیام‌هایش پاسخ نمی‌دهد.", False: "✅ بلاکِ کاربر برداشته شد."}
+MODERATION_GUARD_REPORT_BLOCKED_CUSTOMER = "⛔️ کاربر بلاک شد؛ از این به بعد رباتِ تو به پیام‌هایش پاسخ نمی‌دهد. از همان صفحهٔ مشخصات می‌توانی رفعِ بلاک کنی."
+MODERATION_CHAT_VIEWED_BY_ADMIN = "👁 گفتگو نشان داده شد. این دیدن در دفترِ ممیزی ثبت شد."
+
+
+def moderation_action_label(action: str) -> str:
+    return {"warn": "🟡 هشدار (گفتگو ادامه پیدا کرد)", "block": "⛔️ مسدود (به گفتگو پایان داده شد)", "review": "🔎 نیازمندِ بررسیِ دستی (پاسخی داده نشد)"}.get(action, action)
+
+
+def moderation_scope_label(scope: str) -> str:
+    return "قانونِ خودت" if scope == "shop" else "قانونِ سراسریِ پلتفرم"
+
+
+def moderation_report_card(report, customer_label: str, *, shop_line: str | None = None) -> str:
+    """کارتِ گزارش — همان چیزی که برایِ فروشگاه‌دار (و برایِ ادمین با خطِ فروشگاه) می‌رود.
+
+    هیچ شناسهٔ فنیِ داخلی در متن نیست؛ «کلمهٔ دیدنی» همان بریدهِ پیامِ مشتری است که برایِ
+    تصمیم لازم است (درخواستِ مالکِ محصول: گزارش باید قابلِ فهم باشد، نه یکِ عددِ بی‌معنا).
+    """
+    lines = [
+        "🛡 نگهبانِ محتوا: پیامِ یکِ مشتری به یکِ قانون خورد",
+        "",
+        f"مشتری: {customer_label}",
+        f"کلمه یا الگوی دیدنی: «{report.pattern}»",
+        f"اکشن: {moderation_action_label(report.action)}",
+        f"منبعِ قانون: {moderation_scope_label(report.scope)}",
+    ]
+    if report.category:
+        lines.append(f"دسته: {report.category}")
+    if shop_line:
+        lines.insert(1, shop_line)
+    lines += ["", "📎 متنِ پیام (بریده):", report.excerpt or "—"]
+    return "\n".join(lines)
+
+
+def moderation_reports_list_text(reports, *, page: int, total_pages: int, total: int) -> str:
+    lines = [
+        f"🛡 گزارش‌هایِ بازِ نگهبانِ محتوا (صفحهٔ {fa_number(page + 1)} از {fa_number(max(total_pages, 1))} — جمعِ {fa_number(total)})",
+        "",
+    ]
+    for report in reports:
+        head = f"• «{report.pattern}» — {moderation_action_label(report.action).split(' ')[0]}"
+        if report.scope == "shop":
+            head += " · قانونِ خودت"
+        lines.append(head)
+    lines += ["", "یکِ گزارش را باز کن تا متنِ پیام، گفتگو و مشخصاتِ کاربر را ببینی."]
+    return "\n".join(lines)
+
+
+def moderation_report_list_button(report, index: int) -> str:
+    mark = "🟡" if report.action == "warn" else ("⛔️" if report.action == "block" else "🔎")
+    label = (report.excerpt or report.pattern)[:22]
+    return f"{mark} {index}. «{report.pattern}» — {label}"
+
+
 def moderation_review_notification(category: str | None) -> str:
     category_part = f" (دسته: {category})" if category else ""
     return (
@@ -2316,6 +2379,8 @@ def admin_role_scope_label(role) -> str:
 
 _AUDIT_EVENT_LABELS = {
     "moderation_match": "🛡 تطبیقِ نگهبانِ محتوا",
+    "moderation_reviewed": "🛡 بسته‌شدنِ گزارشِ نگهبانِ محتوا",
+    "moderation_chat_viewed": "👁 دیدنِ گفتگو از رویِ گزارشِ نگهبانِ محتوا",
     "admin_setting_changed": "⚙️ تغییرِ تنظیمات",
     "kill_switch_toggled": "🔀 تغییرِ سوییچ",
     "shop_suspended": "⛔️ تعلیقِ فروشگاه",

@@ -16,9 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.main_bot import texts as main_texts
 from app.bots.shop_bot import cart_proposal_ui as proposal_ui
 from app.bots.shop_bot import keyboards, texts
-from app.database.models import AuditEventType, ModerationAction, OrderType, TenantMode, WalletTransactionReason
+from app.database.models import AuditEventType, OrderType, TenantMode, WalletTransactionReason
 from app.database.session import session_scope
 from app.services import (
+    moderation_notify_service,
+    crm_service,
     ai_context,
     ai_pool_service,
     ai_service,
@@ -621,37 +623,13 @@ async def _generate_and_send_reply(
 
     admin_settings = await cached_admin_settings(session)
 
-    matched_rule = await moderation_service.check_text(session, combined_text)
-    if matched_rule is not None and matched_rule.action != ModerationAction.WARN:
-        await audit_log_service.log(
-            session,
-            AuditEventType.MODERATION_MATCH,
-            shop_bot_id=shop_bot_id,
-            actor_telegram_id=customer_tg_id,
-            details=f"الگو: {matched_rule.pattern} | اکشن: {matched_rule.action} | دسته: {matched_rule.category or '-'}",
-        )
-        await shop_bot_instance.send_message(customer_tg_id, texts.MODERATION_BLOCKED_REPLY)
-        if matched_rule.action == ModerationAction.REVIEW:
-            owner_for_review = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
-            if owner_for_review is not None:
-                try:
-                    await main_bot.send_message(
-                        owner_for_review.telegram_id, main_texts.moderation_review_notification(matched_rule.category)
-                    )
-                except TelegramAPIError:
-                    logger.exception("اطلاع‌رسانیِ نیازِ بازبینیِ محتوا به فروشگاه‌دار %s ناموفق بود.", owner_for_review.telegram_id)
-        return
-    if matched_rule is not None:
-        # WARN: فقط ثبت می‌شه، مکالمه به‌طورِ عادی ادامه پیدا می‌کنه.
-        await audit_log_service.log(
-            session,
-            AuditEventType.MODERATION_MATCH,
-            shop_bot_id=shop_bot_id,
-            actor_telegram_id=customer_tg_id,
-            details=f"الگو: {matched_rule.pattern} | اکشن: warn | دسته: {matched_rule.category or '-'}",
-        )
-
-    # P33-D: اگر میدل‌ور مشتری را حل کرده بود، همین‌جا فقط خوانده می‌شود (یکِ درجِ
+    # P43 · مواردِ ۳۰/۳۱: گزارشِ قابلِ فهم، اکشنِ درست و چکِ قانونِ خودِ فروشگاه.
+    # ترتیبِ نوشتن عمداً این است: اول ردیفِ گزارش و ممیزی (و در بلاک، ستونِ بلاک) بعد
+    # commit، و فقط بعد از آن پیام‌ها می‌روند ⇒ اگر تلگرام لحظه‌ای قطع باشد، گزارش در
+    # فهرستِ «باز» می‌ماند و هیچ‌چیز گم نمی‌شود.
+    # P33-D + P43: مشتری و مالک پیش ازِ چکِ نگهبان خوانده/ساخته می‌شوند، چون ردیفِ گزارش به
+    # `customer_id` نیاز دارد. (اگر نگهبان جلویِ پاسخ را بگیرد، همین ردیف‌ها لازم‌اند.)
+    # اگر میدل‌ور مشتری را حل کرده بود، همین‌جا فقط خوانده می‌شود (یکِ درجِ
     # ON CONFLICT کمتر). شناسه فقط وقتی معتبر است که به همین فروشگاه بماند؛ وگرنه به
     # مسیرِ «ساختن» برمی‌گردیم.
     customer = None
@@ -669,6 +647,38 @@ async def _generate_and_send_reply(
             platform=platform_service.platform_of(shop_bot_instance),
         )
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
+
+    matched_rule = await moderation_service.check_text(session, combined_text, shop_bot_id=shop_bot_id)
+    if matched_rule is not None:
+        action = matched_rule.action.value if hasattr(matched_rule.action, "value") else str(matched_rule.action)
+        report = await moderation_service.record_report(
+            session, shop_bot_id=shop_bot_id, customer_id=customer.id, rule=matched_rule, text=combined_text
+        )
+        await audit_log_service.log(
+            session,
+            AuditEventType.MODERATION_MATCH,
+            shop_bot_id=shop_bot_id,
+            actor_telegram_id=customer_tg_id,
+            details=f"الگو: {matched_rule.pattern} | اکشن: {action} | دسته: {matched_rule.category or '-'} | گزارش: {report.id}",
+        )
+        if action == "block":
+            # «مسدود» باید واقعاً مشتری را از همان پیامِ بعدی متوقف کند (پیش ازِ این فقط
+            # یکِ پاسخِ خنثی می‌رفت و ربات به کارش ادامه می‌داد).
+            await crm_service.set_blocked(session, customer, True)
+        await session.commit()
+        await moderation_notify_service.reply_to_customer(shop_bot_instance, customer_tg_id, action)
+        await moderation_notify_service.send_report_cards(
+            main_bot,
+            session,
+            shop_bot=shop_bot,
+            owner=owner,
+            customer=customer,
+            report=report,
+            to_admins=matched_rule.shop_bot_id is None,
+        )
+        if action != "warn":
+            return
+
 
     if not order_access_service.chat_continues(await order_access_service.evaluate(session, owner, admin_settings)):
         # موجودیِ کیف‌پول توی فاصله‌ی جمع‌آوریِ پیام‌ها (debounce) به صفر رسیده و سوییچِ

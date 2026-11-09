@@ -201,6 +201,8 @@ class ModerationAction(str, enum.Enum):
 
 class AuditEventType(str, enum.Enum):
     MODERATION_MATCH = "moderation_match"
+    MODERATION_REVIEWED = "moderation_reviewed"  # P43 · موردِ ۱۰: تصمیمِ فروشگاه‌دار/ادمین رویِ گزارش
+    MODERATION_CHAT_VIEWED = "moderation_chat_viewed"  # P43: هر بارِ دیدنِ گفتگو از رویِ گزارش (دمِ ادمین هم ثبت می‌شود)
     ADMIN_SETTING_CHANGED = "admin_setting_changed"
     KILL_SWITCH_TOGGLED = "kill_switch_toggled"
     SHOP_SUSPENDED = "shop_suspended"
@@ -1024,6 +1026,33 @@ class ModerationRule(Base, CreatedAtMixin):
     action: Mapped[ModerationAction] = _enum_column(ModerationAction, default=ModerationAction.REVIEW, nullable=False)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # P43 · موردِ ۳۰: NULL یعنی قانونِ سراسریِ پلتفرم (گزارشش به ادمین هم می‌رود)؛ مقدار یعنی
+    # قانونِ *همان* فروشگاه (گزارشش فقط به صاحبِ همان کسب‌وکار می‌رود).
+    shop_bot_id: Mapped[int | None] = mapped_column(ForeignKey("shop_bots.id", ondelete="CASCADE"), index=True, nullable=True)
+
+
+class ModerationReport(Base, CreatedAtMixin):
+    """P43 · موردِ ۱۰ و ۳۰: هر برخوردِ پیامِ مشتری با یکِ قانون، یکِ گزارشِ مستقل است.
+
+    تا پیشِ این فقط یکِ ردیفِ ممیزی (`MODERATION_MATCH`) نوشته می‌شد که نه شناسهٔ مشتری داشت و نه
+    پیوندی به گفتگو؛ یعنی فروشگاه‌دار «گزارش» می‌دید ولی دکمه‌ای برایِ رفتن سرِ همان چت نداشت.
+    `pattern`/`category`/`scope` در همان لحظه رویِ ردیف کپی می‌شوند تا حذف‌کردنِ قانون، گزارشِ
+    قبلی را بی‌معنا نکند (`rule_id` با `SET NULL` می‌شود، نه گزارش).
+    """
+
+    __tablename__ = "moderation_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id", ondelete="CASCADE"), index=True, nullable=False)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), index=True, nullable=True)
+    rule_id: Mapped[int | None] = mapped_column(ForeignKey("moderation_rules.id", ondelete="SET NULL"), index=True, nullable=True)
+    pattern: Mapped[str] = mapped_column(String(200), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    reviewed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AiKeyCapability(str, enum.Enum):

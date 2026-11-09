@@ -153,6 +153,8 @@ def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True) -> R
         rows.append(["🧾 مدیریتِ سفارش‌ها (جاری)"])  # W5: سفارش‌هایِ باز یک‌جا (اعلان‌ها دیگه گم نمی‌شن)
     rows += [
         ["🧠 دستور هوشمندسازی", "📢 کانال دانش‌افزایی"],
+        # P43 · موردِ ۳۰: در *هر دو* پنل (فروشگاهی و مشاوره‌ای) ورودیِ نگهبانِ محتوا لازم است.
+        [texts.MODERATION_GUARD_BUTTON],
         ["👀 پیش‌نمایش ربات", "📊 آمار"],
         ["💰 کیف‌پول", "🎁 کد معرف"],
         ["🧾 تاریخچه‌ی پرداخت", "📤 خروجی اکسل"],
@@ -782,6 +784,60 @@ def order_advance_status_keyboard(order_id: int, next_label: str) -> InlineKeybo
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=next_label, callback_data=f"advance_order:{order_id}")]])
 
 
+def moderation_report_keyboard(
+    report_id: int,
+    *,
+    blocked: bool,
+    chat_cb: str | None = None,
+    profile_cb: str | None = None,
+    back_cb: str = "mod_list:0",
+) -> InlineKeyboardMarkup:
+    """P43 · موردِ ۱۰: رویِ هر گزارشِ نگهبانِ محتوا، «گفتگو» و «مشخصاتِ کاربر» هم هستند.
+
+    دو دکمهٔ دیدنِ چت از بیرون پاس داده می‌شوند (`crm_conv:<id>:0` / `cc_card:<id>:0`) تا
+    صفحهٔ تکراری ساخته نشود؛ اگر مشتری حذف شده باشد، `None` می‌آید و دکمه ساخته نمی‌شود
+    (دکمهٔ مرده دقیقاً همان چیزی است که مالکِ محصول چند بار گزارش کرده).
+    """
+    rows = []
+    pair = []
+    if chat_cb:
+        pair.append(InlineKeyboardButton(text="👁 گفتگو", callback_data=chat_cb))
+    if profile_cb:
+        pair.append(InlineKeyboardButton(text="👤 مشخصاتِ کاربر", callback_data=profile_cb))
+    if pair:
+        rows.append(pair)
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="✅ رفعِ بلاک" if blocked else "🚫 بلاکِ این کاربر",
+                callback_data=f"mod_unblock:{report_id}" if blocked else f"mod_block:{report_id}",
+            ),
+            InlineKeyboardButton(text="✅ بررسی شد", callback_data=f"mod_done:{report_id}"),
+        ]
+    )
+    rows.append([InlineKeyboardButton(text="⬅️ فهرستِ گزارش‌ها", callback_data=back_cb)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def moderation_reports_list_keyboard(reports, page: int, total_pages: int, *, list_cb: str = "mod_list") -> InlineKeyboardMarkup:
+    """فهرستِ گزارش‌ها؛ هر گزارش یکِ دکمهٔ تمام‌عرض (برچسبِ بلند در نصفِ عرض با «…» می‌بُرد)."""
+    from app.bots.main_bot import texts as _texts
+
+    rows = [
+        [InlineKeyboardButton(text=_texts.moderation_report_list_button(rep, index + 1)[:56], callback_data=f"mod_open:{rep.id}")]
+        for index, rep in enumerate(reports)
+    ]
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="⬅️ قبلی", callback_data=f"{list_cb}:{page - 1}"))
+    if page + 1 < total_pages:
+        nav.append(InlineKeyboardButton(text="بعدی ➡️", callback_data=f"{list_cb}:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def moderation_rules_list_keyboard(rules) -> InlineKeyboardMarkup:
     rows = []
     for rule in rules:
@@ -790,6 +846,7 @@ def moderation_rules_list_keyboard(rules) -> InlineKeyboardMarkup:
         label = f"{status_icon} «{rule.pattern}» ({action_value})"
         rows.append([InlineKeyboardButton(text=label[:60], callback_data=f"mod_rule_view:{rule.id}")])
     rows.append([InlineKeyboardButton(text="➕ افزودنِ قانونِ جدید", callback_data="mod_rule_add")])
+    rows.append([InlineKeyboardButton(text="📋 گزارش‌هایِ بازِ فروشگاه‌ها", callback_data="mod_admin_list:0")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

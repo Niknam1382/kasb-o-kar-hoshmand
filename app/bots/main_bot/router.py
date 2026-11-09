@@ -15,6 +15,7 @@ from app.bots.main_bot.handlers import (
     crm,
     orders_manage,
     knowledge,
+    moderation_reports,
     order_ops,
     panel,
     payment_ops,
@@ -152,5 +153,6 @@ def build_main_router() -> Router:
     router.include_router(shop_prefs.router)  # P18 · A5: مهلت‌ها و حافظه‌یِ per-shop
     router.include_router(checkout_steps.router)  # P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت
     router.include_router(consult_contacts.router)  # P18 · C2: گفتگوها و کاربرانِ مشاوره
+    router.include_router(moderation_reports.router)  # P43 · مواردِ ۱۰/۳۰/۳۱: گزارشِ نگهبانِ محتوا
     router.include_router(start.router)
     return router

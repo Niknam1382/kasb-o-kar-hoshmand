@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import datetime
 import logging
 import re
 import signal
 import threading
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import ModerationRule
+from app.database.models import ModerationReport, ModerationRule
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,76 @@ def _safe_regex_match(pattern: str, text: str) -> bool:
         signal.signal(signal.SIGALRM, old_handler)
 
 
+# =============================================================================
+# P43 · موردِ ۳۰ — دقتِ تطبیق (باگِ واقعی: قانونِ «خر» کلمهٔ «آخر/خرید» را هم می‌گرفت)
+# =============================================================================
+# دو لایه:
+#   ۱) نرمال‌سازی: ي/ك/ى عربی ← فارسی، حذفِ تنوین/کشیده/علامت‌ها، ZWNJ مرزِ کلمه است.
+#   ۲) تطبیقِ «کلِ کلمه» برایِ قوانینِ غیرِ regex: الگو به کلمه‌ها شکسته می‌شود و باید
+#      *به‌ترتیب و کامل* در کلمه‌هایِ پیام بیاید. پس «خر» ≠ «آخر» و «خرید» ≠ «خر»، ولی
+#      «تقلب  کردن» همان عبارت را با فاصله‌هایِ اضافه هم پیدا می‌کند.
+# برایِ regex رفتارِ قبلی دست‌نخورده است (نویسندهٔ الگو خودش مرز را می‌نویسد) و همان محافظتِ
+# ReDoS ۱۰۰ میلی‌ثانیه‌ای سرِ جایش است.
+_ARABIC_TO_PERSIAN = {"ي": "ی", "ك": "ک", "ى": "ی", "ە": "ه", "ؤ": "و", "أ": "ا", "إ": "ا", "آ": "ا"}
+_DIACRITICS = "ًٌٍَُِّْٰـ​"  # تنوین‌ها، حرکته‌ها، کشیده، ZWSP
+_WORD_RE = re.compile("[0-9A-Za-z\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF']+")
+
+
+def normalize_text(value: str) -> str:
+    """نرمال‌ِ یکسانِ «الگو» و «متنِ پیام» — بی‌این، دو شکلِ نوشتاریِ یکِ کلمه مقابقت نمی‌کردند."""
+    out = []
+    for ch in value:
+        if ch in _DIACRITICS:
+            continue
+        out.append(_ARABIC_TO_PERSIAN.get(ch, ch))
+    return "".join(out).lower().replace("‌", " ")
+
+
+def tokenize(value: str) -> list[str]:
+    """کلمه‌هایِ نرمال‌شده؛ ترتیب نگه داشته می‌شود (تطبیقِ عبارت به ترتیب نیاز دارد)."""
+    return _WORD_RE.findall(normalize_text(value))
+
+
+def _phrase_matches(pattern_words: list[str], text_words: list[str]) -> bool:
+    if not pattern_words:
+        return False
+    span = len(pattern_words)
+    for start in range(len(text_words) - span + 1):
+        if text_words[start : start + span] == pattern_words:
+            return True
+    return False
+
+
+SCOPE_PLATFORM = "platform"
+SCOPE_SHOP = "shop"
+EXCERPT_MAX_LENGTH = 220
+
+
+def excerpt_of(text: str) -> str:
+    """بریدهِ دیدنیِ گزارش: بدونِ کنترل‌نویسه، با سقفِ طول (متنِ پیامِ مشتری، نه رازِ فنی)."""
+    cleaned = " ".join((text or "").split())
+    return cleaned[:EXCERPT_MAX_LENGTH]
+
+
+async def get_rules(session: AsyncSession, shop_bot_id: int | None = None, *, active_only: bool = True) -> list[ModerationRule]:
+    """قانون‌هایِ پلتفرم (shop_bot_id خالی) + قانون‌هایِ *همان* فروشگاه، در یکِ SELECT.
+
+    ترتیبِ عمدی: اولِ فروشگاه (اختصاصی‌تر)، بعدِ سراسری. بی‌این مرتب‌سازی، دو قانونِ یکسان با
+    اکشنِ متفاوت بسته بهِ ترتیبِ بازگشتِ دیتابیس رفتارِ متفاوت می‌دادند.
+    """
+    query = select(ModerationRule)
+    if active_only:
+        query = query.where(ModerationRule.is_active.is_(True))
+    if shop_bot_id is None:
+        query = query.where(ModerationRule.shop_bot_id.is_(None))
+    else:
+        query = query.where(
+            (ModerationRule.shop_bot_id.is_(None)) | (ModerationRule.shop_bot_id == shop_bot_id)
+        )
+    rows = list((await session.execute(query.order_by(ModerationRule.shop_bot_id.asc().nulls_last(), ModerationRule.id))).scalars().all())
+    return rows
+
+
 async def get_active_rules(session: AsyncSession) -> list[ModerationRule]:
     result = await session.execute(select(ModerationRule).where(ModerationRule.is_active.is_(True)))
     return list(result.scalars().all())
@@ -129,23 +200,84 @@ async def get_all_rules(session: AsyncSession) -> list[ModerationRule]:
     return list(result.scalars().all())
 
 
-async def check_text(session: AsyncSession, text: str) -> ModerationRule | None:
-    """
-    متن رو در برابرِ همه‌ی قوانینِ فعال چک می‌کنه و اولین قانونِ مطابق رو
-    برمی‌گردونه (یا None اگه چیزی مطابقت نداشت).
-    """
+async def check_text(session: AsyncSession, text: str, *, shop_bot_id: int | None = None) -> ModerationRule | None:
+    """اولین قانونِ مطابق (None ⇒ هیچ). `shop_bot_id` ⇒ قانون‌هایِ خودِ فروشگاه هم چک می‌شوند."""
     if not text:
         return None
-    rules = await get_active_rules(session)
-    lowered = text.lower()
+    rules = await get_rules(session, shop_bot_id)
+    if not rules:
+        return None
+    words = tokenize(text)
     for rule in rules:
         if rule.is_regex:
             if _safe_regex_match(rule.pattern, text):
                 return rule
-        else:
-            if rule.pattern.lower() in lowered:
-                return rule
+        elif _phrase_matches(tokenize(rule.pattern), words):
+            return rule
     return None
+
+
+def scope_of(rule: ModerationRule) -> str:
+    return SCOPE_SHOP if rule.shop_bot_id is not None else SCOPE_PLATFORM
+
+
+async def record_report(
+    session: AsyncSession,
+    *,
+    shop_bot_id: int,
+    customer_id: int | None,
+    rule: ModerationRule,
+    text: str,
+) -> ModerationReport:
+    """ردیفِ گزارش — پیش ازِ هر فراخوانیِ شبکه نوشته و commit می‌شود (قاعدهٔ ۷)."""
+    report = ModerationReport(
+        shop_bot_id=shop_bot_id,
+        customer_id=customer_id,
+        rule_id=rule.id,
+        pattern=rule.pattern[:200],
+        category=rule.category,
+        action=rule.action.value if hasattr(rule.action, "value") else str(rule.action),
+        scope=scope_of(rule),
+        excerpt=excerpt_of(text),
+    )
+    session.add(report)
+    await session.flush()
+    return report
+
+
+async def get_report(session: AsyncSession, report_id: int) -> ModerationReport | None:
+    return await session.get(ModerationReport, report_id)
+
+
+async def list_reports(session: AsyncSession, shop_bot_ids: list[int] | None, *, limit: int, offset: int = 0, only_open: bool = True):
+    """گزارش‌هایِ تازه‌تر‌اول. `shop_bot_ids=None` ⇒ همه (پنلِ ادمین)؛ فهرست ⇒ فقط آن فروشگاه‌ها."""
+    query = select(ModerationReport)
+    if shop_bot_ids is not None:
+        if not shop_bot_ids:
+            return []
+        query = query.where(ModerationReport.shop_bot_id.in_(shop_bot_ids))
+    if only_open:
+        query = query.where(ModerationReport.reviewed.is_(False))
+    query = query.order_by(ModerationReport.created_at.desc(), ModerationReport.id.desc()).limit(limit).offset(offset)
+    return list((await session.execute(query)).scalars().all())
+
+
+async def count_reports(session: AsyncSession, shop_bot_ids: list[int] | None, *, only_open: bool = True) -> int:
+    """چند گزارشِ باز؟ `shop_bot_ids=None` ⇒ همهٔ فروشگاه‌ها (صفحهٔ ادمین)."""
+    query = select(func.count()).select_from(ModerationReport)
+    if shop_bot_ids is not None:
+        if not shop_bot_ids:
+            return 0
+        query = query.where(ModerationReport.shop_bot_id.in_(shop_bot_ids))
+    if only_open:
+        query = query.where(ModerationReport.reviewed.is_(False))
+    return int((await session.execute(query)).scalar_one())
+
+
+async def mark_reviewed(session: AsyncSession, report: ModerationReport) -> None:
+    report.reviewed = True
+    report.reviewed_at = datetime.datetime.now(datetime.timezone.utc)
+    await session.flush()
 
 
 async def create_rule(
