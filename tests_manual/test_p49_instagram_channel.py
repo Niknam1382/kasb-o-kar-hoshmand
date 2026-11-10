@@ -89,6 +89,9 @@ def test_oauth_state_roundtrip_rejects_unknown() -> None:
     assert instagram_service.parse_state(state) == 4211, "stateِ تازه باید همان فروشگاه را بدهد"
     assert instagram_service.parse_state("garbage") is None
     assert instagram_service.parse_state(None) is None
+    assert instagram_service.COMMENT_REPLY_DAYS == 7
+    old = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    assert not instagram_service.comment_reply_is_open(old, now=datetime.datetime(2026, 1, 10, tzinfo=datetime.timezone.utc))
     url = instagram_service.build_oauth_url("app-9", "https://bot.example.test/webhook/instagram/oauth", state)
     assert url.startswith("https://www.instagram.com/oauth/authorize?"), url[:60]
     assert "client_id=app-9" in url and "messaging" in url
@@ -108,12 +111,18 @@ def test_parse_event_takes_inbound_text_and_skips_noise() -> None:
                     {"sender": {"id": "222"}, "message": {"attachment": {"type": "image"}, "mid": "m2"}},
                 ]
             },
-            {"id": "178414", "time": 1762000000000, "changes": [{"field": "comments", "value": {"id": "c1"}}]},
+            {"id": "178414", "time": 1762000000000, "changes": [{"field": "comments", "value": {"id": "c1", "text": "قیمت؟", "timestamp": 1780000000, "media": {"id": "17890"}, "from": {"username": "sara"}}}]},
         ],
     }
     events = instagram_service.parse_event(payload)
-    assert len(events) == 2, f"یکِ دایرکت + یکِ علامتِ کامنت (P49-B): {events}"
-    assert events[1] is None, "کامنت فعلاً فقط شمارش می‌شود، نه پردازش"
+    assert len(events) == 2, f"یکِ دایرکت + یکِ کامنت: {events}"
+    comment = events[1]
+    assert isinstance(comment, instagram_service.CommentEvent), comment
+    assert comment.comment_id == "c1" and comment.media_id == "17890" and comment.ig_account_id == "178414", comment
+    fresh = datetime.datetime(2026, 5, 28, 20, 26, 40, tzinfo=datetime.timezone.utc)
+    assert comment.created_at == fresh, comment.created_at
+    assert instagram_service.comment_reply_is_open(fresh, now=fresh + datetime.timedelta(days=6))
+    assert not instagram_service.comment_reply_is_open(fresh, now=fresh + datetime.timedelta(days=8))
     event = events[0]
     assert isinstance(event, DirectMessage)
     assert event.sender_psid == "111" and event.text == "قیمت چنده؟", event

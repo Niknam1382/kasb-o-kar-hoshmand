@@ -744,6 +744,10 @@ class InstagramAccount(Base):
     ig_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     page_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     access_token: Mapped[str] = mapped_column(EncryptedToken(512), nullable=False)
+    # P49-ب: پاسخِ عمومی به کامنت و «پاسخِ خصوصی» به کامنت‌کننده (متا به‌ازایِ هرِ کامنت فقط یکِ پیام
+    # و فقط تا ۷ روز اجازه می‌دهد). `auto_reply_dm` پایین‌تر تعریف شده است.
+    auto_reply_comments: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    private_reply_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     auto_reply_dm: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     greeting_text: Mapped[str | None] = mapped_column(Text, nullable=True)

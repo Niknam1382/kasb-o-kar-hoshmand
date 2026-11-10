@@ -93,7 +93,7 @@ DEFAULT_GRAPH_BASE = "https://graph.facebook.com"
 DEFAULT_LOGIN_BASE = "https://www.instagram.com/oauth/authorize"
 # میزبان‌هایی که خارجِ این فهرست‌اند هرگز صدا زده نمی‌شوند (نگهبانِ SSRF + نشتِ توکن).
 _TRUSTED_HOSTS = frozenset({"graph.facebook.com", "graph.instagram.com", "www.instagram.com", "instagram.com"})
-OAUTH_SCOPES = "user_profile,messaging,instagram_business_basic,instagram_business_manage_messages"
+OAUTH_SCOPES = "user_profile,messaging,instagram_business_basic,instagram_business_manage_messages,instagram_business_manage_comments"
 
 API_TIMEOUT_SECONDS = 20.0
 DM_WINDOW_SECONDS = 24 * 60 * 60  # قاعدهٔ متا: تا ۲۴ ساعت از آخرین پیامِ مشتری می‌شود پاسخ داد
@@ -132,6 +132,22 @@ class DirectMessage:
     sender_psid: str
     text: str
     message_id: str | None
+    created_at: datetime.datetime | None
+
+
+@dataclass(frozen=True)
+class CommentEvent:
+    """کامنتِ عمومیِ تازه رویِ پست/ریلز/استوریِ همین فروشگاه (P49-ب).
+
+    `media_id` برایِ جوابِ عمومی لازم است (endpoint کامنت زیرِ media می‌رود) و `comment_id` برایِ
+    «پاسخِ خصوصی» که فقط یک‌بار به هرِ کامنت‌کننده اجازه دارد.
+    """
+
+    comment_id: str
+    media_id: str
+    ig_account_id: str
+    text: str
+    username: str
     created_at: datetime.datetime | None
 
 
@@ -332,8 +348,10 @@ def parse_event(payload: dict) -> list:
             continue
         entry_id = _as_text(entry.get("id"))
         for change in entry.get("changes") or []:
-            if isinstance(change, dict):
-                events.append(None)  # P49-B: کامنت/ویرایشِ کامنت — فعلاً فقط علامت می‌ماند
+            if not isinstance(change, dict):
+                continue
+            comment = _as_comment(change, entry_id)
+            events.append(comment)  # None ⇒ رویدادِ ناشناخته (نه کامنت) تا شمارشِ «چه آمد» گم نشود
         for messaging in entry.get("messaging") or []:
             if not isinstance(messaging, dict):
                 continue
@@ -521,6 +539,100 @@ async def fetch_account_info(access_token: str) -> dict:
     if not ig_account_id or not _SAFE_ID_RE.fullmatch(ig_account_id):
         raise InstagramError("شناسهٔ اکانتِ اینستاگرام از متا معتبر نبود؛ دوباره اتصال را امتحان کن.")
     return {"ig_account_id": ig_account_id, "username": _as_text(data.get("username"))[:64]}
+
+
+COMMENT_REPLY_DAYS = 7  # قاعدهٔ متا: پاسخِ خصوصی فقط تا ۷ روزِ بعد ازِ کامنت، و فقط یکِ پیام
+_COMMENT_FIELDS = ("comments", "live_comments")
+
+
+def _as_comment(change: dict, entry_id: str) -> CommentEvent | None:
+    """تبدیلِ یکِ `changes[]` به CommentEvent؛ هر چیزِ دیگر (ویرایشِ پست و…) ⇒ None."""
+    if _as_text(change.get("field")) not in _COMMENT_FIELDS:
+        return None
+    value = change.get("value")
+    if not isinstance(value, dict):
+        return None
+    comment_id = _as_text(value.get("id"))
+    text = _as_text(value.get("text"))
+    media = value.get("media") if isinstance(value.get("media"), dict) else {}
+    media_id = _as_text(media.get("id"))
+    from_user = value.get("from") if isinstance(value.get("from"), dict) else {}
+    username = _as_text(from_user.get("username")) or _as_text(value.get("username"))
+    account_id = _as_text(value.get("ig_id")) or entry_id
+    if not comment_id or not text or not media_id:
+        return None
+    if not (_SAFE_ID_RE.fullmatch(comment_id) and _SAFE_ID_RE.fullmatch(media_id) and _SAFE_ID_RE.fullmatch(account_id)):
+        return None  # شناسهٔ ناشناخته نه به آدرسِ Graph می‌رود نه به ستونِ ۶۴نویسه‌ای
+    return CommentEvent(
+        comment_id=comment_id,
+        media_id=media_id,
+        ig_account_id=account_id,
+        text=text[:2000],
+        username=username[:64],
+        created_at=_as_time(value.get("timestamp")),
+    )
+
+
+def comment_reply_is_open(created_at: datetime.datetime | None, now: datetime.datetime | None = None) -> bool:
+    """پاسخِ خصوصی فقط تا ۷ روزِ بعد ازِ کامنت مجاز است (بعد ازِ آن متا رد می‌کند)."""
+    if created_at is None:
+        return True  # بی‌زمان ⇒ تصمیم با خودِ متا؛ پیام را از دست نمی‌دهیم
+    moment = now or datetime.datetime.now(datetime.timezone.utc)
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=datetime.timezone.utc)
+    return (moment - created_at) <= datetime.timedelta(days=COMMENT_REPLY_DAYS)
+
+
+async def reply_to_comment(session: AsyncSession, account: InstagramAccount | None, event: CommentEvent, text: str) -> bool:
+    """جوابِ *عمومی* زیرِ همان کامنت: `POST /{ig}/media/{media_id}/comments`."""
+    if account is None or not (account.access_token or ""):
+        return False
+    if not _SAFE_ID_RE.fullmatch(account.ig_account_id or ""):
+        return False
+    body = text_limits.clip(text, text_limits.INSTAGRAM_DM_LIMIT)
+    if not body:
+        return False
+    url = f"{graph_base()}/{graph_version()}/{account.ig_account_id}/media/{event.media_id}/comments"
+    try:
+        await _post_json(url, {"access_token": account.access_token, "message": body}, label="پاسخِ عمومی به کامنت")
+    except InstagramError as exc:
+        await remember_error(session, account, str(exc))
+        logger.warning("پاسخِ عمومی به کامنت برایِ فروشگاه %s ناموفق بود.", account.shop_bot_id)
+        return False
+    return True
+
+
+async def send_private_reply(session: AsyncSession, account: InstagramAccount | None, event: CommentEvent, text: str) -> bool:
+    """«پاسخِ خصوصی» به کامنت‌کننده: `POST /{ig}/messages` با `recipient={"comment_id": …}`.
+
+    متا به‌ازایِ هرِ کامنت فقط **یکِ پیام** اجازه می‌دهد؛ این مسیر ادامهٔ گفتگو نیست، فقط درِ ورود به
+    دایرکت است (ادامه وقتی مجاز است که خودِ کاربر جواب بدهد ⇒ همان مسیرِ DM).
+    """
+    if account is None or not (account.access_token or ""):
+        return False
+    if not _SAFE_ID_RE.fullmatch(account.ig_account_id or "") or not _SAFE_ID_RE.fullmatch(event.comment_id):
+        return False
+    if not comment_reply_is_open(event.created_at):
+        await remember_error(session, account, f"{COMMENT_REPLY_DAYS} روز از کامنت گذشته است؛ متا پاسخِ خصوصی را قبول نمی‌کند.")
+        return False
+    body = text_limits.clip(text, text_limits.INSTAGRAM_DM_LIMIT)
+    if not body:
+        return False
+    url = f"{graph_base()}/{graph_version()}/{account.ig_account_id}/messages"
+    payload = {
+        "access_token": account.access_token,
+        "recipient": json.dumps({"comment_id": event.comment_id}),
+        "message": json.dumps({"text": body}),
+        "messaging_type": "RESPONSE",
+        "tag": "PRIVATE_TEXT",
+    }
+    try:
+        await _post_json(url, payload, label="پاسخِ خصوصی به کامنت")
+    except InstagramError as exc:
+        await remember_error(session, account, str(exc))
+        logger.warning("پاسخِ خصوصی اینستاگرام برایِ فروشگاه %s ناموفق بود.", account.shop_bot_id)
+        return False
+    return True
 
 
 async def send_message(
