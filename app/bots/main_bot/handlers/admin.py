@@ -30,6 +30,7 @@ from app.bots.main_bot.states import (
     AdminSettingsStates,
     AdminWalletCorrectionStates,
     AiPoolStates,
+    StatsRangeStates,
     AuditRangeStates,
     BroadcastStates,
     ModerationStates,
@@ -236,11 +237,109 @@ async def payment_queue_stub(message: Message, session: AsyncSession) -> None:
 # =============================================================================
 # آمار سراسری
 # =============================================================================
+_STATS_RANGE_KEYS = ("stats_since", "stats_until")
+_STATS_DEFAULT_DAYS = 400  # کافی برایِ پوششِ ۱۲ ماهِ جلالیِ کامل
+_CANCEL_WORDS = ("انصراف", "لغو", "/cancel")
+
+
+async def _stats_range_state(state: FSMContext) -> tuple[datetime.datetime | None, datetime.datetime | None]:
+    data = await state.get_data()
+    return _audit_iso_to_utc(data.get(_STATS_RANGE_KEYS[0])), _audit_iso_to_utc(data.get(_STATS_RANGE_KEYS[1]))
+
+
+async def _stats_answer(target, session: AsyncSession, *, view: str, state: FSMContext) -> None:
+    """یکِ صفحه، دو نما: «خلاصهٔ کلِ دوره» (همان متنِ قبلی) و «نمودارِ ماهانه» (موردِ ۴۴).
+
+    بازهٔ دلخواه در FSM می‌ماند تا ادمین بتواند بارها بینِ دو نما جابه‌جا شود؛ اگر بازه‌ای
+    تنظیم نشده باشد، نمودار ۱۲ ماهِ گذشته را نشان می‌دهد (۴۰۰ روز، تا ماهِ جلالیِ ناقصِ اول حذف شود).
+    """
+    from app.utils.text_limits import clip
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    since, until = await _stats_range_state(state)
+    has_range = since is not None or until is not None
+    if view == "summary":
+        body = texts.platform_stats_text(await stats_service.get_platform_stats(session))
+    else:
+        report = await stats_service.platform_revenue_report(
+            session,
+            since=since or (now - datetime.timedelta(days=_STATS_DEFAULT_DAYS)),
+            until=until or (now + datetime.timedelta(days=1)),
+        )
+        title = texts.ADMIN_STATS_RANGE_TITLE if has_range else texts.ADMIN_STATS_12M_TITLE
+        body = clip(texts.platform_revenue_chart_text(report, title=title), 3800)
+    await target.answer(body, reply_markup=keyboards.admin_stats_keyboard(has_range=has_range))
+
+
 @router.message(Command("admin_stats"))
 @router.message(F.text == "📊 آمار سراسری")
-async def admin_stats(message: Message, session: AsyncSession) -> None:
-    stats = await stats_service.get_platform_stats(session)
-    await message.answer(texts.platform_stats_text(stats))
+async def admin_stats(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    await _stats_answer(message, session, view="summary", state=state)
+
+
+@router.callback_query(F.data == "admin_stats_summary")
+async def cb_admin_stats_summary(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await callback.answer()
+    await _stats_answer(callback.message, session, view="summary", state=state)
+
+
+@router.callback_query(F.data == "admin_stats_chart")
+async def cb_admin_stats_chart(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await callback.answer()
+    await _stats_answer(callback.message, session, view="chart", state=state)
+
+
+@router.callback_query(F.data == "admin_stats_range_clear")
+async def cb_admin_stats_range_clear(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    data = await state.get_data()
+    for key in _STATS_RANGE_KEYS:
+        data.pop(key, None)
+    await state.set_data(data)
+    await callback.answer(texts.ADMIN_STATS_RANGE_CLEARED)
+    await _stats_answer(callback.message, session, view="chart", state=state)
+
+
+@router.callback_query(F.data == "admin_stats_range_from")
+async def cb_admin_stats_range_from(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await state.set_state(StatsRangeStates.waiting_from)
+    await callback.message.answer(texts.ADMIN_STATS_FROM_ASK)
+
+
+async def _stats_range_received(message: Message, state: FSMContext, *, key: str, next_state) -> None:
+    raw = (message.text or "").strip()
+    if raw in _CANCEL_WORDS:
+        await state.set_state(None)
+        await message.answer("↩️ لغو شد؛ بازهٔ نمودار عوض نشد.")
+        return
+    try:
+        moment = _parse_audit_range_input(raw)
+    except ValueError:
+        await message.answer(texts.ADMIN_STATS_INVALID_RANGE)
+        return
+    data = await state.get_data()
+    data[key] = None if moment is None else moment.isoformat()
+    await state.set_data(data)
+    if next_state is None:
+        await state.set_state(None)
+        await message.answer(texts.ADMIN_STATS_RANGE_SET)
+        return
+    await state.set_state(next_state)
+    await message.answer(texts.ADMIN_STATS_TO_ASK)
+
+
+@router.message(StatsRangeStates.waiting_from, F.text)
+async def stats_range_from_received(message: Message, state: FSMContext) -> None:
+    await _stats_range_received(message, state, key=_STATS_RANGE_KEYS[0], next_state=StatsRangeStates.waiting_until)
+
+
+@router.message(StatsRangeStates.waiting_until, F.text)
+async def stats_range_to_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    await _stats_range_received(message, state, key=_STATS_RANGE_KEYS[1], next_state=None)
+    # فقط حالتِ FSM بسته می‌شود؛ کلیدهایِ بازه در data می‌مانند تا «سرِ باز» هم ذخیره شود
+    # (با state.clear() این‌جا، انتخابِ «همه» برایِ سرِ پایانی کلِ بازه را از بین می‌برد).
+    await state.set_state(None)
+    await _stats_answer(message, session, view="chart", state=state)
 
 
 # =============================================================================

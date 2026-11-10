@@ -166,6 +166,13 @@ class ModerationStates(StatesGroup):
     waiting_pattern = State()
 
 
+class StatsRangeStates(StatesGroup):
+    """P51 · موردِ ۴۴: ویزاردِ «بازهٔ دلخواه» برایِ نمودارِ درآمد (همان شکلِ بازهٔ ممیزی)."""
+
+    waiting_from = State()
+    waiting_until = State()
+
+
 class AiPoolStates(StatesGroup):
     waiting_entry_details = State()
     waiting_fallback_models = State()

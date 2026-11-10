@@ -276,3 +276,151 @@ async def get_platform_stats(session: AsyncSession) -> dict:
         "commission_revenue_toman": abs(commission_net or 0),
         "ai_api_revenue_toman": abs(total_consumed or 0),
     }
+
+
+# =============================================================================
+# P51 · موردِ ۴۴: درآمدِ ماهانه به تفکیکِ «حالتِ فروشگاه» (مشاوره / فروش)
+# =============================================================================
+#
+# چرا «روز» در SQL و «ماه» در پایتون: ماهِ جلالی با مرزِ میلادی یکی نیست، پس اگر در
+# دیتابیس بر اساسِ سال/ماهِ میلادی گروه‌بندی کنیم، برچسبِ نمودار دروغ می‌گوید. این‌جا
+# SQL فقط جمعِ هرِ روز را می‌دهد (کوئریِ ساده، یکِ بار)، و خودِ تقویمِ جلالی — که در پروژه
+# همین حالا هست — روزها را در ماه‌هایِ درست می‌نشاند.
+
+_USAGE_REASONS = (
+    WalletTransactionReason.CHAT_MESSAGE,
+    WalletTransactionReason.PHOTO_ANALYSIS,
+    WalletTransactionReason.VOICE_TRANSCRIPTION,
+    WalletTransactionReason.ORDER_DETECTION,
+    WalletTransactionReason.CART_EDIT,
+    WalletTransactionReason.CRM_SUMMARY,
+    WalletTransactionReason.OWNER_ASSISTANT,
+    WalletTransactionReason.RECEIPT_ANALYSIS,
+)
+_GIVEAWAY_REASONS = (WalletTransactionReason.TRIAL, WalletTransactionReason.REFERRAL_REWARD, WalletTransactionReason.ADMIN_GRANT)
+
+from app.database.models import TenantMode  # noqa: E402  (فقط برایِ تفکیکِ حالتِ فروشگاه)
+from app.utils.jalali import JALALI_MONTH_NAMES, gregorian_to_jalali  # noqa: E402
+
+
+async def _daily_sums(session: AsyncSession, value, *conditions, join_shop_mode: bool = False) -> dict:
+    """جمعِ `value` به تفکیکِ روز (و در صورتِ نیازِ join به `shop_bots` ⇒ (روز، حالت) یا (روز)."""
+    day = func.date_trunc("day", WalletTransaction.created_at).label("day")
+    if join_shop_mode:
+        stmt = (
+            select(day, ShopBot.tenant_mode, func.coalesce(func.sum(value), 0))
+            .select_from(WalletTransaction)
+            .join(ShopBot, ShopBot.shop_owner_id == WalletTransaction.shop_owner_id)
+            .where(*conditions)
+            .group_by(day, ShopBot.tenant_mode)
+        )
+    else:
+        stmt = (
+            select(day, func.coalesce(func.sum(value), 0))
+            .select_from(WalletTransaction)
+            .where(*conditions)
+            .group_by(day)
+        )
+    result = await session.execute(stmt)
+    buckets: dict = {}
+    for row in result.all():
+        if join_shop_mode:
+            moment, mode, total = row
+            key = (moment.date(), mode.value if hasattr(mode, "value") else mode)
+            buckets[key] = buckets.get(key, 0) + int(total or 0)
+        else:
+            moment, total = row
+            buckets[moment.date()] = int(total or 0)
+    return buckets
+
+
+async def _daily_counts(session: AsyncSession, column, table, *conditions) -> dict:
+    day = func.date_trunc("day", column).label("day")
+    stmt = select(day, func.count()).select_from(table).where(*conditions).group_by(day)
+    result = await session.execute(stmt)
+    return {row[0].date(): int(row[1] or 0) for row in result.all()}
+
+
+def _jalali_month(moment_date: datetime.date) -> tuple[int, int]:
+    j_year, j_month, _day = gregorian_to_jalali(moment_date.year, moment_date.month, moment_date.day)
+    return j_year, j_month
+
+
+def _month_label(key: tuple[int, int]) -> str:
+    from app.utils.validators import fa_number
+
+    return f"{JALALI_MONTH_NAMES[key[1] - 1]} {fa_number(key[0])}"
+
+
+def _merge_into(months: dict, buckets, key_of, field: str, *, sign: int = 1) -> None:
+    """جمعِ روزها در ماهِ جلالی. `sign=-1` برایِ ردیف‌هایی که در کیف‌پول *منفی* ثبت می‌شوند
+    (مصرفِ اعتبار و کمیسیون) ⇒ برگشت‌هایِ مثبتِ همان ماه هم کم می‌شود و عدد «خالص» می‌ماند؛
+    دقیقاً همان چیزی که صفحهٔ «خلاصهٔ کلِ دوره» نشان می‌دهد (تا دو صفحه یک رقم ندهند)."""
+    for raw_key, total in buckets.items():
+        j_key = key_of(raw_key)
+        months.setdefault(j_key, {})
+        months[j_key][field] = months[j_key].get(field, 0) + sign * int(total)
+
+
+async def platform_revenue_report(session: AsyncSession, *, since: datetime.datetime, until: datetime.datetime) -> dict:
+    """گزارشِ درآمدِ بازه، به تفکیکِ ماهِ جلالی و حالتِ فروشگاه (مشاوره / فروش).
+
+    شش کوئریِ گروهی — صفحهٔ ادمین است، نه مسیرِ پیامِ مشتری. «مصرفِ اعتبار» = درآمدی که
+    فروشگاه‌دار بابتِ هوش مصنوعی پرداخته (کسرهایِ کیف‌پول، بدونِ هدیه‌ها)؛ «کمیسیون» =
+    سهمِ پلتفرم از سفارش‌ها؛ «نقد دریافتی» = شارژ/اشتراک (که هنوز مصرف نشده، پس با
+    درآمدِ محقق‌شده جمع نمی‌شود — این تفکیک عمدی و مهم است).
+    """
+    window = (WalletTransaction.created_at >= since, WalletTransaction.created_at < until)
+    months: dict = {}
+
+    usage = await _daily_sums(session, WalletTransaction.amount_toman, WalletTransaction.reason.in_(_USAGE_REASONS), *window)
+    _merge_into(months, usage, _jalali_month, "ai_total", sign=-1)
+    by_mode = await _daily_sums(
+        session, WalletTransaction.amount_toman, WalletTransaction.reason.in_(_USAGE_REASONS), *window, join_shop_mode=True
+    )
+    for (day, mode), total in by_mode.items():
+        field = "ai_consult" if mode == TenantMode.CONSULTATION.value else "ai_sales"
+        _merge_into(months, {day: total}, _jalali_month, field, sign=-1)
+
+    commission = await _daily_sums(
+        session, WalletTransaction.amount_toman, WalletTransaction.reason == WalletTransactionReason.COMMISSION, *window
+    )
+    _merge_into(months, commission, _jalali_month, "commission", sign=-1)
+
+    # نقدِ دریافتی رویِ جدولِ Payment است (شارژِ کیف‌پول و خریدِ اشتراک) — جدا از درآمدِ محقق‌شده.
+    pay_day = func.date_trunc("day", Payment.created_at).label("day")
+    cash_rows = await session.execute(
+        select(pay_day, Payment.purpose, func.coalesce(func.sum(Payment.final_amount), 0))
+        .where(Payment.status == PaymentStatus.APPROVED, Payment.created_at >= since, Payment.created_at < until)
+        .group_by(pay_day, Payment.purpose)
+    )
+    for moment, purpose, total in cash_rows.all():
+        entry = months.setdefault(_jalali_month(moment.date()), {})
+        field = "subscription_cash" if (purpose.value if hasattr(purpose, "value") else purpose) == "subscription" else "topup_cash"
+        entry[field] = entry.get(field, 0) + int(total or 0)
+
+    orders = await _daily_counts(session, OrderConsultation.created_at, OrderConsultation, OrderConsultation.created_at >= since, OrderConsultation.created_at < until)
+    _merge_into(months, orders, _jalali_month, "orders")
+    messages = await _daily_counts(
+        session,
+        ConversationMessage.created_at,
+        ConversationMessage,
+        ConversationMessage.role == "user",
+        ConversationMessage.created_at >= since,
+        ConversationMessage.created_at < until,
+    )
+    _merge_into(months, messages, _jalali_month, "messages")
+
+    keys = sorted(months)
+    series = []
+    for key in keys:
+        row = {"key": key, "label": _month_label(key)}
+        row.update({field: int(months[key].get(field, 0)) for field in _REVENUE_FIELDS})
+        series.append(row)
+
+    totals = {field: sum(row[field] for row in series) for field in _REVENUE_FIELDS}
+    totals["months"] = len(series)
+    return {"since": since, "until": until, "series": series, "totals": totals}
+
+
+_REVENUE_FIELDS = ("ai_total", "ai_sales", "ai_consult", "commission", "topup_cash", "subscription_cash", "orders", "messages")

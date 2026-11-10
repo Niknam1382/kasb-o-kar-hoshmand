@@ -835,6 +835,65 @@ PAYMENT_HISTORY_EMPTY = "هنوز هیچ پرداختی ثبت نکردی."
 # =============================================================================
 # آمار (مرحله ۹)
 # =============================================================================
+ADMIN_STATS_TITLE = "نمودارِ درآمدِ ماهانه"
+ADMIN_STATS_12M_TITLE = "۱۲ ماهِ گذشته"
+ADMIN_STATS_RANGE_TITLE = "بازهٔ دلخواه"
+ADMIN_STATS_FROM_ASK = (
+    "برایِ نمودارِ درآمد، تاریخِ شروع را بنویس (میلادی، به وقتِ گرینویچ):\n"
+    "· نمونه: ۲۰۲۶-۰۱-۰۱ یا ۲۰۲۶-۰۱-۰۱ ۱۴:۰۰\n"
+    "· برایِ بی‌حد بودنِ این سر بنویس «همه»\n"
+    "· برایِ لغو «انصراف»"
+)
+ADMIN_STATS_TO_ASK = "حالا تاریخِ پایان را بنویس (همان قالب؛ «همه» یعنی تا همین لحظه)."
+ADMIN_STATS_RANGE_SET = "✅ بازهٔ نمودار تنظیم شد."
+ADMIN_STATS_RANGE_CLEARED = "↩️ بازهٔ دلخواه حذف شد؛ نمودار دوباره ۱۲ ماهِ گذشته را نشان می‌دهد."
+ADMIN_STATS_INVALID_RANGE = "تاریخ را نفهمیدم. قالبِ درست: ۲۰۲۶-۰۱-۰۱ (یا ۲۰۲۶-۰۱-۰۱ ۱۴:۰۰) یا کلمهٔ «همه»."
+ADMIN_STATS_CHART_BUTTON = "📈 نمودارِ ۱۲ ماهِ گذشته"
+ADMIN_STATS_SUMMARY_BUTTON = "📊 خلاصهٔ کلِ دوره"
+ADMIN_STATS_RANGE_BUTTON = "🗓 بازهٔ دلخواه"
+ADMIN_STATS_RANGE_CLEAR_BUTTON = "✖️ حذفِ بازه"
+
+
+def platform_revenue_chart_text(report: dict, *, title: str) -> str:
+    """نمودارِ متنیِ درآمدِ ماهانه (موردِ ۴۴): تفکیکِ مشاوره/فروش + کمیسیون + نقدِ دریافتی.
+
+    عمداً «نقدِ دریافتی» (شارژ و اشتراک) را جدا می‌نویسیم: آن پولی است که مشتریِ فروشگاهی
+    به کیف‌پولش افزوده ولی هنوز مصرف نکرده، پس اگر با «فروشِ اعتبار» جمعش کنیم یکِ درآمدِ
+    توهمی می‌سازیم. هر ستونِ نمودار یکِ ماهِ **جلالی** است.
+    """
+    from app.services.perf_report_service import sparkline
+    from app.utils.validators import fa_grouped, fa_number
+
+    totals = report.get("totals") or {}
+    series = report.get("series") or []
+    lines = [
+        f"📈 {ADMIN_STATS_TITLE} — {title}",
+        "",
+        "جمعِ بازه:",
+        f"🧠 فروشِ اعتبارِ هوش‌مصنوعی: {fa_grouped(totals.get('ai_total', 0))} تومان",
+        f"   · 🛍 حالتِ فروش: {fa_grouped(totals.get('ai_sales', 0))} تومان",
+        f"   · 💬 حالتِ مشاوره‌ای: {fa_grouped(totals.get('ai_consult', 0))} تومان",
+        f"🧾 کمیسیونِ سفارش‌ها: {fa_grouped(totals.get('commission', 0))} تومان",
+        f"💵 نقدِ دریافتی: شارژ {fa_grouped(totals.get('topup_cash', 0))} · اشتراک {fa_grouped(totals.get('subscription_cash', 0))} تومان",
+        "   (این مبلغ هنوز مصرف نشده ⇒ با دو ردیفِ بالا جمعش نکن)",
+        f"📦 سفارش و گفتگو: {fa_number(totals.get('orders', 0))} · 💬 پیامِ مشتری: {fa_number(totals.get('messages', 0))}",
+    ]
+    if not series:
+        lines.append("\nدر این بازه هیچ رویدادی ثبت نشده است.")
+        return "\n".join(lines)
+
+    lines.append("")
+    lines.append("نمودار (هر ستون = یکِ ماه):")
+    for field, icon in (("ai_total", "🧠"), ("commission", "🧾"), ("topup_cash", "💵"), ("orders", "📦")):
+        pairs = [(row["key"], row.get(field, 0)) for row in series]
+        lines.append(f"{icon} {sparkline(pairs)}")
+    lines.append("")
+    lines.append("· " + " | ".join(f"{row['label']}: {fa_grouped(row.get('ai_total', 0))}" for row in series[-6:]))
+    if len(series) > 6:
+        lines.append(f"(فقط ۶ ماهِ آخر عددشان نوشته شده؛ ستون‌ها همه‌ی {fa_number(len(series))} ماه است)")
+    return "\n".join(lines)
+
+
 def shop_stats_text(stats: dict, consultation: bool = False) -> str:
     """C1: در مودِ مشاوره‌ای هیچ خطِ «سفارش» نمایش داده نمی‌شود؛ عددش هم برایِ مشاور معنایی ندارد."""
     title = "📊 آمار مخاطبان و مشاوره‌های تو:\n" if consultation else "📊 آمار فروشگاهت:\n"

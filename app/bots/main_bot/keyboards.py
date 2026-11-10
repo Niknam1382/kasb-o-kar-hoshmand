@@ -1465,6 +1465,23 @@ def instagram_panel_keyboard(account) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def admin_stats_keyboard(has_range: bool = False) -> InlineKeyboardMarkup:
+    """P51 · موردِ ۴۴: دکمه‌هایِ نمودار و بازه رویِ همان صفحهٔ «📊 آمار سراسری»."""
+    rows = [
+        [
+            InlineKeyboardButton(text=texts.ADMIN_STATS_CHART_BUTTON, callback_data="admin_stats_chart"),
+            InlineKeyboardButton(text=texts.ADMIN_STATS_SUMMARY_BUTTON, callback_data="admin_stats_summary"),
+        ]
+    ]
+    range_row = [
+        InlineKeyboardButton(text=texts.ADMIN_STATS_RANGE_BUTTON, callback_data="admin_stats_range_from"),
+    ]
+    if has_range:
+        range_row.append(InlineKeyboardButton(text=texts.ADMIN_STATS_RANGE_CLEAR_BUTTON, callback_data="admin_stats_range_clear"))
+    rows.append(range_row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def shop_report_keyboard(shop_bot) -> InlineKeyboardMarkup:
     """P18 · B5: روزِ هفته + ساعتِ گزارشِ دوره‌ای، به وقتِ تهران."""
     from app.bots.main_bot import texts

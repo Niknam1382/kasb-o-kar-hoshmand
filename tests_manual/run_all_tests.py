@@ -154,6 +154,7 @@ TEST_FILES = [
     "test_p48_logs_and_audit_range.py",
     "test_p49_instagram_channel.py",
     "test_p49_b_instagram_comments.py",
+    "test_p51_revenue_chart.py",
 ]
 
 
