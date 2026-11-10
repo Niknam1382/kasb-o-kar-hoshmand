@@ -54,6 +54,7 @@ from app.services import (
     discount_service,
     excel_export_service,
     identity_service,
+    instagram_service,
     moderation_service,
     notification_service,
     otp_service,
@@ -680,6 +681,27 @@ async def cb_toggle_bale_shop_bots(callback: CallbackQuery, session: AsyncSessio
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
+@super_router.callback_query(F.data == "admin_toggle_instagram")
+async def cb_toggle_instagram(callback: CallbackQuery, session: AsyncSession) -> None:
+    """P49-الف: رونمایی/پنهان‌کردنِ کانالِ اینستاگرام (پیش‌فرضِ محصول خاموش است).
+
+    خاموش ⇒ نه دکمه‌ای در پنلِ فروشگاه‌دار می‌ماند و نه هیچ رویدادِ اینستاگرامی پاسخ داده می‌شود؛
+    ردیف‌هایِ اتصالِ فروشگاه‌ها عمداً پاک نمی‌شوند تا با روشن‌کردنِ دوباره همان اتصال‌ها کار کنند.
+    """
+    admin_settings = await get_admin_settings(session)
+    admin_settings.instagram_enabled = not admin_settings.instagram_enabled
+    now_enabled = admin_settings.instagram_enabled
+    await audit_log_service.log(
+        session,
+        AuditEventType.INSTAGRAM_TOGGLED,
+        actor_telegram_id=callback.from_user.id,
+        details=f"instagram_enabled -> {now_enabled}",
+    )
+    await session.flush()
+    await callback.answer(texts.INSTAGRAM_TOGGLED_ON if now_enabled else texts.INSTAGRAM_TOGGLED_OFF)
+    await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
+
+
 @super_router.callback_query(F.data == "admin_toggle_maintenance")
 async def cb_toggle_maintenance(callback: CallbackQuery, session: AsyncSession) -> None:
     admin_settings = await get_admin_settings(session)
@@ -858,6 +880,8 @@ _TEXT_FIELDS: dict[str, str] = {
     "zarinpal_merchant_id": texts.ADMIN_ASK_ZARINPAL_MERCHANT_ID,
     "platform_card_number": texts.ADMIN_ASK_PLATFORM_CARD_NUMBER,
     "platform_card_holder_name": texts.ADMIN_ASK_PLATFORM_CARD_HOLDER,
+    # P49-الف: App ID راز نیست و داخلِ لینکِ اتصال نوشته می‌شود؛ فقط رقم/حرفِ امن پذیرفته می‌شود.
+    "instagram_app_id": texts.ADMIN_ASK_INSTAGRAM_APP_ID,
 }
 
 _INT_FIELDS: dict[str, str] = {
@@ -969,6 +993,9 @@ _NULLABLE_TEXT_FIELDS: dict[str, str] = {
     # P18 · A1: هر دو توکنِ بله از پنل قابلِ تنظیم و پاک‌کردن‌اند (رمزنگاری‌شده، اعمال بدونِ ری‌استارت).
     "bale_bot_token": texts.ADMIN_ASK_BALE_BOT_TOKEN,
     "bale_provider_token": texts.ADMIN_ASK_BALE_PROVIDER_TOKEN,
+    # P49-الف: دو رازِ متا (امضایِ وب‌هوک + توکنِ تأیید) — قابلِ تنظیم و قابلِ «خالی»کردن.
+    "instagram_app_secret": texts.ADMIN_ASK_INSTAGRAM_APP_SECRET,
+    "instagram_webhook_verify_token": texts.ADMIN_ASK_INSTAGRAM_VERIFY_TOKEN,
 }
 
 # P18 · A1: بعدِ ذخیره‌یِ این فیلدها کشِ اعتبارهایِ بله تازه می‌شود ⇒ تغییر بدونِ ری‌استارت اعمال می‌شود.
@@ -990,6 +1017,21 @@ def _sms_value_error(field: str, raw: str) -> str | None:
 
 
 _BALE_TOKEN_FIELDS: frozenset[str] = frozenset({"bale_bot_token", "bale_provider_token"})
+
+# P49-الف: ورودی‌هایِ متا. App ID داخلِ آدرسِ لینکِ اتصال می‌نشیند و دو موردِ دیگر رازند که
+# با آن‌ها امضا بررسی/ساخته می‌شود ⇒ شکلِ هر سه اینجا سخت محدود می‌شود (بدونِ فاصله، بدونِ
+# کاراکترِ آدرس‌ساز) تا هیچ مقداری از ورودیِ ادمین به «تکه‌یِ آدرس» تبدیل نشود.
+_INSTAGRAM_APP_ID_RE = re.compile(r"^[0-9A-Za-z._-]{2,64}$")
+_INSTAGRAM_SECRET_RE = re.compile(r"^[0-9A-Za-z._\-]{8,512}$")
+_INSTAGRAM_FIELDS: frozenset[str] = frozenset({"instagram_app_id", "instagram_app_secret", "instagram_webhook_verify_token"})
+
+
+def _instagram_value_error(field: str, raw: str) -> str | None:
+    """None ⇒ معتبر. پیامِ خطا هیچ بخشی از مقدارِ واردشده را تکرار نمی‌کند (راز در لاگ نمی‌ماند)."""
+    text = (raw or "").strip()
+    if field == "instagram_app_id":
+        return None if _INSTAGRAM_APP_ID_RE.fullmatch(text) else texts.ADMIN_INVALID_INSTAGRAM_APP_ID
+    return None if _INSTAGRAM_SECRET_RE.fullmatch(text) else texts.ADMIN_INVALID_INSTAGRAM_SECRET
 
 # P24 (امنیت): این آدرس با `aiohttp.post` در app/services/ai_service.py زده می‌شود و هدرِ
 # Authorization را با خود می‌برد ⇒ اگر «آدرس سرویس هوش مصنوعی» به هاستِ داخلی برگردد، کلیدِ AI
@@ -1067,6 +1109,12 @@ def _settings_group_text(group: str, admin_settings) -> str:
         body += "\n\n" + "\n".join(backup_service.status_lines(admin_settings))
     if group == "ai":
         body += "\n\n" + texts.ADMIN_AI_GROUP_KEYS_POINTER
+    if group == "instagram":
+        # ادمین همین آدرس را در پنلِ متا (Webhooks ⇒ Instagram) وارد می‌کند؛ پس باید همین‌جا ببیندش.
+        url = instagram_service.webhook_url()
+        body += "\n\n" + (
+            f"{texts.INSTAGRAM_WEBHOOK_PATH_TEXT} {url}" if url else texts.INSTAGRAM_WEBHOOK_PATH_MISSING
+        )
     return body
 
 
@@ -1360,6 +1408,13 @@ async def setting_value_entered(
         value = None if raw in ("خالی", "پاک کن", "-") else raw
     else:
         value = raw
+
+    if field in _INSTAGRAM_FIELDS and value is not None:
+        error = _instagram_value_error(field, str(value))
+        if error is not None:
+            await message.answer(error)  # state همان «منتظرِ مقدار» می‌ماند و دوباره می‌پرسد
+            return
+        value = str(value).strip()
 
     if field in _URL_FIELDS and value is not None:
         error = _url_value_error(str(value))

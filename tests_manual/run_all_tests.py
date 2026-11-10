@@ -152,6 +152,7 @@ TEST_FILES = [
     "test_p46_per_shop_memory_and_rate_limit.py",
     "test_p47_ai_key_load_balance.py",
     "test_p48_logs_and_audit_range.py",
+    "test_p49_instagram_channel.py",
 ]
 
 

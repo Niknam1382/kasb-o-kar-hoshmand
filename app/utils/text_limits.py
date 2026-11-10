@@ -13,6 +13,9 @@ import re
 TELEGRAM_TEXT_LIMIT = 4096
 TELEGRAM_CAPTION_LIMIT = 1024
 TELEGRAM_ALERT_TEXT_LIMIT = 200  # متنِ toastِ کال‌بک (answer)
+# P49-الف: دایرکتِ اینستاگرام کوتاه‌تر است؛ پاسخِ AI پیش ازِ ارسال به همین سقف می‌رسد تا
+# متا پیام را رد نکند (همان دلیلِ TELEGRAM_TEXT_LIMIT در بالایِ همین فایل).
+INSTAGRAM_DM_LIMIT = 1000
 
 
 def clip(value: str | None, limit: int) -> str:

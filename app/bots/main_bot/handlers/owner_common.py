@@ -42,7 +42,7 @@ async def safe_edit(callback: CallbackQuery, text: str, reply_markup=None) -> No
 
 
 async def panel_keyboard(session: AsyncSession, tenant_mode=None) -> ReplyKeyboardMarkup:
-    """منویِ پنلِ فروشگاه‌دار، با سوئیچِ ادمینِ «تشخیصِ سوال‌هایِ بی‌جواب» (P42 · موردِ ۳۵).
+    """منویِ پنلِ فروشگاه‌دار، با سوئیچ‌هایِ ادمین که دکمه کم/زیاد می‌کنند (P42 · موردِ ۳۵، P49-الف).
 
     هشت نقطه در کد «بازگشت به پنل» می‌سازند؛ اگر عددِ سوئیچ از یکِ منبع نیاید، در بعضی
     صفحه‌ها دکمه‌ها می‌مانند و در بعضی می‌روند — همان ناهماهنگی که مالکِ محصول گزارش کرد.
@@ -51,7 +51,13 @@ async def panel_keyboard(session: AsyncSession, tenant_mode=None) -> ReplyKeyboa
     from app.services.admin_settings_service import get_admin_settings
 
     admin_settings = await get_admin_settings(session)
-    return keyboards.shop_owner_panel_keyboard(tenant_mode, knowledge_gap=admin_settings.knowledge_gap_enabled)
+    return keyboards.shop_owner_panel_keyboard(
+        tenant_mode,
+        knowledge_gap=admin_settings.knowledge_gap_enabled,
+        # P49-الف: دکمهٔ «🟣 اینستاگرام» فقط با رونماییِ سراسریِ ادمین در می‌آید (از اتصالِ خودِ
+        # فروشگاه مستقل است، تا فروشگاه‌دار بتواند راهنما/اتصال را همین‌جا پیدا کند).
+        instagram=bool(admin_settings.instagram_enabled),
+    )
 
 
 def parse_suffix_int(data: str | None, prefix: str) -> int | None:

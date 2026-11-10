@@ -71,6 +71,20 @@ class Settings(BaseSettings):
     # B6: «polling» (پیش‌فرض؛ getUpdates، بدونِ HTTPSِ عمومی) یا «webhook». هم‌زمان ممکن نیست.
     bale_updates_mode: str = "polling"
 
+    # P49-الف: کانالِ اینستاگرام — فقط APIِ رسمیِ متا (Instagram Messaging API). هیچ‌وقت از
+    # مسیرِ غیررسمی/خصوصی استفاده نمی‌شود، چون آن مسیر رمزِ کاربر را می‌خواهد و خطرِ بستنِ
+    # اکانتِ مشتری/فروشگاه دارد (توضیحِ کامل در .env.example).
+    # آدرسِ پایه و نسخهٔ گراف هاردکدِ امن هستند (https ثابت؛ از ورودیِ ادمین ساخته نمی‌شوند تا
+    # SSRF مثلِ `ai_base_url` ممکن نشود). تنها ورودیِ بیرونی که داخلِ آدرس می‌نشیند app_id است.
+    instagram_api_base: str = "https://graph.facebook.com"
+    instagram_graph_version: str = "v21.0"
+    # لینکِ «اتصالِ اکانت» که فروشگاه‌دار با آن واردِ صفحهٔ ورودِ متا می‌شود.
+    instagram_login_base: str = "https://www.instagram.com/oauth/authorize"
+    # آدرسِ عمومیِ HTTPSِ همین سرویس (مثلِ WEBHOOK_BASE_URL)؛ برایِ دو چیز لازم است:
+    # ۱) `redirect_uri` در لینکِ اتصال ۲) آدرسی که در پنلِ متا به‌عنوانِ وب‌هوک وارد می‌کنید
+    # (`<این مقدار>/webhook/instagram`). خالی ⇒ دکمهٔ «اتصال» پیامِ صادقانه می‌دهد و لینکی نمی‌سازد.
+    instagram_public_base_url: str = ""
+
     # W5: سطحِ لاگِ برنامه (DEBUG/INFO/WARNING/ERROR). لاگِ «Update handled»ِ aiogram همیشه WARNING است تا لاگ‌ها شلوغ نشن.
     log_level: str = "INFO"
     # P20 · PHASE 20: «true» ⇒ لاگ‌ها JSONِ ساختاریافته (برایِ Collector/Loki/CloudWatch) با

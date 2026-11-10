@@ -227,6 +227,10 @@ class AuditEventType(str, enum.Enum):
     OWNER_DEACTIVATED = "owner_deactivated"  # P22 · مشکلِ ۸ (حذفِ نرمِ حسابِ فروشگاه‌دار)
     OWNER_RESTORED = "owner_restored"
     OWNER_PURGED = "owner_purged"  # حذفِ قطعیِ محتوا (پوسته ماندنی است اگر ممیزی دارد)
+    # P49-الف: کانالِ اینستاگرام (فقط APIِ رسمیِ متا). سوییچِ سراسری + اتصال/قطعِ اتصالِ فروشگاه.
+    INSTAGRAM_TOGGLED = "instagram_toggled"
+    INSTAGRAM_CONNECTED = "instagram_connected"
+    INSTAGRAM_UNBOUND = "instagram_unbound"
 
 
 class AdminRoleType(str, enum.Enum):
@@ -294,6 +298,15 @@ class AdminSettings(Base):
     # رونماییِ «رباتِ بله‌یِ خودِ فروشگاه»: تا False است نه دکمه‌یِ ثبتِ توکن در پنلِ فروشگاه‌دار
     # نمایش داده می‌شود و نه هیچ اتصالِ بله‌ای شروع می‌شود (ویژگیِ آماده ولی پنهان).
     bale_shop_bots_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # P49-الف: کانالِ سوم، اینستاگرام — فقط از APIِ رسمیِ پیام‌رسانیِ متا (Instagram Messaging API).
+    # تا `instagram_enabled` خاموش است (پیش‌فرض) نه دکمه‌یِ «🟣 اینستاگرام» در پنلِ فروشگاه‌دار
+    # دیده می‌شود و نه هیچ رویدادِ ورودی پاسخ داده می‌شود؛ همان الگویِ `bale_shop_bots_enabled`.
+    # `app_id` تنها مقداری است که داخلِ آدرسِ لینکِ اتصال می‌نشیند؛ دو موردِ بعدی رازند و مثلِ
+    # بقیهٔ رازها رمزنگاری‌شده ذخیره می‌شوند و فقط ماسک‌شده نمایش داده می‌شوند.
+    instagram_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    instagram_app_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    instagram_app_secret: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
+    instagram_webhook_verify_token: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     rate_limit_window_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     payment_reservation_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     # مدتِ رزروِ خودکارِ موجودی برای سفارش‌هایی که هوش مصنوعی تشخیص داده ولی
@@ -706,6 +719,38 @@ class ShopBot(Base):
     # هم با یک کوئریِ اضافه می‌آمد. با raise، استفادهٔ تصادفیِ آینده به‌جایِ «کوئریِ پنهانِ گران»
     # بلافاصله خطایِ روشن می‌دهد.
     products: Mapped[list["Product"]] = relationship(back_populates="shop_bot", lazy="raise")
+
+
+class InstagramAccount(Base):
+    """P49-الف: اتصالِ اینستاگرامِ *خودِ* فروشگاه (حداکثر یکِ ردیف به‌ازایِ هر فروشگاه).
+
+    چرا ردیفِ جدا و نه چند ستون روی `shop_bots`: اتصالِ اینستاگرام چهار مقدار دارد (شناسهٔ اکانت،
+    نامِ کاربری، توکنِ دسترسی، وضعیتِ پاسخ‌گویی) و در فازهایِ بعدی (کامنت‌ها، قطعِ اتصال) بیشتر
+    می‌شود؛ جدولِ تازه یعنی مایگریشنِ بعدی ستون اضافه می‌کند، نه بازنویسیِ ShopBot.
+
+    • `ig_account_id` همان «Instagram-scoped user id» است: رویدادهایِ ورودیِ وب‌هوک با این عدد به
+      همین فروشگاه نگاشت می‌شوند (قاعدهٔ P19: شناسهٔ کاربر فقط داخلِ *یک* سرویس یکتاست).
+    • `access_token` با همان `EncryptedToken` ⇒ در دیتابیس فقط رمزِ Fernet دیده می‌شود و در هیچ
+      پیام/لاگی خام چاپ نمی‌شود.
+    • `auto_reply_dm` سوییچِ خودِ فروشگاه‌دار است (خاموش ⇒ رویداد خوانده می‌شود ولی پاسخی نمی‌رود).
+    • `last_error` تنها راهِ دیدنِ خطاست و همیشه ماسک‌شده و فارسی نوشته می‌شود.
+    """
+
+    __tablename__ = "instagram_accounts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), unique=True, index=True, nullable=False)
+    ig_account_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    ig_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    page_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    access_token: Mapped[str] = mapped_column(EncryptedToken(512), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    auto_reply_dm: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    greeting_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connected_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Subscription(Base):

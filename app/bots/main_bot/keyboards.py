@@ -137,14 +137,17 @@ def offer_trial_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 فعال‌سازی اعتبار آزمایشی", callback_data="activate_trial")]])
 
 
-def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True) -> ReplyKeyboardMarkup:
+def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True, instagram: bool = False) -> ReplyKeyboardMarkup:
     """منویِ فروشگاه‌دار (A4): مشاوره‌ای = بدونِ پرداختِ آنلاین/چک‌اوتِ سبد/کمپین (چیزهایِ مخصوصِ فروش).
     P42 · موردِ ۱: «🟢 هوشمندسازیِ بله» دیگر دکمهٔ منو نیست — داخلِ «🔑 ثبت/ویرایش توکن ربات»
     انتخاب می‌شود؛ آن دکمهٔ سبز ردیفِ اول را از دو به یک می‌انداخت و چینشِ دونفره را می‌شکست.
     P42 · موردِ ۳۵: سوئیچِ ادمینِ «تشخیصِ سوال‌هایِ بی‌جواب» هر دو دکمه‌یِ دانش (بی‌جواب‌ها و
     تاییدشده‌ها) را از *هر دو* پنل می‌برد؛ تا پیشِ این فقط تشخیصِ پشتِ صحنه خاموش می‌شد و
     دکمه‌ها سرِ جای خود بودند.
-    P42 · موردِ ۳۳: در مودِ مشاوره‌ای مخاطبِ «پیام به مشتری‌ها»، کاربرِ همان جلسه است نه خریدار."""
+    P42 · موردِ ۳۳: در مودِ مشاوره‌ای مخاطبِ «پیام به مشتری‌ها»، کاربرِ همان جلسه است نه خریدار.
+    P49-الف: «🟣 اینستاگرام» فقط وقتی در می‌آید که ادمین کانال را رونمایی کرده باشد (مثلِ سوئیچِ
+    «سوال‌هایِ بی‌جواب»؛ خودِ اتصال یا نبودش تاثیری در دیدنی‌بودنِ دکمه ندارد).
+    """
     mode_value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     consultation = mode_value == "consultation"
     # C1: مودِ مشاوره‌ای کاتالوگِ محصول/خدمت ندارد (افزودنِ محصول در مشاوره معنا ندارد).
@@ -171,6 +174,8 @@ def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True) -> R
     if knowledge_gap:
         rows.append(["🧩 سوال‌هایِ بی‌جواب", "📚 پرسش‌وپاسخ‌هایِ تاییدشده"])
     rows.append(["💬 دستیارِ مدیریتی"] if consultation else ["🧮 حسابداری", "💬 دستیارِ مدیریتی"])
+    if instagram:
+        rows.append([texts.INSTAGRAM_BUTTON])
     rows.append(["⚙️ تنظیماتِ ربات فروشگاه"])
     # P22: چینشِ دونفره. قبلاً ردیف‌ها قاطی بود (سه ردیفِ تک، بعد دونفره، بعد یکِ سه‌تایی) و
     # همین منو را بی‌نظم نشان می‌داد. ترتیبِ خطیِ دکمه‌ها دست‌نخورده است ⇒ هندلرها و تست‌ها سالم‌اند.
@@ -683,6 +688,8 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
     zarinpal_label = switch_label("زرین‌پال از فروشگاه‌دارها", admin_settings.zarinpal_enabled)
     bale_pay_label = switch_label("بله‌پی از فروشگاه‌دارها", admin_settings.bale_pay_enabled)
     bale_bots_label = switch_label("رباتِ بله‌یِ فروشگاه‌ها", admin_settings.bale_shop_bots_enabled)
+    # P49-الف: سوییچِ کانالِ اینستاگرام (پیش‌فرض خاموش ⇒ دکمهٔ پنل نیست و رویدادی پاسخ نمی‌رود).
+    instagram_label = switch_label("کانالِ اینستاگرام", admin_settings.instagram_enabled)
     sms_label = switch_label("پیامکِ احراز", admin_settings.sms_enabled)
     registrations_label = switch_label("ثبت‌نامِ کاربرانِ جدید", admin_settings.allow_new_registrations)
     topups_label = switch_label("شارژِ کیف‌پول", admin_settings.allow_wallet_topups)
@@ -698,6 +705,8 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=zarinpal_label, callback_data="admin_toggle_zarinpal")],
         [InlineKeyboardButton(text=bale_pay_label, callback_data="admin_toggle_bale_pay")],
         [InlineKeyboardButton(text=bale_bots_label, callback_data="admin_toggle_bale_bots")],
+        # P49-الف: همان شکلِ «admin_toggle_bale_bots» (صفحهٔ اصلی فقط سوییچ‌ها را نگه می‌دارد).
+        [InlineKeyboardButton(text=instagram_label, callback_data="admin_toggle_instagram")],
         [InlineKeyboardButton(text=sms_label, callback_data="admin_toggle_sms")],
         [InlineKeyboardButton(text=commission_label, callback_data="admin_toggle_commission")],
         [InlineKeyboardButton(text=zero_credit_label, callback_data="admin_toggle_zero_credit_orders")],
@@ -1412,6 +1421,33 @@ def bale_shop_bot_keyboard(shop_bot) -> InlineKeyboardMarkup:
         actions.append(InlineKeyboardButton(text="🗑 حذفِ اتصالِ بله", callback_data="bale_clear"))
     rows = grid(actions, max_label=26)
     rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="bale_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def instagram_panel_keyboard(account) -> InlineKeyboardMarkup:
+    """P49-الف: صفحهٔ مدیریتِ اینستاگرامِ همین فروشگاه (account = ردیفِ اتصال یا None).
+
+    «اتصال» و «راهنما» همیشه هستند (فروشگاه‌دار باید بدونِ اتصال هم راهنما را بخواند)؛
+    فعل‌هایِ نیازمندِ اتصال (پاسخ‌گویی/خوشآمد/تست/لغو) فقط وقتی وصل است در می‌آیند.
+    P22: فعل‌ها دونادونه و «بازگشت» تمام‌عرضِ آخر می‌ماند (همان قاعدهٔ بقیهٔ صفحه‌ها).
+    """
+    from app.bots.main_bot import texts
+
+    connected = account is not None
+    actions = [InlineKeyboardButton(text="🔗 اتصالِ اکانت اینستاگرام", callback_data="ig_connect")]
+    if connected:
+        actions.append(
+            InlineKeyboardButton(
+                text="⏸ قطعِ پاسخ‌گویی" if account.auto_reply_dm else "▶️ پاسخ‌گویی",
+                callback_data="ig_reply_off" if account.auto_reply_dm else "ig_reply_on",
+            )
+        )
+        actions.append(InlineKeyboardButton(text="👋 متنِ خوشآمد", callback_data="ig_greeting"))
+        actions.append(InlineKeyboardButton(text="🧪 تستِ ارسال", callback_data="ig_test"))
+        actions.append(InlineKeyboardButton(text="🚫 لغوِ اتصال", callback_data="ig_unbind"))
+    actions.append(InlineKeyboardButton(text="📖 راهنمایِ فعال‌سازی", callback_data="ig_guide"))
+    rows = grid(actions, max_label=26)
+    rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="ig_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

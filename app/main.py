@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import signal
 import time
@@ -37,6 +38,7 @@ from app.services import (
     order_service,
     order_state,
     bale_updates_service,
+    instagram_service,
     order_transition_service,
     payment_event_service,
     payment_notify_service,
@@ -286,6 +288,7 @@ async def run_polling() -> None:
         await bot_manager.shutdown()
         await ai_service.close_http_session()
         await bale_service.close_http_session()
+        await instagram_service.close_http_session()  # P49-الف: همان جلسه‌یِ مشترکِ Graph
         await admin_alert_service.shutdown()
         await main_bot.session.close()
         await release_polling_lock(lock_connection, key=lock_key)
@@ -431,6 +434,7 @@ async def on_shutdown() -> None:
     # جلسه‌ی HTTP مشترکِ سرویسِ هوش مصنوعی رو هم می‌بندیم تا سوکت باز نمونه
     await ai_service.close_http_session()
     await bale_service.close_http_session()
+    await instagram_service.close_http_session()  # P49-الف: همان جلسه‌یِ مشترکِ Graph
     await admin_alert_service.shutdown()
     await _state["main_bot"].session.close()
 
@@ -707,6 +711,124 @@ async def _dispatch_bale_update(data: dict, token: str | None = None) -> None:
         text = (message.get("text") or "").strip()
         if text.startswith("/start"):
             await _handle_bale_payment_handoff(message, text, token)
+
+
+# =============================================================================
+# P49-الف: وب‌هوکِ اینستاگرام (فقط APIِ رسمیِ متا)
+# =============================================================================
+# سه مسیر، هرکدام با یکِ وظیفه:
+# ۱) GET  `/webhook/instagram`        ⇒ احرازِ مالکیتِ وب‌هوک توسطِ متا (`hub.challenge`)
+# ۲) POST `/webhook/instagram`        ⇒ رویدادهایِ دایرکت (امضایِ HMAC رویِ بدنهِ خام)
+# ۳) GET  `/webhook/instagram/oauth`  ⇒ بازگشتِ فروشگاه‌دار از صفحهٔ ورودِ متا (کد ⇒ اتصال)
+# مثلِ دو کانالِ قبلی، هیچ بدنه/متنِ پیامی لاگ نمی‌شود و هیچ رازی (توکن، app_secret، verify_token)
+# در پاسخ یا لاگ نمی‌آید. پاسخِ همیشه‌۲۰۰ عمدی است: متا با هر چیزِ دیگری رویداد را بارها
+# دوباره می‌فرستد و دوباره‌ارسالِ بدونِ محافظ، هزینهٔ تکراری می‌ساخت (محافظش `claim_event` در
+# سرویس است، پیش ازِ هر await).
+_instagram_tasks: set = set()
+
+
+def _spawn_instagram_event(event) -> None:
+    """هر دایرکت در تسکِ خودش با سشنِ خودش؛ وب‌هوک باید بی‌درنگ ۲۰۰ بگیرد (پاسخِ AI چند ثانیه طول می‌کشد)."""
+
+    async def _run() -> None:
+        async with session_scope() as session:
+            await instagram_service.handle_inbound(session, _state["main_bot"], event)
+
+    task = asyncio.create_task(_run())
+    _instagram_tasks.add(task)
+    task.add_done_callback(_instagram_tasks.discard)
+
+
+@app.get("/webhook/instagram")
+async def webhook_instagram_verify(request: Request) -> Response:
+    """متا پیش ازِ فعال‌کردنِ وب‌هوک این را صدا می‌زند؛ فقط با توکنِ تأییدِ درست همان `hub.challenge` را برمی‌گردانیم."""
+    if not app_roles.serves_http():
+        return Response(status_code=404)
+    limited = _too_many_requests(request, "instagram")
+    if limited is not None:
+        return limited
+    params = request.query_params
+    challenge = params.get("hub.challenge")
+    async with session_scope() as session:
+        admin_settings = await get_admin_settings(session)
+    expected = admin_settings.instagram_webhook_verify_token
+    if params.get("hub.mode") != "subscribe" or not expected or not challenge:
+        return _forbidden("webhook/instagram: توکنِ تأییدِ نامعتبر")
+    if not _secrets_equal(params.get("hub.verify_token"), expected):
+        return _forbidden("webhook/instagram: توکنِ تأییدِ نامعتبر")
+    return PlainTextResponse(str(challenge)[:256])
+
+
+@app.post("/webhook/instagram")
+async def webhook_instagram(request: Request) -> Response:
+    """دریافتِ رویدادِ اینستاگرام: اول امضا، بعد پارس، بعد تسک — و همیشه ۲۰۰."""
+    if not app_roles.serves_http():
+        return Response(status_code=404)
+    limited = _too_many_requests(request, "instagram")
+    if limited is not None:
+        return limited
+    body = await request.body()  # یک‌بار و خام: HMAC دقیقاً رویِ همین بایت‌هاست، نه رویِ JSONِ بازسازی‌شده
+    if len(body) > instagram_service.MAX_WEBHOOK_BODY_BYTES:
+        return Response(status_code=413)
+    try:
+        async with session_scope() as session:
+            admin_settings = await get_admin_settings(session)
+            app_secret = admin_settings.instagram_app_secret
+            channel_on = instagram_service.enabled(admin_settings)
+        if not channel_on:
+            return Response(status_code=200)  # سوییچِ ادمین خاموش ⇒ بی‌سر‌و‌صدا رها (بدونِ دوباره‌ارسالِ متا)
+        if not instagram_service.verify_signature(body, request.headers.get("X-Hub-Signature-256"), app_secret or ""):
+            return _forbidden("webhook/instagram: امضایِ نامعتبر")
+    except Exception:
+        logger.exception("بررسیِ امضایِ وب‌هوکِ اینستاگرام ناموفق بود.")
+        return Response(status_code=200)
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return Response(status_code=200)  # بدنهٔ بی‌فهم ⇒ ۴xx یعنی دوباره بفرست؛ بی‌معناست
+    events = instagram_service.parse_event(payload if isinstance(payload, dict) else {})
+    messaging = [event for event in events if isinstance(event, instagram_service.DirectMessage)]
+    if len(messaging) != len(events):
+        observability.count("webhook.instagram.deferred")  # P49-B: کامنت‌ها فعلاً فقط شمارش می‌شوند
+    observability.count("webhook.instagram", len(messaging))
+    for event in messaging:
+        _spawn_instagram_event(event)
+    return Response(status_code=200)
+
+
+@app.get("/webhook/instagram/oauth")
+async def webhook_instagram_oauth(
+    request: Request, code: str | None = None, state: str | None = None, error: str | None = None
+) -> HTMLResponse:
+    """بازگشتِ فروشگاه‌دار از متا: کد ⇒ اتصالِ اکانت، و یکِ صفحهٔ کوتاهِ فارسی که به پنل برمی‌گرداند.
+
+    `state` امضا/رمزنگاری‌شده است (`instagram_service.parse_state`)؛ بدونِ امضایِ درست هیچ ردیفی
+    نوشته نمی‌شود، پس یکِ آدرسِ ساختگی نمی‌تواند اتصالِ فروشگاهِ دیگری را عوض کند. هیچ رازی در
+    صفحه نیست و متنِ خطا از همین سرویس ماسک‌شده آمده است.
+    """
+    if not app_roles.serves_http():
+        return HTMLResponse(main_texts.INSTAGRAM_CONNECT_UNAVAILABLE_PAGE, status_code=404)
+    limited = _too_many_requests(request, "instagram-oauth")
+    if limited is not None:
+        return HTMLResponse(main_texts.INSTAGRAM_CONNECT_UNAVAILABLE_PAGE, status_code=limited.status_code)
+    if error or not code:
+        return HTMLResponse(main_texts.INSTAGRAM_CONNECT_CANCELLED_PAGE)
+    shop_bot_id = instagram_service.parse_state(state)
+    if shop_bot_id is None:
+        return HTMLResponse(main_texts.INSTAGRAM_CONNECT_CANCELLED_PAGE, status_code=403)
+    try:
+        async with session_scope() as session:
+            shop_bot = await shop_bot_service.get_by_id(session, shop_bot_id)
+            if shop_bot is None:
+                return HTMLResponse(main_texts.INSTAGRAM_CONNECT_CANCELLED_PAGE, status_code=404)
+            await instagram_service.connect_with_code(session, shop_bot, code.strip())
+    except instagram_service.InstagramError as exc:
+        logger.info("اتصالِ اینستاگرامِ فروشگاه %s کامل نشد.", shop_bot_id)
+        return HTMLResponse(main_texts.instagram_connect_failed_page(str(exc)))
+    except Exception:
+        logger.exception("اتصالِ اینستاگرامِ فروشگاه %s ناموفق بود.", shop_bot_id)
+        return HTMLResponse(main_texts.instagram_connect_failed_page("خطایِ داخلیِ سرویس؛ دوباره امتحان کن."))
+    return HTMLResponse(main_texts.INSTAGRAM_CONNECT_OK_PAGE)
 
 
 def _bale_surface_token(token: str | None) -> str:

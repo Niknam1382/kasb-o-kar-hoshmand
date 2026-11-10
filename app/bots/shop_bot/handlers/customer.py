@@ -33,11 +33,11 @@ from app.services import (
     cart_service,
     cart_suggest_service,
     channel_knowledge_service,
+    chat_billing_service,
     conversation_service,
     customer_service,
     digital_service,
     knowledge_service,
-    ai_debt_service,
     moderation_service,
     prompt_defaults,
     order_access_service,
@@ -199,40 +199,10 @@ async def _check_access(message: Message, session: AsyncSession, shop_bot, main_
 async def _deduct_and_notify(
     session: AsyncSession, owner, admin_settings, amount_toman: int, reason: WalletTransactionReason, main_bot: Bot
 ) -> None:
-    """بعدِ فراخوانیِ موفقِ هوش مصنوعی، هزینه رو از کیف‌پول کم می‌کنه و در صورتِ لزوم به فروشگاه‌دار خبر می‌ده.
-    این تابع هیچ‌وقت به مشتری خطا نشون نمی‌ده؛ فقط خودِ فروشگاه‌دار (از طریقِ ربات اصلی) مطلع می‌شه."""
-    success = await wallet_service.deduct(session, owner, amount_toman, reason)
-    if not success:
-        # موجودی در لحظه‌یِ کسر کافی نبوده (مثلاً دقیقاً همین چندِ تومنِ آخر رو یه پیامِ هم‌زمانِ
-        # دیگه مصرف کرده). چون جوابِ هوش مصنوعی از قبل تولید و برای مشتری فرستاده شده، این
-        # کمبودِ جزئی رو نادیده می‌گیریم و اجازه نمی‌دیم تجربه‌ی مشتری خراب بشه؛ فقط لاگ می‌کنیم.
-        logger.warning("کسرِ کیف‌پول برای فروشگاه‌دار %s ناموفق بود (موجودیِ ناکافی در لحظه‌یِ کسر).", owner.id)
-        # P33-C: اگر سوییچِ «ادامهٔ سفارش با اعتبارِ صفر» روشن باشد، همین مبلغ به‌عنوانِ
-        # بدهیِ مصرفِ AI ثبت می‌شود تا هم ادمین ببیند و هم سقفِ بدهی کلِ درَک را ببیند.
-        if admin_settings.orders_allowed_when_wallet_empty:
-            reason_value = getattr(reason, "value", reason)
-            await ai_debt_service.record(
-                session,
-                owner_id=owner.id,
-                amount_toman=amount_toman,
-                reason=str(reason_value),
-                note="مصرفِ AI با اعتبارِ صفر (سوییچِ ادامهٔ سفارش روشن)",
-            )
-
-    if owner.wallet_balance_toman <= 0:
-        if await wallet_service.try_claim_empty_notification(session, owner):
-            try:
-                await main_bot.send_message(owner.telegram_id, main_texts.wallet_empty_notification())
-            except TelegramAPIError:
-                logger.exception("اطلاع‌رسانیِ اتمامِ کیف‌پول به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
-    elif owner.wallet_balance_toman < admin_settings.wallet_low_balance_warning_toman:
-        if await wallet_service.try_claim_low_balance_notification(session, owner):
-            try:
-                await main_bot.send_message(
-                    owner.telegram_id, main_texts.wallet_low_balance_notification(owner.wallet_balance_toman)
-                )
-            except TelegramAPIError:
-                logger.exception("اطلاع‌رسانیِ کمبودِ موجودیِ کیف‌پول به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
+    """P49-الف: بدنه به `chat_billing_service.deduct_and_notify` رفت تا کانالِ سوم (اینستاگرام)
+    همان ریاضیِ پول را صدا بزند، نه یکِ نسخهٔ دوم از آن. این نام فقط wrapper مانده تا چهار
+    فراخوانیِ این فایل و تست‌هایِ پیشین (`test_p33_ai_usage_debt.py`) دست‌نخورده بمانند."""
+    await chat_billing_service.deduct_and_notify(session, owner, admin_settings, amount_toman, reason, main_bot)
 
 
 def _split_checkout_questions(raw: str | None, digital_only: bool = False) -> list[str]:

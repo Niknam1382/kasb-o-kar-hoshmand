@@ -13,6 +13,7 @@ from app.bots.main_bot.handlers import (
     campaigns,
     catalog_b2,
     crm,
+    instagram,
     orders_manage,
     knowledge,
     moderation_reports,
@@ -64,6 +65,9 @@ _KNOWN_MENU_BUTTONS = {
     "🧮 حسابداری",
     "💬 دستیارِ مدیریتی",
     "⚙️ تنظیماتِ ربات فروشگاه",
+    # P49-الف: دکمهٔ «🟣 اینستاگرام» فقط با سوئیچِ ادمین در منو می‌آید، ولی اینجا باید همیشه ثبت
+    # باشد وگرنه وسطِ FSMِ متنِ خوشآمد، زدنِ دکمه متنش را به‌عنوانِ ورودی ذخیره می‌کند.
+    "🟣 اینستاگرام",
     # پنل ادمین
     "📢 مدیریت کانال‌های اجباری",
     "🧾 صف تایید پرداخت‌ها",
@@ -122,6 +126,8 @@ def build_main_router() -> Router:
     crm.router.message.middleware(gate)
     crm.router.callback_query.middleware(gate)
     assistant.router.message.middleware(gate)
+    instagram.router.message.middleware(gate)
+    instagram.router.callback_query.middleware(gate)
     shop_settings.router.message.middleware(gate)
     shop_settings.router.callback_query.middleware(gate)
     shop_prefs.router.message.middleware(gate)
@@ -155,5 +161,6 @@ def build_main_router() -> Router:
     router.include_router(checkout_steps.router)  # P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت
     router.include_router(consult_contacts.router)  # P18 · C2: گفتگوها و کاربرانِ مشاوره
     router.include_router(moderation_reports.router)  # P43 · مواردِ ۱۰/۳۰/۳۱: گزارشِ نگهبانِ محتوا
+    router.include_router(instagram.router)  # P49-الف: صفحهٔ «🟣 اینستاگرامِ» فروشگاه‌دار
     router.include_router(start.router)
     return router

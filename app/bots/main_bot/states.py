@@ -43,6 +43,12 @@ class BaleShopBotStates(StatesGroup):
     waiting_token = State()
 
 
+class InstagramStates(StatesGroup):
+    """P49-الف: متنِ خوشآمدِ دایرکتِ اینستاگرام (تنظیم/پاک‌کردن با «خالی»)."""
+
+    waiting_greeting = State()
+
+
 class ProductStates(StatesGroup):
     waiting_name = State()
     waiting_description = State()

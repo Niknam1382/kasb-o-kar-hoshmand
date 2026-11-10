@@ -1883,6 +1883,8 @@ ADMIN_SETTINGS_GROUPS: tuple[tuple[str, str], ...] = (
     ("pricing", "🪙 نرخ‌گذاریِ مصرفِ AI"),
     ("payments", "💳 پرداخت، کارت و شارژ"),
     ("bale", "🔵 توکن‌هایِ بله"),
+    # P49-الف: کانالِ سوم، دستهٔ اختصاصیِ خودش (سوییچِ رونمایی + سه مقدارِ احرازِ متا).
+    ("instagram", "🟣 اینستاگرام"),
     ("messaging", "📩 پیامک و پشتیبانیِ پلتفرم"),
     ("shops", "🏪 فروشگاه‌دارها و گزارش‌ها"),
     ("branding", "🧴 بیوگرافیِ ربات‌ها"),
@@ -1928,6 +1930,10 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
     "commission_debt_ceiling_toman": "payments",
     "bale_bot_token": "bale",
     "bale_provider_token": "bale",
+    # P49-الف: سه مقدارِ متا که بدونِ هیچ‌کدام اتصال ممکن نیست (دستهٔ «🟣 اینستاگرام»).
+    "instagram_app_id": "instagram",
+    "instagram_app_secret": "instagram",
+    "instagram_webhook_verify_token": "instagram",
     "sms_api_key": "messaging",
     "sms_sender_number": "messaging",
     "sms_otp_template": "messaging",
@@ -1946,6 +1952,155 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
 }
 
 ADMIN_SETTINGS_STALE_GROUP = "این دسته باز نیست. «🔑 تنظیمات کلیدها» را دوباره باز کن."
+
+# =============================================================================
+# P49-الف — کانالِ اینستاگرام (فقط APIِ رسمیِ متا)
+# =============================================================================
+# دو بخش دارد: آنچه ادمینِ پلتفرم تنظیم می‌کند (بالا) و آنچه فروشگاه‌دار در پنل خودش می‌بیند
+# (پایین). متن‌ها عمداً کوتاه‌اند و هر صفحه می‌گوید بعدیِ کار چیست؛ راهنمایِ بلند در P49-پ می‌آید.
+INSTAGRAM_BUTTON = "🟣 اینستاگرام"
+INSTAGRAM_TOGGLED_ON = "کانالِ اینستاگرام روشن شد؛ دکمهٔ «🟣 اینستاگرام» در پنلِ فروشگاه‌دارها دیدنی شد."
+INSTAGRAM_TOGGLED_OFF = "کانالِ اینستاگرام خاموش شد؛ دکمه‌یِ پنل هم رفت و هیچ پیامی پاسخ داده نمی‌شود."
+
+ADMIN_ASK_INSTAGRAM_APP_ID = (
+    "«App ID» اپلیکیشنِ متا را بفرست (از developers.facebook.com ⇒ اپِ خودت ⇒ Settings ⇒ Basic).\n\n"
+    "این عدد راز نیست و در لینکِ اتصال هم نوشته می‌شود. فقط رقم و حروفِ انگلیسی باشد."
+)
+ADMIN_ASK_INSTAGRAM_APP_SECRET = (
+    "«App Secret» همان اپِ متا را بفرست.\n\n"
+    "این راز است: رمزنگاری‌شده ذخیره می‌شود، فقط ماسک‌شده نمایش داده می‌شود و با آن امضایِ "
+    "درخواست‌هایِ متا بررسی می‌شود. در پنلِ متا در Settings ⇒ Basic ⇒ App Secret می‌بینیش."
+)
+ADMIN_ASK_INSTAGRAM_VERIFY_TOKEN = (
+    "یکِ توکنِ تأییدِ خودساخته بنویس (مثلاً یکِ رشتهٔ بلندِ تصادفی).\n\n"
+    "همین رشته را باید در پنلِ متا در بخشِ Webhooks ⇒ Instagram ⇒ Verify token هم وارد کنی؛ "
+    "متا با آن ثابت می‌کند که تو صاحبِ این سرویس هستی. اگر اشتباه بنویسی، متا وب‌هوک را فعال نمی‌کند."
+)
+INSTAGRAM_WEBHOOK_PATH_TEXT = "🌐 آدرسِ وب‌هوک برایِ پنلِ متا:"
+INSTAGRAM_WEBHOOK_PATH_MISSING = (
+    "🌐 برایِ دیدنِ آدرسِ وب‌هوک، مقدارِ INSTAGRAM_PUBLIC_BASE_URL را در فایلِ تنظیماتِ سرور پر کن "
+    "(آدرسِ HTTPSِ همین سرویس)."
+)
+ADMIN_INVALID_INSTAGRAM_APP_ID = (
+    "App ID باید فقط رقم یا حروفِ انگلیسی باشد (۲ تا ۶۴ نویسه، بدونِ فاصله). همان چیزی است "
+    "در Settings ⇒ Basic ⇒ App ID می‌بینی."
+)
+ADMIN_INVALID_INSTAGRAM_SECRET = (
+    "این مقدار ۸ تا ۵۱۲ نویسه بدونِ فاصله باشد (همان رشته‌ای که خودت ساختی یا در پنلِ متا "
+    "می‌بینی). چیزی جز رقم، حرف، نقطه، خطِ تیره و زیرخط نگذار."
+)
+
+# --- صفحهٔ فروشگاه‌دار ---
+INSTAGRAM_NOT_CONNECTED = "🟣 اینستاگرام: هنوز اکانتی وصل نکرده‌ای."
+INSTAGRAM_CONNECTED_AS = "🟣 اینستاگرام: وصل است — {username}"
+INSTAGRAM_REPLY_ON_TOAST = "پاسخ‌گوییِ خودکار در اینستاگرام روشن شد"
+INSTAGRAM_REPLY_OFF_TOAST = "پاسخ‌گوییِ خودکار در اینستاگرام خاموش شد؛ پیام‌ها خوانده می‌شوند ولی جواب نمی‌روند"
+INSTAGRAM_UNBOUND_TOAST = "اتصالِ اینستاگرام حذف شد؛ توکن از سرور پاک شد و پاسخ‌گویی می‌ایستد"
+INSTAGRAM_NO_APP_ID = (
+    "فعلاً نمی‌شود اتصال را شروع کرد: ادمینِ پلتفرم هنوز «App ID» و «App Secret» را در "
+    "تنظیماتِ اینستاگرام وارد نکرده است."
+)
+INSTAGRAM_NO_PUBLIC_URL = (
+    "فعلاً نمی‌شود اتصال را شروع کرد: آدرسِ عمومیِ HTTPSِ این سرویس در تنظیماتِ سرور "
+    "(INSTAGRAM_PUBLIC_BASE_URL) وارد نشده، پس متا جایی برایِ بازگشتِ تو ندارد."
+)
+INSTAGRAM_LINK_SENT = (
+    "🔗 این لینک را در مرورگر باز کن، واردِ اکانتِ اینستاگرامِ خودت بشو و «Allow Access» را بزن.\n\n"
+    "{link}\n\n"
+    "بعد ازِ تأیید، یکِ صفحهٔ کوتاه می‌بینی و همین‌جا در پنل وضعیت «وصل است» می‌شود."
+)
+INSTAGRAM_GREETING_ASK = (
+    "✍️ متنِ خوشآمدِ اینستاگرام را بنویس (حداکثر ۵۰۰ حرف).\n\n"
+    "برایِ پاک‌کردن بنویس: «خالی»"
+)
+INSTAGRAM_GREETING_SAVED = "متنِ خوشآمد ذخیره شد ✅"
+INSTAGRAM_GREETING_CLEARED = "متنِ خوشآمد پاک شد."
+INSTAGRAM_GREETING_MISSING = "اول از «👋 متنِ خوشآمد» یکِ متن بنویس."
+INSTAGRAM_TEST_SENT = (
+    "🧪 پیامِ تست به متا فرستاده شد. اگر چند لحظه در دایرکتِ خودت ندیدیش، «آخرین خطا»یِ همین "
+    "صفحه را بخون (متا فقط تا ۲۴ ساعت بعدِ آخرین پیامِ مشتری اجازهٔ ارسال می‌دهد)."
+)
+INSTAGRAM_TEST_REJECTED = "🧪 متا پیامِ تست را نپذیرفت؛ دلیلش را در «آخرین خطا»یِ همین صفحه می‌بینی."
+INSTAGRAM_LAST_ERROR = "⚠️ آخرین خطا: {error}"
+INSTAGRAM_DM_RULE_TEXT = (
+    "⏱ قاعدهٔ متا: تا ۲۴ ساعت بعدِ آخرین پیامِ مشتری می‌توانی جواب بفرستی؛ بعد از آن پنجره بسته "
+    "می‌شود و ربات پیامِ تازه‌ای نمی‌فرستد."
+)
+INSTAGRAM_PAYMENTS_NOTE = (
+    "💳 پرداخت: همان لینکِ بله‌پی و همان کارت‌به‌کارتِ امروز، بدونِ هیچ مسیرِ تازه‌ای. "
+    "اگر بله‌پیِ فروشگاه کامل باشد مشتری لینکِ پرداخت را در دایرکت می‌گیرد؛ اگر نباشد "
+    "دستورالعملِ کارت‌به‌کارتِ خودت را می‌بیند."
+)
+INSTAGRAM_GUIDE_INTRO = (
+    "🟣 اینستاگرام — راهنمایِ فعال‌سازی (کوتاه)\n\n"
+    "این کانال فقط با APIِ رسمیِ متا کار می‌کند. هیچ‌وقت رمزِ اکانتت را به کسی (حتی به ما) نمی‌دهی؛ "
+    "تو در صفحهٔ خودِ اینستاگرام/فیس‌بوک اجازه می‌دهی و تمام. مسیرِ غیررسمی استفاده نمی‌شود، چون "
+    "هم رمزِ تو را می‌خواهد هم خطرِ بستنِ اکانت دارد.\n\n"
+    "۱) اکانتِ اینستاگرام را Professional (تجاری/کریتور) کن — از تنظیماتِ خودِ اینستاگرام.\n"
+    "۲) آن را به یکِ صفحهٔ فیس‌بوک وصل کن.\n"
+    "۳) ادمینِ پلتفرم این سه مقدار را در «🟣 اینستاگرام»ِ پنلِ ادمین پر کند: App ID، App Secret، "
+    "توکنِ تأیید. اگر پر نبود، دکمهٔ اتصال کار نمی‌کند.\n"
+    "۴) اینجا «🔗 اتصالِ اکانت اینستاگرام» را بزن، وارد شو و اجازه بده؛ وضعیت «وصل است» می‌شود.\n"
+    "۵) بعد ازِ اتصال، ادمین در پنلِ متا ⇒ Webhooks ⇒ Instagram، آدرسِ وب‌هوک را وارد و توکنِ تأیید "
+    "را ست می‌کند و رویِ «Instagram Direct» تیک می‌زند.\n\n"
+    "راهنمایِ بلندِ مرحله‌به‌مرحله (با تصویر) در فازِ بعد اضافه می‌شود."
+)
+INSTAGRAM_STEPS_CHECKLIST = (
+    "برایِ اتصالِ اینستاگرام این چهار کار لازم است:\n\n"
+    "۱) اکانتِ اینستاگرام Professional باشد\n"
+    "۲) به یکِ صفحهٔ فیس‌بوک وصل باشد\n"
+    "۳) به ما بگو تا لینکِ اتصال را بدهیم («🔗 اتصالِ اکانت اینستاگرام»)\n"
+    "۴) بعد ازِ اتصال، ادمین وب‌هوک را در پنلِ متا با توکنِ تأیید فعال کند"
+)
+INSTAGRAM_SCREEN_INTRO = "🟣 اینستاگرام — پیام‌هایِ دایرکتِ فروشگاه تو با همان هوشِ مصنوعی و همان کیف‌پول پاسخ داده می‌شوند."
+
+
+def instagram_status_text(account, admin_settings) -> str:
+    """صفحهٔ فروشگاه‌دار: وضعیتِ اتصال + وضعیتِ سراسری + خطایِ آخر + قاعدهٔ ۲۴ ساعت."""
+    lines = [INSTAGRAM_SCREEN_INTRO, ""]
+    if account is None:
+        lines.append(INSTAGRAM_NOT_CONNECTED)
+        lines.append("")
+        lines.append(INSTAGRAM_STEPS_CHECKLIST)
+    else:
+        lines.append(INSTAGRAM_CONNECTED_AS.format(username="@" + (account.ig_username or "—")))
+        lines.append(f"• پاسخ‌گوییِ خودکار: {'روشن' if account.auto_reply_dm else 'خاموش'}")
+    lines += ["", INSTAGRAM_DM_RULE_TEXT, INSTAGRAM_PAYMENTS_NOTE]
+    if account is not None and account.last_error:
+        lines += ["", INSTAGRAM_LAST_ERROR.format(error=account.last_error)]
+    if admin_settings is not None and not (getattr(admin_settings, "instagram_app_id", "") or "").strip():
+        lines += ["", INSTAGRAM_NO_APP_ID]
+    return "\n".join(lines)
+
+
+def instagram_connect_page_link(link: str) -> str:
+    return INSTAGRAM_LINK_SENT.format(link=link)
+
+
+INSTAGRAM_CONNECT_OK_PAGE = (
+    "<div dir='rtl' style='font-family:Tahoma;padding:24px;text-align:center'>"
+    "<h2>✅ اتصال برقرار شد</h2><p>به پنلِ ربات برگرد؛ وضعیتِ اینستاگرام همان‌جا «وصل است» می‌شود.</p></div>"
+)
+INSTAGRAM_CONNECT_CANCELLED_PAGE = (
+    "<div dir='rtl' style='font-family:Tahoma;padding:24px;text-align:center'>"
+    "<h2>اتصال کامل نشد</h2><p>لینک را دوباره از پنل بزن («🔗 اتصالِ اکانت اینستاگرام»).</p></div>"
+)
+INSTAGRAM_CONNECT_UNAVAILABLE_PAGE = (
+    "<div dir='rtl' style='font-family:Tahoma;padding:24px;text-align:center'>"
+    "<h2>این سرویس در دسترس نیست</h2><p>کمی دیگر دوباره امتحان کن.</p></div>"
+)
+
+
+def instagram_connect_failed_page(error: str) -> str:
+    """صفحهٔ شکستِ اتصال. `error` از همین‌جا کوتاه می‌شود؛ متن‌هایِ سرویس خودشان ماسک‌شده‌اند."""
+    safe = (error or "")[:220].replace("<", "").replace(">", "")
+    return (
+        "<div dir='rtl' style='font-family:Tahoma;padding:24px'>"
+        "<h2>❌ اتصال کامل نشد</h2>"
+        f"<p>{safe}</p>"
+        "<p>از پنلِ ربات دوباره «🔗 اتصالِ اکانت اینستاگرام» را بزن. اگر باز هم نشد، متنِ «آخرین خطا» "
+        "در همان صفحه را برایِ پشتیبانی بفرست.</p></div>"
+    )
 
 # --- P44 · موردِ ۵۱: «ماه» چند روز باشد + بکاپِ خودکارِ دیتابیس ---
 MONTH_LENGTH_CHOICES: tuple[int, ...] = (0, 30, 31)
@@ -2041,6 +2196,19 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         ("zarinpal_merchant_id", f"🏦 مرچنت آیدی زرین‌پال: {_mask_secret(admin_settings.zarinpal_merchant_id)}"),
         ("bale_bot_token", _bale_bot_token_label(admin_settings.bale_bot_token)),
         ("bale_provider_token", f"🔵 توکنِ درگاهِ بله‌پی: {_mask_secret(admin_settings.bale_provider_token)}"),
+        # P49-الف: سه مقدارِ متا؛ دو موردِ آخر رازند و فقط ماسک‌شده نمایش داده می‌شوند.
+        (
+            "instagram_app_id",
+            f"🟣 App ID اپِ متا: {admin_settings.instagram_app_id or 'تنظیم‌نشده'}",
+        ),
+        (
+            "instagram_app_secret",
+            f"🔐 App Secret (برایِ امضایِ وب‌هوک): {_mask_secret(admin_settings.instagram_app_secret)}",
+        ),
+        (
+            "instagram_webhook_verify_token",
+            f"🔐 توکنِ تأییدِ وب‌هوک: {_mask_secret(admin_settings.instagram_webhook_verify_token)}",
+        ),
         ("platform_card_number", f"💳 شماره کارت پلتفرم: {_mask_secret(admin_settings.platform_card_number)}"),
         ("platform_card_holder_name", f"👤 صاحب کارت: {admin_settings.platform_card_holder_name or 'تنظیم‌نشده'}"),
         # P18 · A2: متنِ اجباریِ بیویِ ربات‌هایِ فروشگاهی + دکمه‌یِ همگام‌سازیِ فوری.
@@ -2612,6 +2780,10 @@ _AUDIT_EVENT_LABELS = {
     "owner_deactivated": "🧊 غیرفعال‌کردنِ حسابِ فروشگاه‌دار",
     "owner_restored": "♻️ بازگرداندنِ حسابِ فروشگاه‌دار",
     "owner_purged": "🔥 حذفِ قطعیِ دادهٔ فروشگاه‌دار",
+    # P49-الف: کانالِ اینستاگرام (سوییچِ سراسری + اتصال/قطعِ اتصالِ فروشگاه).
+    "instagram_toggled": "🟣 تغییرِ سوییچِ اینستاگرام",
+    "instagram_connected": "🟣 اتصالِ اکانت اینستاگرام",
+    "instagram_unbound": "🟣 حذفِ اتصالِ اینستاگرام",
 }
 
 
