@@ -166,6 +166,13 @@ class AiPoolStates(StatesGroup):
     waiting_max_concurrent = State()  # P47 · سقفِ همزمانیِ همینِ کلید (در پنل، نه در .env)
 
 
+class AuditRangeStates(StatesGroup):
+    """P48 (موردِ ۳۹): پرسشِ دو سرِ بازهٔ دلخواه در صفحهٔ گزارشِ ممیزی."""
+
+    waiting_from = State()
+    waiting_until = State()
+
+
 class AdminRoleStates(StatesGroup):
     waiting_telegram_id = State()
     waiting_scope = State()  # P21-E (F8)

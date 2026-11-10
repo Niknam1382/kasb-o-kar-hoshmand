@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import ipaddress
 import logging
 import re
@@ -12,13 +13,15 @@ from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import observability
 from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.filters import IsAdmin, IsSuperAdmin
-from app.bots.main_bot.handlers.owner_common import parse_suffix_int
+from app.bots.main_bot.handlers.owner_common import parse_suffix_int, safe_edit
 from app.bots.main_bot.states import (
     AdminChannelStates,
     AdminGiftStates,
@@ -27,6 +30,7 @@ from app.bots.main_bot.states import (
     AdminSettingsStates,
     AdminWalletCorrectionStates,
     AiPoolStates,
+    AuditRangeStates,
     BroadcastStates,
     ModerationStates,
 )
@@ -65,7 +69,14 @@ from app.services import (
 from app.services.admin_settings_service import get_admin_settings
 from app.utils import csv_export
 from app.utils.jalali import format_jalali_datetime
-from app.utils.validators import fa_text, format_toman, normalize_telegram_username, parse_signed_toman_amount, to_e164_iran
+from app.utils.validators import (
+    _DIGIT_TABLE,
+    fa_text,
+    format_toman,
+    normalize_telegram_username,
+    parse_signed_toman_amount,
+    to_e164_iran,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2097,6 +2108,10 @@ async def cb_ai_pool_delete(callback: CallbackQuery, session: AsyncSession) -> N
 # =============================================================================
 AUDIT_PAGE_LIMIT = 25
 AUDIT_CSV_LIMIT = 500
+_AUDIT_RANGE_KEYS = ("audit_since", "audit_until")
+_AUDIT_RANGE_OPEN_WORDS = ("خالی", "همه", "بی‌حد")
+# ورودیِ تاریخِ ادمین: میلادی و به وقتِ گرینویچ، با ساعتِ اختیاری (ارقامِ فارسی پیش از آن برگردانده می‌شود).
+_AUDIT_DATE_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$")
 
 
 async def _audit_filter_state(state: FSMContext) -> tuple[str | None, str | None]:
@@ -2104,19 +2119,76 @@ async def _audit_filter_state(state: FSMContext) -> tuple[str | None, str | None
     return data.get("audit_group"), data.get("audit_window")
 
 
+def _audit_iso_to_utc(value: object) -> datetime.datetime | None:
+    """متنِ تاریخِ ذخیره‌شده در FSM را به زمانِ آگاهِ گرینویچ برمی‌گرداند؛ هرچه ناشناخته باشد «بی‌حد» حساب می‌شود."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=datetime.timezone.utc) if parsed.tzinfo is None else parsed
+
+
+async def _audit_range_state(state: FSMContext) -> tuple[datetime.datetime | None, datetime.datetime | None]:
+    """دو سرِ بازهٔ دلخواه؛ اگر هیچ‌کدام ذخیره نشده باشد همان پنجره‌هایِ آماده کار می‌کنند."""
+    data = await state.get_data()
+    return _audit_iso_to_utc(data.get("audit_since")), _audit_iso_to_utc(data.get("audit_until"))
+
+
+def _parse_audit_range_input(raw: str) -> datetime.datetime | None:
+    """«خالی/همه» ⇒ None (آن سرِ بازه بی‌حد)؛ الگویِ درست ⇒ زمانِ گرینویچ؛ بقیه ⇒ ValueError."""
+    text = (raw or "").strip().translate(_DIGIT_TABLE)
+    if text in _AUDIT_RANGE_OPEN_WORDS:
+        return None
+    match = _AUDIT_DATE_RE.match(text)
+    if match is None:
+        raise ValueError(text)
+    year, month, day, hour, minute, second = match.groups()
+    return datetime.datetime(
+        int(year), int(month), int(day), int(hour or 0), int(minute or 0), int(second or 0), tzinfo=datetime.timezone.utc
+    )
+
+
+async def _drop_audit_range(state: FSMContext) -> None:
+    """کلیدهایِ بازه را واقعاً حذف می‌کند (None گذاشتن کافی نیست: صفحه باید به بازه‌هایِ آماده برگردد)."""
+    data = await state.get_data()
+    for key in _AUDIT_RANGE_KEYS:
+        data.pop(key, None)
+    await state.set_data(data)
+
+
+def _audit_counts_buckets(counts: dict[str, int]) -> tuple[tuple[str, int], ...]:
+    """شمارشِ هر دسته با همان گروه‌بندیِ سرویسِ ممیزی (FILTER_GROUPS) — دستهٔ تازه‌ای اختراع نمی‌شود."""
+    labels = dict(texts.AUDIT_FILTER_GROUPS)
+    return tuple(
+        (labels[code], sum(counts.get(value, 0) for value in events)) for code, events in audit_log_service.FILTER_GROUPS.items()
+    )
+
+
 async def _render_audit_log(message: Message, state: FSMContext, session: AsyncSession) -> None:
     group, window = await _audit_filter_state(state)
+    since, until = await _audit_range_state(state)
     # P21-F: ادمینِ دامنه‌دار ردیف‌هایِ فروشگاه‌هایِ دیگر را نمی‌بیند (جزئیاتِ آن ردیف‌ها مبلغ و
     # شناسهٔ فروشگاه‌دارِ مشتریِ دیگر را دارد). سوپرادمین scope=None ⇒ همان دفترِ کامل.
     scope = await admin_role_service.scope_for(session, getattr(message.from_user, "id", 0))
-    entries = await audit_log_service.query(
-        session, group=group, window=window, limit=AUDIT_PAGE_LIMIT, allowed_owner_ids=scope
+    has_range = bool(since or until)
+    markup = keyboards.audit_filter_keyboard(group, window, has_range=has_range)
+    counts = await audit_log_service.count_rows(
+        session, group=group, window=window, since=since, until=until, allowed_owner_ids=scope
     )
-    markup = keyboards.audit_filter_keyboard(group, window)
-    if not entries:
-        await message.answer(texts.AUDIT_FILTER_EMPTY if (group or window) else texts.AUDIT_LOG_EMPTY, reply_markup=markup)
+    summary = texts.audit_counts_summary_line(counts["total"], _audit_counts_buckets(counts))
+    if not counts["total"]:
+        filtered = bool(group or window or has_range)
+        await message.answer(summary + "\n\n" + (texts.AUDIT_FILTER_EMPTY if filtered else texts.AUDIT_LOG_EMPTY), reply_markup=markup)
         return
-    lines = [texts.audit_report_intro(group, window, len(entries), scoped=scope is not None), ""]
+    entries = await audit_log_service.query(
+        session, group=group, window=window, since=since, until=until, limit=AUDIT_PAGE_LIMIT, allowed_owner_ids=scope
+    )
+    lines = [texts.audit_report_intro(group, window, len(entries), scoped=scope is not None)]
+    if has_range:
+        lines.append(texts.audit_range_line(since, until))
+    lines.extend([summary, ""])
     lines.extend(texts.audit_log_entry_line(entry) for entry in entries)
     await message.answer("\n\n".join(lines), reply_markup=markup)
 
@@ -2149,11 +2221,59 @@ async def cb_audit_window(callback: CallbackQuery, state: FSMContext, session: A
     await _render_audit_log(callback.message, state, session)
 
 
+@router.callback_query(F.data == "audit_range_from")
+async def cb_audit_range_from(callback: CallbackQuery, state: FSMContext) -> None:
+    """موردِ ۳۹: اولِ سوالِ سرِ بازه (دو تاریخ، یکی‌یکی، با «خالی» برایِ بی‌حد)."""
+    await callback.answer()
+    await state.set_state(AuditRangeStates.waiting_from)
+    await callback.message.answer(texts.AUDIT_RANGE_FROM_ASK)
+
+
+@router.callback_query(F.data == "audit_range_clear")
+async def cb_audit_range_clear(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await callback.answer(texts.AUDIT_RANGE_CLEARED)
+    await _drop_audit_range(state)
+    await _render_audit_log(callback.message, state, session)
+
+
+@router.message(AuditRangeStates.waiting_from, F.text)
+async def audit_range_from_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    await _audit_range_endpoint_received(message, state, session, "audit_since", AuditRangeStates.waiting_until)
+
+
+@router.message(AuditRangeStates.waiting_until, F.text)
+async def audit_range_to_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    await _audit_range_endpoint_received(message, state, session, "audit_until", None)
+
+
+async def _audit_range_endpoint_received(
+    message: Message, state: FSMContext, session: AsyncSession, key: str, next_state: State | None
+) -> None:
+    """یکِ سرِ بازه: درست ⇒ ذخیره و گامِ بعد؛ «خالی» ⇒ بی‌حد؛ غلط ⇒ همان سوال دوباره (state می‌ماند)."""
+    try:
+        parsed = _parse_audit_range_input(message.text or "")
+    except ValueError:
+        await message.answer(texts.AUDIT_RANGE_INVALID)
+        return
+    await state.update_data(**{key: parsed.isoformat() if parsed else None})
+    data = await state.get_data()
+    if not data.get("audit_since") and not data.get("audit_until"):
+        await _drop_audit_range(state)
+    await state.set_state(next_state)
+    if next_state is not None:
+        await message.answer(texts.AUDIT_RANGE_TO_ASK)
+        return
+    await _render_audit_log(message, state, session)
+
+
 @super_router.callback_query(F.data == "audit_csv")
 async def cb_audit_csv(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     """F9: خروجیِ CSVِ همان فیلتر. فقط سوپرادمین، و خودِ «گرفتنِ خروجی» هم ممیزی می‌شود."""
     group, window = await _audit_filter_state(state)
-    entries = await audit_log_service.query(session, group=group, window=window, limit=AUDIT_CSV_LIMIT)
+    since, until = await _audit_range_state(state)
+    entries = await audit_log_service.query(
+        session, group=group, window=window, since=since, until=until, limit=AUDIT_CSV_LIMIT
+    )
     if not entries:
         await callback.answer(texts.AUDIT_CSV_EMPTY, show_alert=True)
         return
@@ -2179,13 +2299,55 @@ async def cb_audit_csv(callback: CallbackQuery, state: FSMContext, session: Asyn
         session,
         AuditEventType.AUDIT_EXPORTED,
         actor_telegram_id=callback.from_user.id,
-        details=f"خروجیِ CSV ({len(rows)} ردیف) · دسته={group or 'all'} · بازه={window or 'all'}",
+        details=f"خروجیِ CSV ({len(rows)} ردیف) · دسته={group or 'all'} · بازه={window or 'all'}"
+        + texts.audit_csv_range_note(since, until),
     )
     await callback.answer()
     await callback.message.answer_document(
         BufferedInputFile(content, filename="audit-log.csv"),
         caption=fa_text(texts.AUDIT_CSV_READY, count=len(rows)),
     )
+
+
+# =============================================================================
+# لاگِ زندهٔ سرور (P48 · موردِ ۱۳) — بافرِ حافظهٔ همین پروسه، بدونِ دیتابیس
+# =============================================================================
+LOG_VIEWS = ("warnings", "errors")
+
+
+def _server_log_screen(view: str) -> tuple[str, InlineKeyboardMarkup]:
+    """همان شمارشِ بافر + تازه‌ترینِ ردیف‌ها (تازه‌ترین اول)؛ هیچ کوئریِ دیتابیسی ندارد."""
+    rows = observability.recent_logs(view=view, limit=texts.SERVER_LOG_ROWS)
+    return texts.server_log_screen_text(observability.recent_log_counts(), rows), keyboards.server_log_keyboard(view)
+
+
+@super_router.message(F.text == "🧾 لاگِ سرور")
+async def open_server_log(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    text, markup = _server_log_screen(LOG_VIEWS[0])
+    await message.answer(text, reply_markup=markup)
+
+
+@super_router.callback_query(F.data.startswith("logs_view:"))
+async def cb_logs_view(callback: CallbackQuery, state: FSMContext) -> None:
+    view = callback.data.split(":", 1)[1]
+    if view not in LOG_VIEWS:
+        await callback.answer(texts.GENERIC_ERROR, show_alert=True)
+        return
+    await callback.answer()
+    await state.update_data(logs_view=view)
+    text, markup = _server_log_screen(view)
+    await safe_edit(callback, text, markup)
+
+
+@super_router.callback_query(F.data == "logs_refresh")
+async def cb_logs_refresh(callback: CallbackQuery, state: FSMContext) -> None:
+    """دکمهٔ «تازه‌کردن» نمایِ فعلی را دوباره از بافر می‌خواند (state نه، فقطِ داده)."""
+    view = (await state.get_data()).get("logs_view")
+    view = view if view in LOG_VIEWS else LOG_VIEWS[0]
+    await callback.answer()
+    text, markup = _server_log_screen(view)
+    await safe_edit(callback, text, markup)
 
 
 # =============================================================================

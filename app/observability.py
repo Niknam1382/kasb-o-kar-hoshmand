@@ -23,11 +23,14 @@
 
 from __future__ import annotations
 
+import collections
 import contextvars
+import datetime
 import json
 import logging
 import re
 import time
+import traceback
 
 _CORRELATION: contextvars.ContextVar[str] = contextvars.ContextVar("correlation_id", default="")
 _counters: dict[str, int] = {}
@@ -119,6 +122,67 @@ def install(level: str = "INFO", as_json: bool = False) -> None:
             handler.setFormatter(JsonFormatter())
         else:
             handler.setFormatter(ScrubbingFormatter(CORRELATION_PLAIN_FORMAT))
+    if not any(isinstance(h, RecentLogBuffer) for h in root.handlers):
+        root.addHandler(_recent_buffer)
+
+
+# =============================================================================
+# P48 · حافظهٔ حلقویِ آخرینِ هشدارها و خطاها (موردِ ۱۳: «لاگِ حرفه‌ای + پنل»)
+# =============================================================================
+#
+# چرا در حافظه و نه دیتابیس: نوشتنِ هرِ خطِ لاگ در postgres مسیرِ پیامِ مشتری را سنگین می‌کرد
+# (همین پروژه سقفِ جمله‌هایِ هرِ پیام را در تست قفل کرده است). پس اینجا فقط WARNING و ERRORِ
+# *همین پروسه* نگه داشته می‌شود تا ادمین بی‌نیازِ SSHِ سرور ببیند چه می‌گذرد؛ لاگِ کامل و
+# ساختاریافته مثلِ قبل به stdout می‌رود و در فایلِ داکر می‌نشیند.
+
+RECENT_LOG_BUFFER_SIZE = 300
+MAX_RECENT_LOG_LINE = 400
+
+
+class RecentLogBuffer(logging.Handler):
+    """آخرینِ چندِ هشدار/خطا، ماسک‌شده (هیچ توکن/کلید/موبایلی اینجا نمی‌ماند)."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.WARNING)
+        self.rows: collections.deque[dict[str, str]] = collections.deque(maxlen=RECENT_LOG_BUFFER_SIZE)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            row = {
+                "t": datetime.datetime.fromtimestamp(record.created, datetime.timezone.utc).strftime("%m-%d %H:%M:%S"),
+                "level": record.levelname,
+                "where": record.name.rsplit(".", 1)[-1],
+                "msg": scrub(record.getMessage())[:MAX_RECENT_LOG_LINE],
+            }
+            if record.exc_info:
+                tail = "".join(traceback.format_exception(*record.exc_info))[-MAX_RECENT_LOG_LINE:]
+                row["exc"] = scrub(tail)
+            self.rows.append(row)
+        except Exception:  # noqa: BLE001 - لاگ‌بردارِ لاگ هرگز نباید خودِ مسیر را بیندازد
+            return
+
+
+_recent_buffer = RecentLogBuffer()
+_LEVEL_PREFIXES = {"errors": ("ERROR", "CRITICAL"), "warnings": ("WARNING", "ERROR", "CRITICAL")}
+
+
+def recent_logs(view: str = "warnings", limit: int = 20) -> list[dict[str, str]]:
+    """تازه‌ترین‌ها اول؛ `view` = `warnings` (پیش‌فرض) یا `errors`."""
+    wanted = _LEVEL_PREFIXES.get(view, _LEVEL_PREFIXES["warnings"])
+    rows = [row for row in _recent_buffer.rows if row["level"] in wanted]
+    return list(reversed(rows[-max(1, int(limit)):]))
+
+
+def recent_log_counts() -> dict[str, int]:
+    """چند هشدار و چند خطا درِ حافظه است (برایِ سرِصفحه و اخطارِ «چیزی خراب است»)."""
+    warnings = sum(1 for row in _recent_buffer.rows if row["level"] == "WARNING")
+    errors = sum(1 for row in _recent_buffer.rows if row["level"] in ("ERROR", "CRITICAL"))
+    return {"warnings": warnings, "errors": errors, "stored": len(_recent_buffer.rows)}
+
+
+def reset_recent_logs_for_tests() -> None:
+    """فقط برایِ تست."""
+    _recent_buffer.rows.clear()
 
 
 CORRELATION_PLAIN_FORMAT = "%(asctime)s %(levelname)s %(name)s%(corr)s: %(message)s"

@@ -474,9 +474,10 @@ def confirm_customer_broadcast_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def audit_filter_keyboard(group: str | None, window: str | None) -> InlineKeyboardMarkup:
+def audit_filter_keyboard(group: str | None, window: str | None, has_range: bool = False) -> InlineKeyboardMarkup:
     """P21-E (F9): دسته‌بندی + بازهٔ زمانی + خروجیِ CSV در همان صفحهٔ گزارشِ ممیزی.
-    P22: همه در ردیف‌هایِ دونفره (قبلاً سه‌تا/چهارتا در هر خط)."""
+    P22: همه در ردیف‌هایِ دونفره (قبلاً سه‌تا/چهارتا در هر خط).
+    P48 (موردِ ۳۹): «🗓 بازهٔ دلخواه» و، فقط وقتی بازه‌ای ذخیره شده, «✖️ حذفِ بازه»."""
     from app.bots.main_bot import texts
 
     group_buttons = [
@@ -491,9 +492,26 @@ def audit_filter_keyboard(group: str | None, window: str | None) -> InlineKeyboa
         )
         for code, label in texts.AUDIT_FILTER_WINDOWS
     ]
-    rows = grid(group_buttons) + grid(window_buttons)
+    range_buttons = [InlineKeyboardButton(text=texts.AUDIT_RANGE_BUTTON, callback_data="audit_range_from")]
+    if has_range:
+        range_buttons.append(InlineKeyboardButton(text=texts.AUDIT_RANGE_CLEAR_BUTTON, callback_data="audit_range_clear"))
+    rows = grid(group_buttons) + grid(window_buttons) + grid(range_buttons)
     rows.append([InlineKeyboardButton(text=texts.AUDIT_CSV_BUTTON, callback_data="audit_csv")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def server_log_keyboard(view: str) -> InlineKeyboardMarkup:
+    """P48 (موردِ ۱۳): دو نمایِ هشدار/خطا + تازه‌کردن + بازگشت به پنلِ سوپرادمین."""
+    def marked(code: str, label: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=("✅ " if view == code else "") + label, callback_data=f"logs_view:{code}")
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [marked("warnings", texts.LOGS_VIEW_WARNINGS_BUTTON), marked("errors", texts.LOGS_VIEW_ERRORS_BUTTON)],
+            [InlineKeyboardButton(text=texts.LOGS_REFRESH_BUTTON, callback_data="logs_refresh")],
+            [InlineKeyboardButton(text=texts.LOGS_BACK_BUTTON, callback_data="main_menu")],
+        ]
+    )
 
 
 def scheduled_cancel_keyboard(rows) -> InlineKeyboardMarkup:
@@ -567,6 +585,7 @@ def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
             KeyboardButton(text="🔑 استخرِ کلیدهایِ AI"),
             KeyboardButton(text="👑 مدیریتِ ادمین‌ها"),
             KeyboardButton(text="📤 دفترِ کیف‌پول (اکسل)"),
+            KeyboardButton(text=texts.SERVER_LOG_BUTTON),  # P48 · موردِ ۱۳ (فقط سوپرادمین)
         ]
     return ReplyKeyboardMarkup(keyboard=grid(buttons), resize_keyboard=True)
 

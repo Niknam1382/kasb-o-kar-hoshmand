@@ -3,7 +3,8 @@ from __future__ import annotations
 import datetime
 
 from app.services.identity_service import display_name, display_user
-from app.utils.validators import fa_number, fa_percent, format_phone_display, format_toman
+from app.utils.text_limits import clip
+from app.utils.validators import fa_number, fa_percent, fa_text, format_phone_display, format_toman
 
 # =============================================================================
 # عمومی
@@ -2307,6 +2308,100 @@ def audit_report_intro(group: str | None, window: str | None, count: int, *, sco
     window_label = dict(AUDIT_FILTER_WINDOWS).get(window or "all", "همیشه")
     tail = " · فقطِ فروشگاه‌هایِ دامنهٔ تو" if scoped else ""
     return f"📜 گزارشِ ممیزی · دسته: {group_label} · بازه: {window_label} · {fa_number(count)} ردیفِ آخر:{tail}"
+
+
+# P48 · موردِ ۳۹/۴۸: بازهٔ تاریخِ دلخواه در همان صفحهٔ ممیزی (قبلاً فقط ۲۴ ساعت/۷/۳۰ روز بود).
+AUDIT_RANGE_BUTTON = "🗓 بازهٔ دلخواه"
+AUDIT_RANGE_CLEAR_BUTTON = "✖️ حذفِ بازه"
+AUDIT_RANGE_FROM_ASK = (
+    "🗓 تاریخِ شروعِ بازه را بنویس — الگو: ۲۰۲۶-۰۱-۱۵ یا ۲۰۲۶-۰۱-۱۵ ۰۹:۳۰ (میلادی، به وقتِ جهانی `UTC`).\n"
+    "برایِ بی‌حدِ نوشتنِ «همه» یا «خالی» کافی است."
+)
+AUDIT_RANGE_TO_ASK = (
+    "🗓 تاریخِ پایانِ بازه را بنویس — همان الگو؛ ردیف‌هایِ خودِِ این لحظه شامل نمی‌شوند.\n"
+    "برایِ بی‌حدِ نوشتنِ «همه» یا «خالی» کافی است."
+)
+AUDIT_RANGE_INVALID = "🗓 این تاریخ را نفهمیدم. الگو: ۲۰۲۶-۰۱-۱۵ یا ۲۰۲۶-۰۱-۱۵ ۰۹:۳۰ (میلادی، به وقتِ جهانی `UTC`)."
+AUDIT_RANGE_OPEN_END = "بی‌حد"
+AUDIT_RANGE_CLEARED = "✖️ بازهٔ دلخواه حذف شد؛ دفترِ ممیزی دوباره با بازه‌هایِ آماده نشان داده می‌شود."
+AUDIT_RANGE_HEADLINE = "🗓 بازهٔ دلخواه (جایِ بازهٔ آماده): از {start} تا {end}"
+AUDIT_COUNTS_LINE = "📊 در این بازه: {total} ردیف{buckets}"
+AUDIT_COUNTS_BUCKET = "{label}: {count}"
+
+
+def audit_range_line(since: datetime.datetime | None, until: datetime.datetime | None) -> str:
+    """دو سرِ بازهٔ دلخواه با تاریخِ شمسی (همان چیزی که کاربر در دفتر می‌بیند)."""
+    from app.utils.jalali import format_jalali_datetime
+
+    start = format_jalali_datetime(since) if since else AUDIT_RANGE_OPEN_END
+    end = format_jalali_datetime(until) if until else AUDIT_RANGE_OPEN_END
+    return fa_text(AUDIT_RANGE_HEADLINE, start=start, end=end)
+
+
+def audit_counts_summary_line(total: int, buckets: tuple[tuple[str, int], ...]) -> str:
+    """خلاصهٔ یک‌خطیِ حرفه‌ایِ همان فیلتر: «۴۲ ردیف · 💰 پول: ۵ · ⚙️ تنظیمات: ۳»."""
+    parts = "".join(" · " + AUDIT_COUNTS_BUCKET.format(label=label, count=fa_number(count)) for label, count in buckets if count)
+    return AUDIT_COUNTS_LINE.format(total=fa_number(total), buckets=parts)
+
+
+def audit_csv_range_note(since: datetime.datetime | None, until: datetime.datetime | None) -> str:
+    """ذیلِ همان ردیفِ ممیزیِ «خروجیِ گرفتم» — تا در خودِ دفتر هم معلوم باشد فایلی که رفت کدام بازه است."""
+    from app.utils.jalali import format_jalali_datetime
+
+    if not (since or until):
+        return ""
+    start = format_jalali_datetime(since) if since else AUDIT_RANGE_OPEN_END
+    end = format_jalali_datetime(until) if until else AUDIT_RANGE_OPEN_END
+    return f" · بازهٔ دلخواه: از {start} تا {end}"
+
+
+# =============================================================================
+# P48 · موردِ ۱۳: لاگِ زندهٔ سرور در پنل (بدونِ SSH و بدونِ دیتابیس)
+# =============================================================================
+SERVER_LOG_BUTTON = "🧾 لاگِ سرور"
+SERVER_LOG_ROWS = 15  # سقفِ ردیف‌هایِ رویِ صفحه (بافرِ حافظه ۳۰۰ ردیف نگه می‌دارد)
+SERVER_LOG_MESSAGE_LIMIT = 160
+SERVER_LOG_EXC_LIMIT = 200
+SERVER_LOG_TEXT_LIMIT = 3800  # جایِ امن زیرِ سقفِ ۴۰۹۶ نویسهٔ تلگرام
+SERVER_LOG_INTRO = (
+    "🧾 لاگِ سرور\n\n"
+    "فقطِ همین پروسهٔ سرور، آخرین ۳۰۰ هشدار/خطا در حافظه؛ لاگِ کامل در `stdout` و فایلِ لاگِ داکر است."
+)
+SERVER_LOG_EMPTY = "✅ در حافظهٔ همین پروسه هیچ هشدار یا خطایی ثبت نشده است."
+SERVER_LOG_COUNTS_LINE = "📊 در حافظه: {warnings} هشدار · {errors} خطا · {stored} ردیفِ کل"
+SERVER_LOG_TRUNCATED = "\n\n… بقیهٔ خطوط برایِ ماندن زیرِ سقفِ پیام کوتاه شد."
+LOGS_VIEW_WARNINGS_BUTTON = "🟡 هشدارها و خطاها"
+LOGS_VIEW_ERRORS_BUTTON = "🔴 فقط خطاها"
+LOGS_REFRESH_BUTTON = "🔄 تازه‌کردن"
+LOGS_BACK_BUTTON = "⬅️ بازگشت"
+_LOG_LEVEL_LABELS = {"WARNING": "⚠️ هشدار", "ERROR": "🔴 خطا", "CRITICAL": "🔥 بحرانی"}
+
+
+def server_log_counts_line(counts: dict[str, int]) -> str:
+    """خطِ شمارشِ بافر؛ سطح‌ها با ارقامِ فارسی."""
+    return fa_text(SERVER_LOG_COUNTS_LINE, **counts)
+
+
+def server_log_row_line(row: dict[str, str]) -> str:
+    """یکِ ردیفِ لاگ در دو خط: «زمان · سطح · ماژول» و زیرش پیامِ برش‌خورده (+ دنبالهٔ استثنا)."""
+    level = row.get("level", "")
+    head = f"· {fa_number(row.get('t', ''))} {_LOG_LEVEL_LABELS.get(level, level)} · {row.get('where', '')}"
+    body = clip(row.get("msg"), SERVER_LOG_MESSAGE_LIMIT)
+    line = f"{head}\n{body}" if body else head
+    exc = (row.get("exc") or "").strip()
+    if exc:
+        # دنبالهٔ متنِ استثنا مهم‌ترین بخش است (نوعِ خطا در آخرین خط است)، پس از انتها بریده می‌شود.
+        line += f"\n   …{exc[-SERVER_LOG_EXC_LIMIT:]}"
+    return line
+
+
+def server_log_screen_text(counts: dict[str, int], rows: list[dict[str, str]]) -> str:
+    """متنِ کاملِ صفحهٔ لاگ؛ برشِ نهایی تا سقفِ پیامِ تلگرام (۱۵ ردیفِ بلند از ۴۰۹۶ می‌گذرند)."""
+    body = "\n".join(server_log_row_line(row) for row in rows) if rows else SERVER_LOG_EMPTY
+    text = "\n\n".join([SERVER_LOG_INTRO, server_log_counts_line(counts), body])
+    if len(text) > SERVER_LOG_TEXT_LIMIT:
+        text = text[:SERVER_LOG_TEXT_LIMIT].rstrip() + SERVER_LOG_TRUNCATED
+    return text
 
 
 def audit_csv_headers() -> list[str]:
