@@ -153,6 +153,7 @@ TEST_FILES = [
     "test_p47_ai_key_load_balance.py",
     "test_p48_logs_and_audit_range.py",
     "test_p49_instagram_channel.py",
+    "test_p49_b_instagram_comments.py",
 ]
 
 

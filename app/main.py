@@ -730,9 +730,15 @@ _instagram_tasks: set = set()
 def _spawn_instagram_event(event) -> None:
     """هر دایرکت در تسکِ خودش با سشنِ خودش؛ وب‌هوک باید بی‌درنگ ۲۰۰ بگیرد (پاسخِ AI چند ثانیه طول می‌کشد)."""
 
+    handler = (
+        instagram_service.handle_comment
+        if isinstance(event, instagram_service.CommentEvent)
+        else instagram_service.handle_inbound
+    )
+
     async def _run() -> None:
         async with session_scope() as session:
-            await instagram_service.handle_inbound(session, _state["main_bot"], event)
+            await handler(session, _state["main_bot"], event)
 
     task = asyncio.create_task(_run())
     _instagram_tasks.add(task)
@@ -787,10 +793,18 @@ async def webhook_instagram(request: Request) -> Response:
     except ValueError:
         return Response(status_code=200)  # بدنهٔ بی‌فهم ⇒ ۴xx یعنی دوباره بفرست؛ بی‌معناست
     events = instagram_service.parse_event(payload if isinstance(payload, dict) else {})
-    messaging = [event for event in events if isinstance(event, instagram_service.DirectMessage)]
+    messaging = [
+        event
+        for event in events
+        if isinstance(event, (instagram_service.DirectMessage, instagram_service.CommentEvent))
+    ]
     if len(messaging) != len(events):
-        observability.count("webhook.instagram.deferred")  # P49-B: کامنت‌ها فعلاً فقط شمارش می‌شوند
+        observability.count("webhook.instagram.unknown")  # رویدادی که ما شکلش را نمی‌شناسیم (مثلاً ویرایشِ پست)
     observability.count("webhook.instagram", len(messaging))
+    observability.count(
+        "webhook.instagram.comments",
+        sum(1 for event in messaging if isinstance(event, instagram_service.CommentEvent)),
+    )
     for event in messaging:
         _spawn_instagram_event(event)
     return Response(status_code=200)

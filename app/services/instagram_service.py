@@ -106,6 +106,9 @@ MAX_WEBHOOK_BODY_BYTES = 1_000_000
 _PAYMENT_OFFER_COOLDOWN_SECONDS = 30 * 60
 _INT64_MAX = 2**63 - 1
 _SAFE_ID_RE = re.compile(r"^[0-9A-Za-z_.-]{1,64}$")
+# شناسه‌هایِ متا رقم‌اند؛ «.» و «-» در مسیرِ URL یعنی `/v21.0/../x` یا آدرسِ IP، پس برایِ
+# کامنت/مدیا/اکانت الگویِ سخت‌گیرانه‌تر داریم (مسیرِ دایرکت مثلِ قبل می‌ماند).
+_STRICT_ID_RE = re.compile(r"^[0-9]{1,32}$|^[0-9A-Za-z_-]{1,64}$")
 # میزبان‌هایِ خصوصی/لوکال (همان فهرستِ admin.py · P24): آدرسِ برگشتِ OAuth نباید به آن‌ها برود.
 _INTERNAL_HOST_RE = re.compile(
     r"^(?:localhost|0\.0\.0\.0|::1|127\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.)",
@@ -541,6 +544,7 @@ async def fetch_account_info(access_token: str) -> dict:
     return {"ig_account_id": ig_account_id, "username": _as_text(data.get("username"))[:64]}
 
 
+COMMENT_PUBLIC_LIMIT = 280  # کامنتِ عمومی کوتاه می‌ماند؛ جزئیات به دایرکت می‌رود
 COMMENT_REPLY_DAYS = 7  # قاعدهٔ متا: پاسخِ خصوصی فقط تا ۷ روزِ بعد ازِ کامنت، و فقط یکِ پیام
 _COMMENT_FIELDS = ("comments", "live_comments")
 
@@ -561,7 +565,7 @@ def _as_comment(change: dict, entry_id: str) -> CommentEvent | None:
     account_id = _as_text(value.get("ig_id")) or entry_id
     if not comment_id or not text or not media_id:
         return None
-    if not (_SAFE_ID_RE.fullmatch(comment_id) and _SAFE_ID_RE.fullmatch(media_id) and _SAFE_ID_RE.fullmatch(account_id)):
+    if not (_STRICT_ID_RE.fullmatch(comment_id) and _STRICT_ID_RE.fullmatch(media_id) and _STRICT_ID_RE.fullmatch(account_id)):
         return None  # شناسهٔ ناشناخته نه به آدرسِ Graph می‌رود نه به ستونِ ۶۴نویسه‌ای
     return CommentEvent(
         comment_id=comment_id,
@@ -587,7 +591,7 @@ async def reply_to_comment(session: AsyncSession, account: InstagramAccount | No
     """جوابِ *عمومی* زیرِ همان کامنت: `POST /{ig}/media/{media_id}/comments`."""
     if account is None or not (account.access_token or ""):
         return False
-    if not _SAFE_ID_RE.fullmatch(account.ig_account_id or ""):
+    if not _STRICT_ID_RE.fullmatch(account.ig_account_id or "") or not _STRICT_ID_RE.fullmatch(event.media_id):
         return False
     body = text_limits.clip(text, text_limits.INSTAGRAM_DM_LIMIT)
     if not body:
@@ -610,7 +614,7 @@ async def send_private_reply(session: AsyncSession, account: InstagramAccount | 
     """
     if account is None or not (account.access_token or ""):
         return False
-    if not _SAFE_ID_RE.fullmatch(account.ig_account_id or "") or not _SAFE_ID_RE.fullmatch(event.comment_id):
+    if not _STRICT_ID_RE.fullmatch(account.ig_account_id or "") or not _STRICT_ID_RE.fullmatch(event.comment_id):
         return False
     if not comment_reply_is_open(event.created_at):
         await remember_error(session, account, f"{COMMENT_REPLY_DAYS} روز از کامنت گذشته است؛ متا پاسخِ خصوصی را قبول نمی‌کند.")
@@ -698,8 +702,8 @@ async def mark_seen(account: InstagramAccount, message_id: str | None) -> None:
 
 async def remember_error(session: AsyncSession, account: InstagramAccount | None, message: str | None) -> None:
     """`last_error` همیشه فارسی و ماسک‌شده است؛ None ⇒ پاک‌کردنِ خطایِ قبلی (موفقیتِ تازه)."""
-    if account is None:
-        return
+    if account is None or session is None:
+        return  # «یادآوریِ» خطا بهترین‌تلاش است؛ بی‌سشن نباید خودِ مسیرِ ارسال را بشکند
     account.last_error = text_limits.clip(message, 500) if message else None
     await session.flush()
 
@@ -840,6 +844,103 @@ async def _offer_card_payment(session, account, shop_bot, order, psid, messenger
 
 
 # ============================================================================= ۷ — مسیرِ ورودی (مغزِ AI + پول)
+async def handle_comment(session: AsyncSession, main_bot, event: CommentEvent) -> None:
+    """یکِ کامنتِ عمومی ⇒ جوابِ کوتاه از همان مغزِ AI، و در صورتِ روشن‌بودن «پاسخِ خصوصی».
+
+    تفاوتِ عمدی با دایرکت: کامنت‌کننده هنوز مشتریِ فروشگاه نیست و گفتگویی در تاریخچه ندارد، پس
+    تاریخچه‌ای خوانده/نوشته نمی‌شود و هویتِ Customer برایش ساخته نمی‌شود (ساختنِ مشتری از رویِ یکِ
+    کامنت، CRMِ فروشگاه را با آدم‌هایِ غریبه پر می‌کرد). هزینهٔ AI مثلِ بقیهٔ کانال‌ها از کیف‌پولِ
+    صاحبِ فروشگاه کم می‌شود. هیچ استثنایی به وب‌هوک بیرون نمی‌رود.
+    """
+    try:
+        await _handle_comment(session, main_bot, event)
+    except Exception:  # noqa: BLE001 — وب‌هوکِ متا باید ۲۰۰ بگیرد، وگرنه تا ابد دوباره می‌فرستد
+        logger.exception("پردازشِ کامنتِ اینستاگرام ناموفق بود.")
+        await session.rollback()
+
+
+async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) -> None:
+    key = f"ig-comment:{event.comment_id}"
+    if not claim_event(key):
+        return
+    admin_settings = await cached_admin_settings(session)
+    if not enabled(admin_settings):
+        return
+    account = await account_by_ig_id(session, event.ig_account_id)
+    if account is None or not account.is_active or not account.auto_reply_comments:
+        return
+    shop_bot = await shop_bot_service.get_by_id(session, account.shop_bot_id)
+    if shop_bot is None or not shop_bot.is_active or admin_settings.maintenance_mode:
+        return
+    owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
+    if owner is None:
+        return
+
+    matched_rule = await moderation_service.check_text(session, event.text, shop_bot_id=shop_bot.id)
+    if matched_rule is not None:
+        action = matched_rule.action.value if hasattr(matched_rule.action, "value") else str(matched_rule.action)
+        await audit_log_service.log(
+            session,
+            AuditEventType.MODERATION_MATCH,
+            shop_bot_id=shop_bot.id,
+            details=f"الگو: {matched_rule.pattern} | اکشن: {action} | کانال: اینستاگرام (کامنت)",
+        )
+        await session.commit()
+        if action == "block":
+            return  # جوابِ عمومیِ زیرِ کامنتِ تخلفی، برندِ فروشگاه را هم آلوده می‌کند
+
+    if not admin_settings.ai_api_key:
+        return
+    access_state = await order_access_service.evaluate(session, owner, admin_settings)
+    if not order_access_service.chat_continues(access_state):
+        return
+
+    products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
+    knowledge_limit = shop_prefs_service.resolve(shop_prefs_service.KNOWLEDGE_ITEMS, shop_bot, admin_settings)
+    knowledge = await channel_knowledge_service.get_recent_knowledge(session, shop_bot.id, knowledge_limit)
+    learned_answers = await knowledge_service.get_active_for_prompt(session, shop_bot.id)
+    system_prompt = ai_context.build_system_prompt(
+        shop_bot,
+        products,
+        knowledge,
+        prompt_defaults.resolve_global_prompt(admin_settings, shop_bot.tenant_mode),
+        learned_answers=learned_answers,
+        gap_detection=False,  # «سوالِ بی‌جواب» برایِ گفتگویِ خصوصی است، نه کامنتِ عمومی
+        bot_tools=[],
+    )
+    ai = await ai_pool_service.build_ai_service(session, admin_settings, "chat")
+    if ai is None:
+        return
+    try:
+        await session.commit()  # قاعدهٔ ۷: آزادکردنِ اتصال پیش ازِ انتظارِ شبکه
+        ai_result = await ai.get_reply(system_prompt, [], event.text)
+    except ai_service.AiServiceError:
+        logger.warning("پاسخِ AI به کامنتِ اینستاگرام برایِ فروشگاه %s ناموفق بود.", shop_bot.id)
+        await bot_error_service.log_error(session, shop_bot.id)
+        await session.commit()
+        return
+
+    reply = text_limits.strip_markdown(knowledge_service.strip_gap_marker(ai_result.text)[0])
+    public = text_limits.clip(reply, COMMENT_PUBLIC_LIMIT)
+    if not public:
+        return
+    if not await reply_to_comment(session, account, event, public):
+        await session.commit()
+        return  # پاسخِ نرسیده هزینهٔ صاحبِ فروشگاه نمی‌شود
+
+    if account.private_reply_enabled:
+        await send_private_reply(session, account, event, private_reply_text(reply, shop_bot))
+    cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
+    await chat_billing_service.deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot)
+    await session.commit()
+
+
+def private_reply_text(answer: str, shop_bot) -> str:
+    """متنِ دایرکتِ خصوصی: همان جواب + دعوتِ ادامهٔ گفتگو (فقط یکِ پیام مجاز است، پس کامل فرستاده می‌شود)."""
+    body = text_limits.clip(answer, text_limits.INSTAGRAM_DM_LIMIT - 120)
+    return f"{body}\n\nهر سؤالِ دیگری داشتی همین‌جا در دایرکت بنویس تا پاسخِ کامل‌تری بگیری."
+
+
 async def handle_inbound(session: AsyncSession, main_bot, event: DirectMessage) -> None:
     """یکِ دایرکتِ ورودی ⇒ همان لوله‌یِ `customer.py` (دسترسی، نگهبانِ محتوا، AI، تاریخچه، کسر).
 

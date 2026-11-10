@@ -77,6 +77,33 @@ async def open_instagram_panel(message: Message, state: FSMContext, session: Asy
     await _screen(message, shop_bot, session)
 
 
+# P49-ب: چهار کال‌بکِ یک‌شکل برایِ دو سوییچِ کامنت (سوییچِ دایرکت هندلرِ اختصاصیِ خودش را دارد).
+_FLAG_ACTIONS: dict[str, tuple[str, bool, str]] = {
+    "ig_comments_on": ("auto_reply_comments", True, "💬 پاسخِ خودکار به کامنت‌ها روشن شد."),
+    "ig_comments_off": ("auto_reply_comments", False, "💬 پاسخِ خودکار به کامنت‌ها خاموش شد."),
+    "ig_private_on": ("private_reply_enabled", True, "🔒 پاسخِ خصوصی به کامنت‌کننده روشن شد."),
+    "ig_private_off": ("private_reply_enabled", False, "🔒 پاسخِ خصوصی خاموش شد (فقط جوابِ عمومی زیرِ کامنت)."),
+}
+
+
+@router.callback_query(F.data.in_(set(_FLAG_ACTIONS)))
+async def cb_toggle_flag(callback: CallbackQuery, session: AsyncSession) -> None:
+    """روشن/خاموش‌کردنِ یکِ سوییچِ کانال برایِ همین فروشگاه (مالکیت با require_shop_bot_cb)."""
+    field, value, toast = _FLAG_ACTIONS[callback.data]
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        await callback.answer()
+        return
+    account = await instagram_service.account_for_shop(session, shop_bot.id)
+    if account is None:
+        await callback.answer(texts.INSTAGRAM_NOT_CONNECTED, show_alert=True)
+        return
+    setattr(account, field, value)
+    await session.flush()
+    await callback.answer(toast)
+    await _screen(callback, shop_bot, session)
+
+
 @router.callback_query(F.data == "ig_back")
 async def cb_back(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()

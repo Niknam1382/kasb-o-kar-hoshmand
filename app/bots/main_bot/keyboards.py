@@ -1442,6 +1442,20 @@ def instagram_panel_keyboard(account) -> InlineKeyboardMarkup:
                 callback_data="ig_reply_off" if account.auto_reply_dm else "ig_reply_on",
             )
         )
+        comments_on = bool(getattr(account, "auto_reply_comments", False))
+        private_on = bool(getattr(account, "private_reply_enabled", False))
+        actions.append(
+            InlineKeyboardButton(
+                text="💬 کامنت: روشن" if comments_on else "💬 کامنت: خاموش",
+                callback_data="ig_comments_off" if comments_on else "ig_comments_on",
+            )
+        )
+        actions.append(
+            InlineKeyboardButton(
+                text="🔒 پاسخِ خصوصی: روشن" if private_on else "🔒 پاسخِ خصوصی: خاموش",
+                callback_data="ig_private_off" if private_on else "ig_private_on",
+            )
+        )
         actions.append(InlineKeyboardButton(text="👋 متنِ خوشآمد", callback_data="ig_greeting"))
         actions.append(InlineKeyboardButton(text="🧪 تستِ ارسال", callback_data="ig_test"))
         actions.append(InlineKeyboardButton(text="🚫 لغوِ اتصال", callback_data="ig_unbind"))

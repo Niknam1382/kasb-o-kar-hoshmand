@@ -99,3 +99,7 @@ docker compose exec -T bot python -c "import urllib.request;print(urllib.request
 `TEST_RESULTS.md` (عددِ هر اجرا) · `SCALABILITY_AND_LOAD_TEST_REPORT.md` (ظرفیت) ·
 `docs/deployment-playbook.md` + `.pdf` (دیپلوی، سخت‌افزار، مقیاس) · `docs/user-guide.md` (فروشگاه‌دار) ·
 `docs/admin-guide.md` (ادمین) · `docs/local-testing-guide-windows-docker.md` (محیطِ توسعهٔ محلی).
+کانالِ اینستاگرام (P49): `docs/instagram-research-fa.md` (تحقیقِ ریسک و دلیلِ مسیرِ رسمی) ·
+`docs/instagram-owner-setup-fa.md` (ساختِ اپِ متا + Business Verification + App Review + وب‌هوک) ·
+`docs/instagram-user-guide-fa.md` (فعال‌سازیِ فروشنده) · `docs/instagram-content-pack-fa.md`
+(تولید محتوا) — سه تایِ آخر PDF هم دارند.
