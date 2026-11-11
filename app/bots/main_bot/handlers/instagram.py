@@ -92,7 +92,7 @@ async def cb_toggle_flag(callback: CallbackQuery, session: AsyncSession) -> None
     field, value, toast = _FLAG_ACTIONS[callback.data]
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
-        await callback.answer()
+        # خودِ گارد پاسخ را داده است؛ پاسخِ دوم در تلگرام خطای «query is already answered» می‌سازد.
         return
     account = await instagram_service.account_for_shop(session, shop_bot.id)
     if account is None:

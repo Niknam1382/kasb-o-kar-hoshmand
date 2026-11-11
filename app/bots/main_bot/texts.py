@@ -2555,6 +2555,24 @@ SUGGESTED_GLOBAL_SYSTEM_PROMPT = (
 
 # --- مدیریت فروشگاه‌دارها ---
 ADMIN_SHOP_OWNERS_EMPTY = "هیچ فروشگاه‌داری ثبت‌نام نکرده."
+# پ۵۶ · موردِ ۲۷: جست‌وجو در فهرستِ فروشگاه‌دارها
+ADMIN_OWNER_SEARCH_BUTTON = "🔍 جست‌وجویِ فروشگاه‌دار"
+ADMIN_OWNER_SEARCH_ASK = (
+    "چه چیزی را بگردم؟ نام، نامِ خانوادگی، نامِ کاربری، شمارهٔ موبایل یا شناسهٔ تلگرام.\n"
+    "· برایِ لغو «انصراف» بنویس."
+)
+ADMIN_OWNER_SEARCH_INVALID = "این عبارت را نفهمیدم یا خیلی بلند است؛ نام، نامِ کاربری، تلفن یا شناسهٔ تلگرام بنویس."
+ADMIN_OWNER_SEARCH_CANCELLED = "↩️ جست‌وجو لغو شد؛ فهرستِ فروشگاه‌دارها عوض نشد."
+
+
+def admin_owner_search_intro(term: str, total: int, page: int, total_pages: int) -> str:
+    return (
+        f"🔍 نتیجهٔ جست‌وجویِ «{term}» — {fa_number(total)} نفر (صفحه‌یِ {fa_number(page + 1)} از {fa_number(total_pages)})\n"
+        "فقط دامنهٔ دسترسیِ تو جست‌وجو می‌شود.\nروی هر مورد بزن تا جزئیاتش باز بشه:"
+    )
+
+
+ADMIN_OWNER_SEARCH_EMPTY_TMPL = "🔍 چیزی برایِ «{term}» پیدا نشد (در دامنهٔ دسترسیِ تو)."
 ADMIN_SHOP_OWNERS_INTRO = "👥 فهرست فروشگاه‌دارها:"
 
 
@@ -3454,6 +3472,25 @@ CRM_TRUNCATED_NOTE = "⚠️ تعدادِ مشتری‌هایِ فروشگاهت
 CRM_NOT_FOUND = "این مشتری پیدا نشد."
 CRM_SEGMENT_EMPTY = "این بخش الان مشتری‌ای نداره."
 CRM_STALE_BUTTON = "این دکمه دیگه معتبر نیست. دوباره از «👥 مشتری‌ها» شروع کن."
+# پ۵۶ · موردِ ۴۱: جست‌وجویِ مشتری در پنلِ فروشگاه‌دار
+CRM_SEARCH_BUTTON = "🔍 جست‌وجویِ مشتری"
+CRM_SEARCH_ASK = (
+    "چه چیزی را بگردم؟ نام، نامِ خانوادگی، نامِ کاربری، شمارهٔ موبایل یا شناسهٔ تلگرام.\n"
+    "· فقط مشتری‌هایِ همین فروشگاه جست‌وجو می‌شوند.\n"
+    "· برایِ لغو «انصراف» بنویس."
+)
+CRM_SEARCH_INVALID = "این عبارت را نفهمیدم یا خیلی بلند است؛ نام، نامِ کاربری، تلفن یا شناسهٔ تلگرام بنویس."
+CRM_SEARCH_CANCELLED = "↩️ جست‌وجو لغو شد."
+
+
+def crm_search_intro(term: str, total: int, page: int, total_pages: int) -> str:
+    return (
+        f"🔍 نتیجهٔ جست‌وجویِ «{term}» — {fa_number(total)} مشتری (صفحه‌یِ {fa_number(page + 1)} از {fa_number(total_pages)})\n"
+        "روی هر مورد بزن تا کارتِ مشتری باز بشه:"
+    )
+
+
+CRM_SEARCH_EMPTY_TMPL = "🔍 مشتری‌ای با «{term}» در فروشگاهت پیدا نشد."
 CRM_NOTE_ASK = "یادداشتت درباره‌یِ این مشتری رو بنویس (حداکثر ۱۰۰۰ حرف). فقط خودت می‌بینی. برایِ انصراف /cancel رو بزن."
 CRM_NOTE_TOO_LONG = "این یادداشت بیشتر از ۱۰۰۰ حرفه. کوتاه‌ترش کن."
 CRM_NOTE_SAVED = "✅ یادداشت ذخیره شد."

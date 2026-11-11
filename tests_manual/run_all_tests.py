@@ -159,6 +159,7 @@ TEST_FILES = [
     "test_p53_wallet_history_export.py",
     "test_p54_payment_queue.py",
     "test_p55_customer_ai_usage.py",
+    "test_p56_search.py",
 ]
 
 

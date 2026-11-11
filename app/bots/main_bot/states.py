@@ -238,6 +238,13 @@ class CrmStates(StatesGroup):
 
     waiting_note = State()
     waiting_tags = State()
+    waiting_search = State()  # P56 · موردِ ۴۱: عبارتِ جست‌وجویِ مشتری (عبارت در FSM data می‌ماند)
+
+
+class AdminOwnerSearchStates(StatesGroup):
+    """P56 · موردِ ۲۷: عبارتِ جست‌وجو در فهرستِ فروشگاه‌دارها؛ صفحه‌گردانی دوباره فیلتر می‌کند."""
+
+    waiting_term = State()
 
 
 class AssistantStates(StatesGroup):

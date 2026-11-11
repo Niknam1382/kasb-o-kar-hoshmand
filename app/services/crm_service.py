@@ -269,6 +269,44 @@ async def load_stats(
     return stats, truncated
 
 
+async def search_customers(
+    session: AsyncSession,
+    shop_bot_id: int,
+    term: str,
+    *,
+    page: int = 0,
+    page_size: int = PAGE_SIZE,
+) -> tuple[list[Customer], int]:
+    """پ۵۶ · موردِ ۴۱: جست‌وجویِ مشتری‌هایِ *همین فروشگاه* با نام/نام‌کاربری/تلفن/شناسهٔ تلگرام.
+
+    `shop_bot_id` همیشه در WHERE می‌ماند، پس جست‌وجو هیچ‌وقت از فروشگاهِ صاحبِ حساب بیرون
+    نمی‌زند. عبارتِ خالی یا بی‌نتیجه ⇒ فهرستِ خالی و شمارِ صفر (نه «همه»). ترتیبِ نمایش مثلِ
+    کارتِ مشتری است: تازه‌ترین فعالیت، بعد شناسه. صفحه‌بندی با LIMIT/OFFSET و یکِ شمارِ جدا.
+    """
+    if type(page) is not int or page < 0:
+        raise ValueError("شمارهٔ صفحه معتبر نیست")
+    if type(page_size) is not int or not 1 <= page_size <= 50:
+        raise ValueError("اندازهٔ صفحه معتبر نیست")
+    from app.services import search_service
+
+    conditions = [Customer.shop_bot_id == shop_bot_id, *search_service.filter_conditions(
+        term,
+        name_columns=(Customer.first_name, Customer.last_name),
+        username_column=Customer.username,
+        phone_column=Customer.phone_number,
+        telegram_column=Customer.telegram_id,
+    )]
+    total = int((await session.execute(select(func.count()).select_from(Customer).where(*conditions))).scalar_one() or 0)
+    rows = await session.execute(
+        select(Customer)
+        .where(*conditions)
+        .order_by(func.coalesce(Customer.last_message_at, Customer.first_seen_at).desc(), Customer.id.desc())
+        .limit(page_size)
+        .offset(page * page_size)
+    )
+    return list(rows.scalars().all()), total
+
+
 async def get_owned_customer(session: AsyncSession, customer_id: int | None, shop_bot_id: int) -> Customer | None:
     """customer_id از callback_data میاد (قابلِ دستکاری) → مالکیت همیشه چک می‌شه."""
     if customer_id is None:

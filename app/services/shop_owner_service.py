@@ -50,6 +50,46 @@ async def get_by_ids(session: AsyncSession, owner_ids: list[int]) -> dict[int, S
     return {owner.id: owner for owner in result.scalars().all()}
 
 
+async def search_registered(
+    session: AsyncSession,
+    term: str,
+    *,
+    allowed_owner_ids: set[int] | None = None,
+    page: int = 0,
+    page_size: int = 10,
+) -> tuple[list[ShopOwner], int]:
+    """پ۵۶ · موردِ ۲۷: جست‌وجویِ فروشگاه‌دارهایِ ثبت‌نام‌کرده (نام/نام‌کاربری/تلفن/شناسهٔ تلگرام).
+
+    دامنهٔ ادمینِ عملیاتی *پیش ازِ صفحه‌بندی* اعمال می‌شود (همان قاعدهٔ P21-E): وگرنه شمارِ
+    نتیجه و شمارهٔ صفحه‌ها از حساب‌هایی پرده برمی‌داشت که آن ادمین اجازهٔ دیدنشان را ندارد.
+    """
+    if type(page) is not int or page < 0:
+        raise ValueError("شمارهٔ صفحه معتبر نیست")
+    if type(page_size) is not int or not 1 <= page_size <= 50:
+        raise ValueError("اندازهٔ صفحه معتبر نیست")
+    from app.services import search_service
+
+    conditions = [
+        ShopOwner.registration_completed.is_(True),
+        *search_service.filter_conditions(
+            term,
+            name_columns=(ShopOwner.first_name, ShopOwner.last_name),
+            username_column=ShopOwner.username,
+            phone_column=ShopOwner.phone_number,
+            telegram_column=ShopOwner.telegram_id,
+        ),
+    ]
+    if allowed_owner_ids is not None:
+        if not allowed_owner_ids:
+            return [], 0
+        conditions.append(ShopOwner.id.in_(sorted(allowed_owner_ids)))
+    total = int((await session.execute(select(func.count()).select_from(ShopOwner).where(*conditions))).scalar_one() or 0)
+    rows = await session.execute(
+        select(ShopOwner).where(*conditions).order_by(ShopOwner.id).limit(page_size).offset(page * page_size)
+    )
+    return list(rows.scalars().all()), total
+
+
 async def get_all_registered(session: AsyncSession) -> list[ShopOwner]:
     result = await session.execute(select(ShopOwner).where(ShopOwner.registration_completed.is_(True)).order_by(ShopOwner.id))
     return list(result.scalars().all())

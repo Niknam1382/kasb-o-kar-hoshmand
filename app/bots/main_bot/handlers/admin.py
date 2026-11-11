@@ -29,6 +29,7 @@ from app.bots.main_bot.states import (
     AdminRoleStates,
     AdminSettingsStates,
     AdminWalletCorrectionStates,
+    AdminOwnerSearchStates,
     AiPoolStates,
     PerfRangeStates,
     StatsRangeStates,
@@ -63,6 +64,7 @@ from app.services import (
     payment_event_service,
     payment_service,
     prompt_defaults,
+    search_service,
     shop_bot_service,
     shop_owner_service,
     sms_service,
@@ -1747,10 +1749,66 @@ async def setting_value_entered(
 async def _owners_list_payload(session: AsyncSession, owners, page: int):
     """متن (با شمارِ کل و صفحه) + کیبوردِ فهرستِ فروشگاه‌دارها؛ هر دکمه «وضعیت + نام + @ربات» نشون می‌ده."""
     shop_bots = await shop_bot_service.get_map_by_owner_ids(session, [owner.id for owner in owners])
-    keyboard = keyboards.admin_owners_list_keyboard(owners, page, shop_bots)
+    keyboard = keyboards.admin_owners_list_keyboard(owners, page, shop_bots, search_row=True)
     total_pages = max(1, (len(owners) + keyboards.PAGE_SIZE - 1) // keyboards.PAGE_SIZE)
     shown_page = min(max(0, page), total_pages - 1)
     return texts.admin_shop_owners_intro(len(owners), shown_page, total_pages), keyboard
+
+
+async def _owner_search_payload(session: AsyncSession, actor_id: int, term: str, page: int):
+    """پ۵۶ · موردِ ۲۷: جست‌وجو داخلِ دامنهٔ خودِ ادمین، با شمار و صفحه‌هایِ همان دامنه."""
+    scope = await admin_role_service.scope_for(session, actor_id)
+    owners, total = await shop_owner_service.search_registered(session, term, allowed_owner_ids=scope)
+    total_pages = max(1, (total + keyboards.PAGE_SIZE - 1) // keyboards.PAGE_SIZE)
+    if not owners:
+        return texts.ADMIN_OWNER_SEARCH_EMPTY_TMPL.format(term=term), keyboards.admin_owners_list_keyboard(
+            [], 0, {}, callback_prefix="admin_owner_search", search_row=True, back_to_list_row=True
+        )
+    shop_bots = await shop_bot_service.get_map_by_owner_ids(session, [owner.id for owner in owners])
+    return (
+        texts.admin_owner_search_intro(term, total, min(page, total_pages - 1), total_pages),
+        keyboards.admin_owners_list_keyboard(
+            owners, min(page, total_pages - 1), shop_bots,
+            callback_prefix="admin_owner_search", total_pages=total_pages,
+        ),
+    )
+
+
+@router.callback_query(F.data == "admin_owner_search")
+async def cb_owner_search_start(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(owner_search_term=None)
+    await state.set_state(AdminOwnerSearchStates.waiting_term)
+    await callback.answer()
+    await callback.message.answer(texts.ADMIN_OWNER_SEARCH_ASK)
+
+
+@router.message(AdminOwnerSearchStates.waiting_term, F.text)
+async def owner_search_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    raw = (message.text or "").strip()
+    if raw in _CANCEL_WORDS:
+        await state.clear()
+        await message.answer(texts.ADMIN_OWNER_SEARCH_CANCELLED)
+        return
+    term = search_service.normalize_term(raw)
+    if not term:
+        await message.answer(texts.ADMIN_OWNER_SEARCH_INVALID)
+        return
+    await state.update_data(owner_search_term=term)
+    text, keyboard = await _owner_search_payload(session, message.from_user.id, term, 0)
+    await message.answer(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith("admin_owner_search:"))
+async def cb_owner_search_page(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    raw = (callback.data or "").split(":", 1)[1]
+    data = await state.get_data()
+    term = data.get("owner_search_term")
+    if not term or not raw.isdecimal() or int(raw) > 10_000:
+        await callback.answer(texts.ADMIN_OWNER_SEARCH_INVALID, show_alert=True)
+        return
+    text, keyboard = await _owner_search_payload(session, callback.from_user.id, term, int(raw))
+    await callback.answer()
+    await safe_edit(callback, text, keyboard)
 
 
 async def _visible_owners(session: AsyncSession, actor_telegram_id: int, owners):
@@ -1776,8 +1834,11 @@ async def open_owners_management(message: Message, state: FSMContext, session: A
     await message.answer(text, reply_markup=keyboard)
 
 
-@router.callback_query(F.data.startswith("admin_owners_list"))
-async def cb_owners_list(callback: CallbackQuery, session: AsyncSession) -> None:
+@router.callback_query((F.data == "admin_owners_list") | F.data.startswith("admin_owners_list:"))
+async def cb_owners_list(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    # «بازگشت به فهرستِ کامل» (پ۵۶) باید از حالتِ جست‌وجو بیرون بیاورد، وگرنه متنِ بعدیِ
+    # ادمین دوباره عبارتِ جست‌وجو حساب می‌شد.
+    await state.clear()
     page = 0
     if ":" in callback.data:
         try:

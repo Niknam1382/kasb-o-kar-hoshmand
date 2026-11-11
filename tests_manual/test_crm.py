@@ -266,7 +266,10 @@ async def test_overview_segment_screens_card_and_pagination(main_dp) -> None:
 
     await owner.say("👥 مشتری‌ها")
     assert owner.last_text == texts.crm_overview_text(EXPECTED_COUNTS, 8, False)
-    assert callbacks(owner.last_markup) == [f"crm_seg:{key}:0" for key in EXPECTED_COUNTS]
+    assert callbacks(owner.last_markup) == [f"crm_seg:{key}:0" for key in EXPECTED_COUNTS] + ["crm_search"], (
+        "پ۵۶ · موردِ ۴۱: دکمهٔ «🔍 جست‌وجویِ مشتری» به نمایِ بخش‌ها اضافه شد (تغییرِ عمدیِ رفتار؛ "
+        "توضیح در docs/PROGRESS.md §۴۹ و docs/changelog-p56.md)"
+    )
     button_texts = [button.text for row in owner.last_markup.inline_keyboard for button in row]
     assert "💎 وفادار (2)" in button_texts and "⚠️ در حالِ ریزش (2)" in button_texts and "🆕 جدید (1)" in button_texts
 

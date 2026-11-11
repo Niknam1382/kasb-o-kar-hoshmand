@@ -864,11 +864,24 @@ def notification_queue_retry_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def admin_owners_list_keyboard(owners, page: int = 0, shop_bots_by_owner: dict | None = None) -> InlineKeyboardMarkup:
-    """shop_bots_by_owner: {شناسه‌یِ فروشگاه‌دار: ShopBot | None}؛ اگه داده بشه برچسبِ هر دکمه «وضعیت + نام + @ربات» می‌شه."""
+def admin_owners_list_keyboard(
+    owners, page: int = 0, shop_bots_by_owner: dict | None = None, callback_prefix: str = "admin_owners_list",
+    search_row: bool = False, total_pages: int | None = None, back_to_list_row: bool = False,
+) -> InlineKeyboardMarkup:
+    """shop_bots_by_owner: {شناسه‌یِ فروشگاه‌دار: ShopBot | None}؛ اگه داده بشه برچسبِ هر دکمه «وضعیت + نام + @ربات» می‌شه.
+
+    P56 · موردِ ۲۷: `callback_prefix` باعث می‌شود همان فهرست برایِ «نتیجهٔ جست‌وجو» هم مصرف شود،
+    بدونِ اینکه صفحه‌گردانیِ آن کاربر را به فهرستِ کامل برگرداند. `search_row` دکمهٔ جست‌وجو را
+    فقط به فهرستِ اصلی اضافه می‌کند. `total_pages` وقتی داده می‌شود که صفحه‌بندی در SQL انجام
+    شده است (جست‌وجو)؛ وگرنه دوبار صفحه‌بندی کردن، صفحهٔ دوم را بی‌دکمه می‌کرد.
+    """
     from app.bots.main_bot import texts
 
-    page_items, page, total_pages = _paginate(list(owners), page)
+    if total_pages is None:
+        page_items, page, total_pages = _paginate(list(owners), page)
+    else:
+        page_items = list(owners)
+        page = min(max(0, page), max(0, total_pages - 1))
     rows = []
     for owner in page_items:
         if shop_bots_by_owner is None:
@@ -876,9 +889,13 @@ def admin_owners_list_keyboard(owners, page: int = 0, shop_bots_by_owner: dict |
         else:
             label = texts.admin_owner_list_item_label(owner, shop_bots_by_owner.get(owner.id))
         rows.append([InlineKeyboardButton(text=label, callback_data=f"admin_owner_view:{owner.id}")])
-    nav = _pagination_row(page, total_pages, "admin_owners_list")
+    nav = _pagination_row(page, total_pages, callback_prefix)
     if nav:
         rows.append(nav)
+    if search_row:
+        rows.append([InlineKeyboardButton(text=texts.ADMIN_OWNER_SEARCH_BUTTON, callback_data="admin_owner_search")])
+    if back_to_list_row:
+        rows.append([InlineKeyboardButton(text="👥 فهرستِ کاملِ فروشگاه‌دارها", callback_data="admin_owners_list:0")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1256,6 +1273,32 @@ def crm_overview_keyboard(counts: dict) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=f"{label} ({counts.get(key, 0)})", callback_data=f"crm_seg:{key}:0")]
         for key, label in texts.CRM_SEGMENT_LABELS.items()
     ]
+    # P56 · موردِ ۴۱: بخش‌ها «گروه» را نشان می‌دادند ولی «این مشتری کجاست؟» جواب نداشت.
+    rows.append([InlineKeyboardButton(text=texts.CRM_SEARCH_BUTTON, callback_data="crm_search")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def crm_search_keyboard(customers, page: int, total_pages: int, page_size: int) -> InlineKeyboardMarkup:
+    """نتیجهٔ جست‌وجو: همان دکمهٔ کارتِ مشتریِ بخش‌ها (`crm_card:`) + صفحه‌گردانیِ جدا.
+
+    شماره‌ها از صفحهٔ قبل ادامه می‌یابند تا «۹.» در صفحهٔ دوم یعنی نهمین نتیجه، نه اولین.
+    """
+    from app.bots.main_bot import texts
+
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{fa_number(page * page_size + index)}. {texts.crm_customer_label(customer)}"[:60],
+                callback_data=f"crm_card:{customer.id}",
+            )
+        ]
+        for index, customer in enumerate(customers, start=1)
+    ]
+    nav = _pagination_row(page, total_pages, "crm_search_page")
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="🔍 جست‌وجویِ دیگر", callback_data="crm_search")])
+    rows.append([InlineKeyboardButton(text="⬅️ بخش‌ها", callback_data="crm_home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

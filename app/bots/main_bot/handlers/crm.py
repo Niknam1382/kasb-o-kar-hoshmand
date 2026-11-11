@@ -27,10 +27,12 @@ from app.services import (
     conversation_service,
     crm_service,
     crm_summary_service,
+    search_service,
     shop_owner_service,
     wallet_service,
 )
 from app.services.admin_settings_service import get_admin_settings
+from app.utils.validators import fa_number
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +64,10 @@ async def open_crm(message: Message, session: AsyncSession, state: FSMContext) -
 
 
 @router.callback_query(F.data == "crm_home")
-async def crm_home(callback: CallbackQuery, session: AsyncSession) -> None:
+async def crm_home(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    # «بازگشت به پنل» از حالتِ جست‌وجو/یادداشت/برچسب بیرون می‌آید؛ وگرنه هر متنِ بعدیِ
+    # فروشگاه‌دار (حتی بعد ازِ بازگشت) به‌جایِ مقصدِ خودش، جست‌وجویِ مشتری حساب می‌شد.
+    await state.clear()
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
@@ -103,6 +108,81 @@ async def crm_segment(callback: CallbackQuery, session: AsyncSession) -> None:
         texts.crm_segment_text(segment_key, page_members, len(members), page, total_pages, crm_service.PAGE_SIZE),
         keyboards.crm_segment_keyboard(segment_key, page_members, page, total_pages, crm_service.PAGE_SIZE),
     )
+
+
+# =============================================================================
+# جست‌وجو (P56 · موردِ ۴۱)
+# =============================================================================
+async def _search_payload(session: AsyncSession, shop_bot: ShopBot, term: str, page: int):
+    customers, total = await crm_service.search_customers(
+        session, shop_bot.id, term, page=page, page_size=crm_service.PAGE_SIZE
+    )
+    if not customers:
+        # نتیجه‌ای نبود: همان نمایِ بخش‌ها برمی‌گردد (نه بخش‌هایی که صفر نشان داده‌اند)،
+        # وگرنه فروشگاه‌دار فکر می‌کند مشتری‌هایش پاک شده‌اند.
+        overview_text, overview_keyboard = await _overview_payload(session, shop_bot)
+        return f"{texts.CRM_SEARCH_EMPTY_TMPL.format(term=term)}\n\n{overview_text}", overview_keyboard
+    total_pages = max(1, (total + crm_service.PAGE_SIZE - 1) // crm_service.PAGE_SIZE)
+    shown_page = min(page, total_pages - 1)
+    # مثلِ نمایِ بخش‌ها، نتیجه هم در متن شماره‌گذاری می‌شود (نه فقط رویِ دکمه‌ها)، ویرایشِ
+    # صفحهٔ بعد هم همان شماره‌ها را از ادامهٔ فهرست نشان می‌دهد.
+    lines = [
+        f"{fa_number(shown_page * crm_service.PAGE_SIZE + index)}. {texts.crm_customer_label(customer)}"
+        for index, customer in enumerate(customers, start=1)
+    ]
+    return (
+        "\n".join([texts.crm_search_intro(term, total, shown_page, total_pages), "", *lines]),
+        keyboards.crm_search_keyboard(customers, shown_page, total_pages, crm_service.PAGE_SIZE),
+    )
+
+
+@router.callback_query(F.data == "crm_search")
+async def crm_search_start(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    # گاردِ مالکیت مثلِ بقیهٔ دکمه‌هایِ CRM: بدونِ این، هر کاربرِ ناشناس می‌توانست واردِ
+    # حالتِ جست‌وجو شود (پرامپتِ پنل به او نشان داده می‌شد). خودِ گارد پاسخِ کال‌بک را می‌دهد،
+    # پس اینجا پاسخِ دوم نمی‌سازیم («query is already answered» در تلگرام خطاست).
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.update_data(crm_search_term=None)
+    await state.set_state(CrmStates.waiting_search)
+    await callback.answer()
+    await callback.message.answer(texts.CRM_SEARCH_ASK)
+
+
+@router.message(CrmStates.waiting_search, F.text)
+async def crm_search_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot(message, session)
+    if shop_bot is None:
+        return
+    raw = (message.text or "").strip()
+    if raw in ("انصراف", "لغو", "/cancel"):
+        await state.clear()
+        await message.answer(texts.CRM_SEARCH_CANCELLED)
+        return
+    term = search_service.normalize_term(raw)
+    if not term:
+        await message.answer(texts.CRM_SEARCH_INVALID)
+        return
+    await state.update_data(crm_search_term=term)
+    text, keyboard = await _search_payload(session, shop_bot, term, 0)
+    await message.answer(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith("crm_search_page:"))
+async def crm_search_page(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    data = await state.get_data()
+    term = data.get("crm_search_term")
+    raw = (callback.data or "").split(":", 1)[1]
+    if not term or not raw.isdecimal() or int(raw) > 10_000:
+        await callback.answer(texts.CRM_STALE_BUTTON, show_alert=True)
+        return
+    text, keyboard = await _search_payload(session, shop_bot, term, int(raw))
+    await callback.answer()
+    await safe_edit(callback, text, keyboard)
 
 
 # =============================================================================
