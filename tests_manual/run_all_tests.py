@@ -158,6 +158,7 @@ TEST_FILES = [
     "test_p52_concurrency_report.py",
     "test_p53_wallet_history_export.py",
     "test_p54_payment_queue.py",
+    "test_p55_customer_ai_usage.py",
 ]
 
 

@@ -24,6 +24,7 @@ from app.services import (
     ai_context,
     ai_pool_service,
     ai_service,
+    ai_usage_service,
     audit_log_service,
     bale_credentials_service,
     bale_service,
@@ -197,12 +198,18 @@ async def _check_access(message: Message, session: AsyncSession, shop_bot, main_
 
 
 async def _deduct_and_notify(
-    session: AsyncSession, owner, admin_settings, amount_toman: int, reason: WalletTransactionReason, main_bot: Bot
+    session: AsyncSession, owner, admin_settings, amount_toman: int, reason: WalletTransactionReason, main_bot: Bot,
+    customer_id: int | None = None,
 ) -> None:
     """P49-الف: بدنه به `chat_billing_service.deduct_and_notify` رفت تا کانالِ سوم (اینستاگرام)
     همان ریاضیِ پول را صدا بزند، نه یکِ نسخهٔ دوم از آن. این نام فقط wrapper مانده تا چهار
-    فراخوانیِ این فایل و تست‌هایِ پیشین (`test_p33_ai_usage_debt.py`) دست‌نخورده بمانند."""
-    await chat_billing_service.deduct_and_notify(session, owner, admin_settings, amount_toman, reason, main_bot)
+    فراخوانیِ این فایل و تست‌هایِ پیشین (`test_p33_ai_usage_debt.py`) دست‌نخورده بمانند.
+
+    P55 · موردِ ۲۳: `customer_id` رویِ همان ردیفِ کسر نوشته می‌شود (بدونِ هیچ جملهٔ اضافه) تا
+    مصرفِ هوشِ مصنوعی به‌ازایِ هر کاربر رتبه‌بندی شود."""
+    await chat_billing_service.deduct_and_notify(
+        session, owner, admin_settings, amount_toman, reason, main_bot, customer_id=customer_id
+    )
 
 
 def _split_checkout_questions(raw: str | None, digital_only: bool = False) -> list[str]:
@@ -667,6 +674,17 @@ async def _generate_and_send_reply(
         await bot_error_service.log_error(session, shop_bot_id)
         return
 
+    # پ۵۵ · موردِ ۲۳: اهرم‌هایِ ادمینِ پلتفرم به‌ازایِ هر کاربر (توقفِ موقت / سقفِ مصرف در ۲۴ ساعت).
+    # تا وقتی هیچ‌کدام تنظیم نشده باشد این چک صفرِ کوئری است، پس مسیرِ پیامِ مشتریانِ معمولی
+    # دقیقاً مثلِ قبل جمله می‌زند. پاسخِ هوشِ مصنوعی اینجا ساخته نمی‌شود ⇒ هیچ هزینه‌ای هم نمی‌افتد.
+    guard = await ai_usage_service.block_reason(session, customer)
+    if guard is not None:
+        await shop_bot_instance.send_message(
+            customer_tg_id,
+            texts.AI_USAGE_PAUSED_REPLY if guard == ai_usage_service.REASON_PAUSED else texts.AI_USAGE_LIMIT_REPLY,
+        )
+        return
+
     products = await product_service.get_active_by_shop_bot(session, shop_bot_id)
     # A5: حافظه‌یِ کانالِ دانش‌افزایی per-shop است؛ NULL یعنی همان پیش‌فرضِ سراسری.
     knowledge_limit = shop_prefs_service.resolve(shop_prefs_service.KNOWLEDGE_ITEMS, shop_bot, admin_settings)
@@ -744,7 +762,9 @@ async def _generate_and_send_reply(
     await conversation_service.save_turn(session, customer.id, combined_text, reply)
 
     cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
-    await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot)
+    await _deduct_and_notify(
+        session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot, customer_id=customer.id
+    )
 
     full_history = history + [{"role": "user", "content": combined_text}, {"role": "assistant", "content": reply}]
     asyncio.create_task(_detect_and_notify_order(shop_bot_id, customer.id, full_history, shop_bot_instance, main_bot))
@@ -801,7 +821,9 @@ async def _maybe_handle_cart_edit(
 
         if tokens_used is not None:
             cost = wallet_service.estimate_cart_edit_cost(admin_settings, tokens_used)
-            await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.CART_EDIT, main_bot)
+            await _deduct_and_notify(
+                session, owner, admin_settings, cost, WalletTransactionReason.CART_EDIT, main_bot, customer_id=customer.id
+            )
 
         if result is None:
             return False
@@ -918,7 +940,7 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
     if not await _check_access(message, session, shop_bot, main_bot):
         return
 
-    await customer_service.get_or_create_customer(
+    customer = await customer_service.get_or_create_customer(
         session, shop_bot.id, message.from_user.id, message.from_user.first_name, message.from_user.username,
         last_name=message.from_user.last_name,
         platform=platform_service.of_event(message),
@@ -957,7 +979,10 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
         return
 
     cost = wallet_service.estimate_voice_cost(admin_settings, getattr(message.voice, "duration", None))
-    await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.VOICE_TRANSCRIPTION, main_bot)
+    await _deduct_and_notify(
+        session, owner, admin_settings, cost, WalletTransactionReason.VOICE_TRANSCRIPTION, main_bot,
+        customer_id=customer.id,
+    )
 
     # مسیرِ صوت شناسه را در دسترس ندارد (مشتری را میدل‌ور حل می‌کند) ⇒ مثلِ قبل ساخته می‌شود.
     _schedule_debounced_processing(
@@ -1011,7 +1036,10 @@ async def _detect_and_notify_order(
 
             if tokens_used is not None:
                 cost = wallet_service.estimate_order_detection_cost(admin_settings, tokens_used)
-                await _deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.ORDER_DETECTION, main_bot)
+                await _deduct_and_notify(
+                    session, owner, admin_settings, cost, WalletTransactionReason.ORDER_DETECTION, main_bot,
+                    customer_id=customer_id,
+                )
 
             if result is None:
                 return

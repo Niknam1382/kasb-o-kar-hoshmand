@@ -173,6 +173,12 @@ class PerfRangeStates(StatesGroup):
     waiting_until = State()
 
 
+class AiUsageStates(StatesGroup):
+    """P55 · موردِ ۲۳: فقط نوشتنِ عددِ «سقفِ مصرف در ۲۴ ساعت» برایِ یکِ کاربر."""
+
+    waiting_limit = State()
+
+
 class StatsRangeStates(StatesGroup):
     """P51 · موردِ ۴۴: ویزاردِ «بازهٔ دلخواه» برایِ نمودارِ درآمد (همان شکلِ بازهٔ ممیزی)."""
 

@@ -598,13 +598,20 @@ class WalletTransaction(Base, CreatedAtMixin):
     """
 
     __tablename__ = "wallet_transactions"
-    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_wallet_tx_idempotency"),)
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_wallet_tx_idempotency"),
+        Index("ix_wallet_transactions_customer_created", "customer_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     shop_owner_id: Mapped[int] = mapped_column(ForeignKey("shop_owners.id"), index=True, nullable=False)
     wallet_charge_id: Mapped[int | None] = mapped_column(ForeignKey("wallet_charges.id"), nullable=True)
     payment_id: Mapped[int | None] = mapped_column(ForeignKey("payments.id", ondelete="SET NULL"), nullable=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders_consultations.id", ondelete="SET NULL"), nullable=True)
+    # پ۵۵ · موردِ ۲۳: همان کسر به خودِ مشتری هم نسبت داده می‌شود تا «رتبه‌بندیِ مصرفِ هر کاربر»
+    # ممکن شود. NULL یعنی «قابلِ نسبت‌دادن نیست»: ردیف‌هایِ قدیمی، کامنتِ اینستاگرام، خلاصهٔ CRM
+    # و دستیارِ مدیریتی — پس رتبه‌بندی ازِ همینِ نسخه شروع می‌شود و گذشته را حدس نمی‌زند.
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     amount_toman: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String(8), default="TOMAN", server_default="TOMAN", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="settled", server_default="settled", nullable=False)
@@ -815,6 +822,12 @@ class Customer(Base):
     # P18 · B4: مشتریِ بلاک‌شده ⇒ رباتِ فروشگاه پیامش را بی‌هزینه رد می‌کند (بدونِ AI/سفارش/پرداخت)
     # و فقط یک پیامِ ادبی می‌دهد. در آمار و گزارش‌ها همچنان لحاظ می‌شود.
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # پ۵۵ · موردِ ۲۳: دو اهرمِ مدیریتیِ *به‌ازایِ هر کاربر* که فقط ادمینِ پلتفرم تنظیمشان می‌کند.
+    # NULL برایِ هر دو یعنی «هیچ» ⇒ هیچ مشتریِ موجودی امروز رفتارِ تازه‌ای پیدا نمی‌کند.
+    # سقفِ روزانه وقتی اعمال می‌شود که عددی تنظیم شده باشد (کوئریِ جمعِ مصرفِ همان روز)، وگرنه
+    # مسیرِ پیامِ مشتری دقیقاً همان تعدادِ جمله‌هایِ قبل را می‌زند.
+    ai_daily_limit_toman: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ai_paused_until: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Product(Base, CreatedAtMixin):

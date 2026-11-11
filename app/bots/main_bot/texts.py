@@ -1676,6 +1676,81 @@ def admin_payment_detail_text(payment, owner, *, page: int) -> str:
     return "\n".join(lines)
 
 
+# پ۵۵ · موردِ ۲۳: رتبه‌بندیِ مصرفِ هوشِ مصنوعی به‌ازایِ هر کاربر + سه اهرمِ مدیریتی.
+AI_USAGE_BUTTON = "📊 مصرفِ کاربران"
+AI_USAGE_WINDOWS: tuple[tuple[str, str], ...] = (("24h", "۲۴ ساعت"), ("7d", "۷ روز"), ("30d", "۳۰ روز"))
+AI_USAGE_HISTORY_NOTE = "شمارش از همین نسخه شروع می‌شود؛ در ردیف‌هایِ قدیمیِ دفتر، مصرف به کاربرِ خاصی وصل نبود."
+AI_USAGE_EMPTY = "در این بازه هیچ مصرفِ ثبت‌شده‌ای به کاربری وصل نبود."
+AI_USAGE_INVALID = "این کاربر در فهرست نیست؛ فهرستِ مصرفِ کاربران را دوباره باز کن."
+AI_USAGE_LIMIT_ASK = (
+    "سقفِ مصرفِ این کاربر در ۲۴ ساعتِ گذشته چقدر باشد (به تومان)؟\n"
+    "· نمونه: ۵۰۰۰۰\n"
+    "· برایِ برداشتنِ سقف بنویس «بدونِ سقف»؛ برایِ لغو «انصراف»."
+)
+AI_USAGE_LIMIT_INVALID = "عددِ معتبر نبود. مبلغِ تومان بنویس (مثلاً ۵۰۰۰۰) یا «بدونِ سقف»."
+AI_USAGE_CANCELLED = "↩️ لغو شد؛ چیزی برایِ این کاربر عوض نشد."
+
+
+def ai_usage_limit_saved(amount_toman: int | None) -> str:
+    if amount_toman is None:
+        return "✅ سقفِ مصرفِ این کاربر برداشته شد؛ مثلِ قبل آزاد است."
+    return f"✅ سقفِ مصرفِ این کاربر: {format_toman(amount_toman)} در ۲۴ ساعت."
+
+
+def ai_usage_pause_saved(hours: int | None) -> str:
+    if hours is None:
+        return "▶️ پاسخِ خودکار برایِ این کاربر آزاد شد."
+    return f"⏸ پاسخِ خودکارِ این کاربر تا {fa_number(hours)} ساعتِ دیگر متوقف است."
+
+
+def ai_usage_intro(total_users: int, window_label: str, page: int, total_pages: int) -> str:
+    head = f"📊 پرمصرف‌ترینِ کاربرانِ هوشِ مصنوعی — {window_label}\n{fa_number(total_users)} کاربر مصرفِ ثبت‌شده دارد"
+    if total_pages > 1:
+        head += f" — صفحهٔ {fa_number(page + 1)} از {fa_number(total_pages)}"
+    return head + "\n\n• روی هر کاربر بزن تا جزئیات و دکمه‌هایِ محدودیت/توقف/بلاک را ببینی."
+
+
+def ai_usage_line(index: int, user_name: str, shop_username: str, spent_toman: int, calls: int) -> str:
+    shop = f"@{shop_username}" if shop_username else "بدونِ نامِ کاربری"
+    return (
+        f"{fa_number(index)}) {user_name} · {shop} · "
+        f"{format_toman(spent_toman)} · {fa_number(calls)} کسرِ اعتبار"
+    )
+
+
+def ai_usage_detail_text(
+    customer, shop_username: str, *, spent_toman: int, calls: int, window_label: str, page: int
+) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    limit = customer.ai_daily_limit_toman
+    paused_until = customer.ai_paused_until
+    # توقفِ تمام‌شده نباید «متوقف» نشان داده شود؛ دکمهٔ کنارش هم «آزادکردن» نمی‌گوید.
+    still_paused = paused_until is not None and (
+        paused_until.replace(tzinfo=datetime.timezone.utc)
+        if paused_until.tzinfo is None
+        else paused_until.astimezone(datetime.timezone.utc)
+    ) > datetime.datetime.now(datetime.timezone.utc)
+    status = f"⏸ متوقف تا {format_jalali_datetime(paused_until)}" if still_paused else "✅ پاسخِ خودکار فعال است"
+    lines = [
+        "📊 مصرفِ هوشِ مصنوعیِ یکِ کاربر",
+        "",
+        f"کاربر: {display_user(customer, 'full')}",
+        f"فروشگاه: @{shop_username}" if shop_username else "فروشگاه: —",
+        f"مصرفِ این بازه ({window_label}): {format_toman(spent_toman)}",
+        f"تعدادِ کسرِ اعتبار در این بازه: {fa_number(calls)}",
+        f"سقفِ مصرف در ۲۴ ساعت: {format_toman(limit) if limit else 'بدونِ سقف'}",
+        f"وضعیت: {status}",
+        f"آخرین پیام: {format_jalali_datetime(customer.last_message_at) if customer.last_message_at else '—'}",
+        AI_USAGE_HISTORY_NOTE,
+        "\nاین صفحه مصرف را نشان می‌دهد و مبلغی از کسی کم یا به کسی اضافه نمی‌کند.",
+    ]
+    if customer.is_blocked:
+        lines.append("این کاربر از سویِ فروشگاه بلاک شده است.")
+    lines.append(f"با «📊 بازگشت به فهرست» به صفحهٔ {fa_number(page + 1)} برمی‌گردی.")
+    return "\n".join(lines)
+
+
 def admin_payment_rejected_confirmation(owner_name: str) -> str:
     return f"❌ پرداخت {owner_name} رد شد."
 

@@ -190,12 +190,17 @@ async def deduct(
     reference: str | None = None,
     order_id: int | None = None,
     idempotency_key: str | None = None,
+    customer_id: int | None = None,
 ) -> bool:
     """
     از قدیمی‌ترین شارژِ منقضی‌نشده (FIFO) کم می‌کنه، حتی اگه بینِ چند بسته پخش
     بشه. اگه موجودی کافی نبود، هیچ تغییری اعمال نمی‌شه و False برمی‌گرده —
     caller باید به‌جای پاسخِ عادی، پیامِ کمبودِ اعتبار به فروشگاه‌دار نشون بده
     (نه به مشتری).
+
+    `customer_id` (پ۵۵) فقط رویِ همان ردیفِ در حالِ نوشتن ست می‌شود؛ جملهٔ اضافه‌ای
+    نمی‌زند. اگر قابلِ نسبت‌دادن نباشد (کامنتِ اینستاگرام، خلاصهٔ CRM، دستیارِ مدیریتی
+    یا ردیف‌هایِ قدیمی) NULL می‌ماند و رتبه‌بندیِ مصرفِ کاربران آن را نمی‌شمارد.
     """
     if amount_toman <= 0:
         return True
@@ -235,6 +240,7 @@ async def deduct(
                 shop_owner_id=owner.id,
                 wallet_charge_id=charge.id,
                 order_id=order_id,
+                customer_id=customer_id,
                 amount_toman=-take,
                 reason=reason,
                 reference=reference,

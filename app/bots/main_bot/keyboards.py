@@ -497,6 +497,57 @@ def admin_payment_detail_keyboard(payment_id: int, page: int) -> InlineKeyboardM
     )
 
 
+def _ai_usage_window_row(window: str) -> list[InlineKeyboardButton]:
+    """یکِ ردیفِ تعویضِ پنجره (۲۴ ساعت/۷ روز/۳۰ روز) با تیکِ پنجرهٔ فعال."""
+    return [
+        InlineKeyboardButton(text=("✅ " if key == window else "") + label, callback_data=f"ai_usage:{key}:0")
+        for key, label in texts.AI_USAGE_WINDOWS
+    ]
+
+
+def ai_usage_windows_keyboard(window: str) -> InlineKeyboardMarkup:
+    """نمایِ خالی: فقط پنجره‌ها و بازگشت (صفحه‌گردانیِ بی‌مورد نیست)."""
+    return InlineKeyboardMarkup(inline_keyboard=[_ai_usage_window_row(window), [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")]])
+
+
+def ai_usage_keyboard(items, window: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """items = [(customer_id, index, name)] — همان ترتیبِ خطوطِ متن، تا شماره‌ها جفت بمانند.
+
+    ردیفِ پنجره‌ها همیشه می‌آید، ولی ردیفِ صفحه‌گردانی فقط وقتی بیش از یکِ صفحه هست.
+    """
+    rows = [_ai_usage_window_row(window)]
+    rows += [
+        [InlineKeyboardButton(text=f"{fa_number(index)} · {clip(name, 26)}", callback_data=f"ai_usage_view:{window}:{page}:{customer_id}")]
+        for customer_id, index, name in items
+    ]
+    pagination = _pagination_row(page, total_pages, f"ai_usage:{window}")
+    if pagination:
+        rows.append(pagination)
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def ai_usage_detail_keyboard(customer_id: int, window: str, page: int, *, paused: bool, blocked: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔢 سقفِ ۲۴ ساعت", callback_data=f"ai_usage_limit:{customer_id}:{window}:{page}"),
+                InlineKeyboardButton(
+                    text=("▶️ آزادکردنِ پاسخ" if paused else "⏸ توقفِ ۲۴ ساعت"),
+                    callback_data=f"ai_usage_pause:{customer_id}:{0 if paused else 24}:{window}:{page}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=("✅ رفعِ بلاک" if blocked else "🚫 بلاکِ کاربر"),
+                    callback_data=f"ai_usage_block:{customer_id}:{1 if blocked else 0}:{window}:{page}",
+                ),
+                InlineKeyboardButton(text="📊 بازگشت به فهرست", callback_data=f"ai_usage:{window}:{page}"),
+            ],
+        ]
+    )
+
+
 def excel_export_choice_keyboard(consultation: bool = False) -> InlineKeyboardMarkup:
     # C1: در مودِ مشاوره‌ای برچسبِ خروجی هم نباید «سفارش» بگوید.
     first = "👥 فهرست مخاطبان" if consultation else "👥 فهرست مشتریان"
@@ -641,6 +692,7 @@ def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
             KeyboardButton(text="👑 مدیریتِ ادمین‌ها"),
             KeyboardButton(text="📤 دفترِ کیف‌پول (اکسل)"),
             KeyboardButton(text=texts.SERVER_LOG_BUTTON),  # P48 · موردِ ۱۳ (فقط سوپرادمین)
+            KeyboardButton(text=texts.AI_USAGE_BUTTON),  # P55 · موردِ ۲۳ (فقط سوپرادمین)
         ]
     return ReplyKeyboardMarkup(keyboard=grid(buttons), resize_keyboard=True)
 

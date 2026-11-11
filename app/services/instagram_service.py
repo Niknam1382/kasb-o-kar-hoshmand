@@ -53,6 +53,7 @@ from app.services import (
     ai_context,
     ai_pool_service,
     ai_service,
+    ai_usage_service,
     audit_log_service,
     bale_credentials_service,
     bale_service,
@@ -1080,6 +1081,20 @@ async def _handle_inbound(session: AsyncSession, main_bot, event: DirectMessage)
         await session.commit()
         return
 
+    # پ۵۵ · موردِ ۲۳: همان دو اهرمِ ادمین برایِ کاربرِ اینستاگرام هم اجرا می‌شود، وگرنه یکِ
+    # کاربرِ متوقف‌شده می‌توانست از راهِ کانالِ دیگر بی‌هزینه پاسخ بگیرد.
+    guard = await ai_usage_service.block_reason(session, customer)
+    if guard is not None:
+        await send_message(
+            session,
+            account,
+            event.sender_psid,
+            shop_texts.AI_USAGE_PAUSED_REPLY if guard == ai_usage_service.REASON_PAUSED else shop_texts.AI_USAGE_LIMIT_REPLY,
+            window_opened_at=window_opened_at,
+        )
+        await session.commit()
+        return
+
     try:
         await session.commit()  # قاعدهٔ ۷: آزادکردنِ اتصالِ دیتابیس پیش ازِ انتظارِ شبکه
         ai_result = await ai.get_reply(system_prompt, history, event.text)
@@ -1105,7 +1120,9 @@ async def _handle_inbound(session: AsyncSession, main_bot, event: DirectMessage)
 
     await conversation_service.save_turn(session, customer.id, event.text, reply)
     cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
-    await chat_billing_service.deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot)
+    await chat_billing_service.deduct_and_notify(
+        session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot, customer_id=customer.id
+    )
     await session.commit()
 
     await mark_seen(account, event.message_id)
