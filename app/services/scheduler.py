@@ -198,7 +198,7 @@ async def reconcile_wallet_ledgers() -> int:
     )
     admin_alert_service.record_event(
         admin_alert_service.KIND_LEDGER,
-        f"{len(gaps)} فروشگاه‌دار اختلافِ دفتر دارد (نمونهٔ id={worst['owner_id']}، {fa_number(worst['ledger_delta_toman'])} تومان)",
+        f"{fa_number(len(gaps))} فروشگاه‌دار اختلافِ دفتر دارد (نمونهٔ id={worst['owner_id']}، {fa_number(worst['ledger_delta_toman'])} تومان)",
     )
     return len(gaps)
 

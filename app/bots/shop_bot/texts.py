@@ -108,7 +108,7 @@ def order_confirmation_prompt(order) -> str:
 
     lines = [title, "", f"خلاصه: {order.summary}"]
     if order.quantity:
-        lines.append(f"تعداد: {order.quantity}")
+        lines.append(f"تعداد: {fa_number(order.quantity)}")
     if order.estimated_value_toman:
         lines.append(f"ارزش تخمینی: {format_toman(order.estimated_value_toman)}")
     if order.customer_phone:
@@ -159,7 +159,7 @@ def cart_summary(items_with_products) -> str:
     for item, product in items_with_products:
         subtotal = product.price_toman * item.quantity
         total += subtotal
-        lines.append(f"• {product.name} × {item.quantity} = {format_toman(subtotal)}")
+        lines.append(f"• {product.name} × {fa_number(item.quantity)} = {format_toman(subtotal)}")
     lines.append(f"\nجمعِ کل: {format_toman(total)}")
     return "\n".join(lines)
 
@@ -168,7 +168,7 @@ ASK_CHECKOUT_ANSWER_PREFIX = "برایِ تکمیلِ سفارش:\n"
 
 
 def checkout_question_prompt(question: str, step: int, total_steps: int) -> str:
-    prefix = f"({step}/{total_steps}) " if total_steps > 1 else ""
+    prefix = f"({fa_number(step)}/{fa_number(total_steps)}) " if total_steps > 1 else ""
     return f"{ASK_CHECKOUT_ANSWER_PREFIX}{prefix}{question}"
 
 

@@ -82,6 +82,7 @@ from app.services import (
 from app.services.admin_settings_service import cached_admin_settings, get_admin_settings
 from app.services.rate_limiter import rate_limiter
 from app.utils import text_limits
+from app.utils.validators import fa_number
 from app.utils.jalali import format_jalali_datetime, to_tehran
 from app.config import settings
 from app.utils.encryption import decrypt_token, encrypt_token
@@ -618,7 +619,7 @@ async def send_private_reply(session: AsyncSession, account: InstagramAccount | 
     if not _STRICT_ID_RE.fullmatch(account.ig_account_id or "") or not _STRICT_ID_RE.fullmatch(event.comment_id):
         return False
     if not comment_reply_is_open(event.created_at):
-        await remember_error(session, account, f"{COMMENT_REPLY_DAYS} روز از کامنت گذشته است؛ متا پاسخِ خصوصی را قبول نمی‌کند.")
+        await remember_error(session, account, f"{fa_number(COMMENT_REPLY_DAYS)} روز از کامنت گذشته است؛ متا پاسخِ خصوصی را قبول نمی‌کند.")
         return False
     body = text_limits.clip(text, text_limits.INSTAGRAM_DM_LIMIT)
     if not body:

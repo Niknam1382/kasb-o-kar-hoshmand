@@ -248,7 +248,7 @@ def products_list_keyboard(products, page: int = 0, sales_mode: bool = True) -> 
 def product_import_confirm_keyboard(valid_count: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"✅ بله، {valid_count} محصول اضافه کن", callback_data="product_bulk_import_confirm")],
+            [InlineKeyboardButton(text=f"✅ بله، {fa_number(valid_count)} محصول اضافه کن", callback_data="product_bulk_import_confirm")],
             [InlineKeyboardButton(text="❌ انصراف", callback_data="product_bulk_import_cancel")],
         ]
     )
@@ -1179,8 +1179,8 @@ def gaps_list_keyboard(gaps, page: int, total: int, page_size: int) -> InlineKey
     for index, gap in enumerate(gaps, start=page * page_size + 1):
         rows.append(
             [
-                InlineKeyboardButton(text=f"✍️ پاسخ بده ({index})", callback_data=f"gap_answer:{gap.id}"),
-                InlineKeyboardButton(text=f"🙈 نادیده بگیر ({index})", callback_data=f"gap_dismiss:{gap.id}"),
+                InlineKeyboardButton(text=f"✍️ پاسخ بده ({fa_number(index)})", callback_data=f"gap_answer:{gap.id}"),
+                InlineKeyboardButton(text=f"🙈 نادیده بگیر ({fa_number(index)})", callback_data=f"gap_dismiss:{gap.id}"),
             ]
         )
     nav = _pagination_row(page, _page_count(total, page_size), "gap_list")
@@ -1270,7 +1270,7 @@ def crm_overview_keyboard(counts: dict) -> InlineKeyboardMarkup:
     from app.bots.main_bot import texts
 
     rows = [
-        [InlineKeyboardButton(text=f"{label} ({counts.get(key, 0)})", callback_data=f"crm_seg:{key}:0")]
+        [InlineKeyboardButton(text=f"{label} ({fa_number(counts.get(key, 0))})", callback_data=f"crm_seg:{key}:0")]
         for key, label in texts.CRM_SEGMENT_LABELS.items()
     ]
     # P56 · موردِ ۴۱: بخش‌ها «گروه» را نشان می‌دادند ولی «این مشتری کجاست؟» جواب نداشت.
@@ -1307,7 +1307,7 @@ def crm_segment_keyboard(segment_key: str, members, page: int, total_pages: int,
 
     rows = []
     for index, stat in enumerate(members, start=page * page_size + 1):
-        label = f"{index}. {texts.crm_customer_name(stat)}"[:60]
+        label = f"{fa_number(index)}. {texts.crm_customer_name(stat)}"[:60]
         rows.append([InlineKeyboardButton(text=label, callback_data=f"crm_card:{stat.customer_id}")])
     nav = _pagination_row(page, total_pages, f"crm_seg:{segment_key}")
     if nav:
@@ -1388,7 +1388,7 @@ def consult_contacts_keyboard(members, page: int, total_pages: int) -> InlineKey
     rows = []
     for index, customer in enumerate(members, start=1):
         badge = " 🚫" if customer.is_blocked else ""
-        rows.append([InlineKeyboardButton(text=f"{index}. {texts.crm_customer_label(customer)}{badge}", callback_data=f"cc_card:{customer.id}:0")])
+        rows.append([InlineKeyboardButton(text=f"{fa_number(index)}. {texts.crm_customer_label(customer)}{badge}", callback_data=f"cc_card:{customer.id}:0")])
     nav = _pagination_row(page, total_pages, "cc_list")
     if nav:
         rows.append(nav)

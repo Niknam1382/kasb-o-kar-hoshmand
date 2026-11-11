@@ -70,10 +70,12 @@ async def test_parse_workbook_validates_rows() -> None:
     assert result.valid_rows[2] == {"name": "مانیتور", "description": "توضیح مانیتور", "price_toman": 2_500_000, "stock_quantity": 10}
 
     assert len(result.errors) == 4, f"باید ۴ ردیفِ خطادار باشه، نه {len(result.errors)}: {result.errors}"
-    assert "ردیف 4" in result.errors[0] and "نامِ محصول خالیه" in result.errors[0]
-    assert "ردیف 5" in result.errors[1] and "قیمت خالیه" in result.errors[1]
-    assert "ردیف 6" in result.errors[2] and "قیمت نامعتبره" in result.errors[2]
-    assert "ردیف 7" in result.errors[3] and "موجودی نامعتبره" in result.errors[3]
+    # پ۵۷ · موردِ ۳۴-الف: شمارهٔ ردیف در پیام‌هایِ خطا جلالی است (قاعدهٔ ۵) — تغییرِ عمدیِ
+    # رفتارِ نمایشی؛ توضیح در docs/PROGRESS.md §۵۰ و docs/changelog-p57.md
+    assert "ردیف ۴" in result.errors[0] and "نامِ محصول خالیه" in result.errors[0]
+    assert "ردیف ۵" in result.errors[1] and "قیمت خالیه" in result.errors[1]
+    assert "ردیف ۶" in result.errors[2] and "قیمت نامعتبره" in result.errors[2]
+    assert "ردیف ۷" in result.errors[3] and "موجودی نامعتبره" in result.errors[3]
     assert result.too_many_rows is False
     print("✅ test_parse_workbook_validates_rows PASSED")
 

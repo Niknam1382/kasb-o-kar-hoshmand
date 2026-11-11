@@ -90,7 +90,7 @@ def _preview_text(batch) -> str:
         )
     return (
         f"➕ پیش‌نمایشِ تمدید\nهدف: {fa_number(batch.target_count)} نفر ({target})\n"
-        f"افزایش: {params.get('days')} روز به پایانِ اشتراک (اشتراکِ تمام‌شده یا بدونِ اشتراک رد می‌شه)\n\nاجرا بشه؟"
+        f"افزایش: {fa_number(params.get('days'))} روز به پایانِ اشتراک (اشتراکِ تمام‌شده یا بدونِ اشتراک رد می‌شه)\n\nاجرا بشه؟"
     )
 
 
@@ -127,13 +127,13 @@ async def filter_chosen(callback: CallbackQuery, state: FSMContext) -> None:
         await state.set_state(AdminTimeStates.waiting_gift_amount)
         await state.update_data(at_filter=flt)
         await callback.message.answer(
-            f"مبلغِ هدیه برایِ هر نفر (تومان، بینِ {credit_batch_service.GIFT_MIN_TOMAN} و {credit_batch_service.GIFT_MAX_TOMAN}):"
+            f"مبلغِ هدیه برایِ هر نفر (تومان، بینِ {fa_number(credit_batch_service.GIFT_MIN_TOMAN)} و {fa_number(credit_batch_service.GIFT_MAX_TOMAN)}):"
         )
     else:
         await state.set_state(AdminTimeStates.waiting_extend_days)
         await state.update_data(at_filter=flt)
         await callback.message.answer(
-            f"چند روز اضافه بشه؟ (بینِ {credit_batch_service.EXTEND_MIN_DAYS} و {credit_batch_service.EXTEND_MAX_DAYS})"
+            f"چند روز اضافه بشه؟ (بینِ {fa_number(credit_batch_service.EXTEND_MIN_DAYS)} و {fa_number(credit_batch_service.EXTEND_MAX_DAYS)})"
         )
 
 
@@ -211,7 +211,7 @@ async def batch_go(callback: CallbackQuery, session: AsyncSession) -> None:
     text = (
         f"🎁 {format_toman(int(params.get('amount', 0)))} اعتبارِ هدیه به کیف‌پولت اضافه شد."
         if batch.kind == "gift"
-        else f"➕ اشتراکت {params.get('days')} روز تمدید شد."
+        else f"➕ اشتراکت {fa_number(params.get('days'))} روز تمدید شد."
     )
     for telegram_id in recipients:
         try:
@@ -266,7 +266,7 @@ async def freeze_start_pick(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer("آیدیِ عددیِ تلگرامِ فروشگاه‌دار رو بفرست:")
     else:
         await state.set_state(AdminTimeStates.waiting_freeze_days)
-        await callback.message.answer(f"حداکثر چند روز؟ (بینِ {time_freeze_service.MIN_DAYS} و {time_freeze_service.MAX_DAYS}؛ بعدش خودکار ازسرگرفته می‌شه)")
+        await callback.message.answer(f"حداکثر چند روز؟ (بینِ {fa_number(time_freeze_service.MIN_DAYS)} و {fa_number(time_freeze_service.MAX_DAYS)}؛ بعدش خودکار ازسرگرفته می‌شه)")
 
 
 @super_router.message(AdminTimeStates.waiting_freeze_owner, F.text)
@@ -278,7 +278,7 @@ async def freeze_owner(message: Message, state: FSMContext, session: AsyncSessio
         return
     await state.update_data(fz_owner=owner.id)
     await state.set_state(AdminTimeStates.waiting_freeze_days)
-    await message.answer(f"حداکثر چند روز؟ (بینِ {time_freeze_service.MIN_DAYS} و {time_freeze_service.MAX_DAYS})")
+    await message.answer(f"حداکثر چند روز؟ (بینِ {fa_number(time_freeze_service.MIN_DAYS)} و {fa_number(time_freeze_service.MAX_DAYS)})")
 
 
 @super_router.message(AdminTimeStates.waiting_freeze_days, F.text)

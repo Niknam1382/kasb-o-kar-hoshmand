@@ -10,7 +10,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from app.bots.common.wizard_nav import with_nav
 from app.bots.shop_bot import texts
 from app.services import address_book_service
-from app.utils.validators import format_toman
+from app.utils.validators import fa_number, format_toman
 
 CANCEL_CB = "cart_checkout_cancel"
 BACK_CB = "ck_back"
@@ -99,8 +99,8 @@ def address_manage_keyboard(addresses) -> InlineKeyboardMarkup:
     for index, a in enumerate(addresses, start=1):
         row = []
         if not a.is_default:
-            row.append(InlineKeyboardButton(text=f"⭐ پیش‌فرضِ {index}", callback_data=f"ck_addr_def:{a.id}"))
-        row.append(InlineKeyboardButton(text=f"🗑 حذفِ {index}", callback_data=f"ck_addr_del:{a.id}"))
+            row.append(InlineKeyboardButton(text=f"⭐ پیش‌فرضِ {fa_number(index)}", callback_data=f"ck_addr_def:{a.id}"))
+        row.append(InlineKeyboardButton(text=f"🗑 حذفِ {fa_number(index)}", callback_data=f"ck_addr_del:{a.id}"))
         rows.append(row)
     rows.append([InlineKeyboardButton(text="⬅️ برگشت به انتخابِ آدرس", callback_data="ck_addr_pick")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

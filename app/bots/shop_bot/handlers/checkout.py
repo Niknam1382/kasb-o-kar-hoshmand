@@ -972,7 +972,7 @@ async def cart_checkout_confirm(callback: CallbackQuery, state: FSMContext, sess
             shop_bot.id,
             customer.id,
             OrderType.ORDER,
-            f"{product.name} × {item.quantity} (از سبدِ خرید)",
+            f"{product.name} × {validators.fa_number(item.quantity)} (از سبدِ خرید)",
             # قانونِ طلایی: مبلغِ ذخیره‌شده از اول *بعد از تخفیف* ـه؛ هزینه‌یِ ارسال جدا روی shipping_fee_toman.
             line_total - share,
             product_id=product.id,

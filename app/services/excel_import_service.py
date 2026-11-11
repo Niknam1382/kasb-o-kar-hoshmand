@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import Product
 from app.services import product_service
 from app.services.excel_export_service import _style_sheet
-from app.utils.validators import parse_price_toman
+from app.utils.validators import fa_number, parse_price_toman
 
 # حداکثرِ تعدادِ ردیفِ دادهٔ قابل‌قبول در یه فایل — محافظت در برابرِ فایل‌هایِ
 # بیش‌ازحد بزرگ (هم برایِ عملکرد، هم چون هیچ فروشگاهِ کوچیکی واقعاً بیشتر از این
@@ -89,28 +89,28 @@ def _parse_row(row: tuple, row_number: int) -> tuple[dict | None, str | None]:
         return None, None
 
     if not name_raw:
-        return None, f"ردیف {row_number}: نامِ محصول خالیه."
+        return None, f"ردیف {fa_number(row_number)}: نامِ محصول خالیه."
     if len(name_raw) > 255:
-        return None, f"ردیف {row_number}: نامِ محصول بیش از ۲۵۵ کاراکتره."
+        return None, f"ردیف {fa_number(row_number)}: نامِ محصول بیش از ۲۵۵ کاراکتره."
 
     if not price_raw:
-        return None, f"ردیف {row_number} («{name_raw}»): قیمت خالیه."
+        return None, f"ردیف {fa_number(row_number)} («{name_raw}»): قیمت خالیه."
     price = parse_price_toman(price_raw)
     if price is None:
-        return None, f"ردیف {row_number} («{name_raw}»): قیمت نامعتبره — فقط عددِ مثبت بنویس."
+        return None, f"ردیف {fa_number(row_number)} («{name_raw}»): قیمت نامعتبره — فقط عددِ مثبت بنویس."
 
     stock: int | None = None
     if stock_raw:
         stock = _parse_stock(stock_raw)
         if stock is None:
-            return None, f"ردیف {row_number} («{name_raw}»): موجودی نامعتبره — باید عددِ صحیحِ صفر یا بزرگ‌تر باشه."
+            return None, f"ردیف {fa_number(row_number)} («{name_raw}»): موجودی نامعتبره — باید عددِ صحیحِ صفر یا بزرگ‌تر باشه."
 
     if kind_raw in _PHYSICAL_WORDS:
         kind = "physical"
     elif kind_raw in _DIGITAL_WORDS:
         kind = "digital"
     else:
-        return None, f"ردیف {row_number} («{name_raw}»): نوعِ محصول نامعتبره — فقط «فیزیکی» یا «دیجیتال» (یا خالی)."
+        return None, f"ردیف {fa_number(row_number)} («{name_raw}»): نوعِ محصول نامعتبره — فقط «فیزیکی» یا «دیجیتال» (یا خالی)."
 
     parsed = {
         "name": name_raw,

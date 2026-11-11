@@ -1075,7 +1075,7 @@ def cart_order_notification(
         "اقلام:",
     ]
     for item, product in items_with_products:
-        lines.append(f"• {product.name} × {item.quantity} = {format_toman(product.price_toman * item.quantity)}")
+        lines.append(f"• {product.name} × {fa_number(item.quantity)} = {format_toman(product.price_toman * item.quantity)}")
     if offer is not None:
         label = f"«{offer.campaign_name}»" + (f" (کدِ {offer.code})" if offer.code else "")
         lines.append(f"\nجمعِ اقلام: {format_toman(offer.list_total_toman)}")
@@ -1899,7 +1899,7 @@ def branding_owner_text(shop_bot, admin_text: str | None) -> str:
     lines.append(f"متنِ خودت: {owner or '—'}")
     lines.append(f"متنِ نهایی رویِ ربات: {composed or '—'}")
     if composed:
-        lines.append(f"جایِ باقی‌مانده از سقفِ {bot_branding_service.BIO_LIMIT}: {fa_number(max(0, bot_branding_service.BIO_LIMIT - len(composed)))} نویسه")
+        lines.append(f"جایِ باقی‌مانده از سقفِ {fa_number(bot_branding_service.BIO_LIMIT)}: {fa_number(max(0, bot_branding_service.BIO_LIMIT - len(composed)))} نویسه")
     lines.append("")
     if composed:
         lines.append("اگر جا نشود، متنِ خودت کوتاه می‌شود — متنِ پلتفرم همیشه کامل می‌ماند.")
@@ -2487,7 +2487,7 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         ("branding_text", f"🪪 بیوگرافیِ اجباریِ ربات‌ها: {admin_settings.branding_text or 'تنظیم‌نشده'}"),
         ("branding_check_minutes", f"⏱ فاصلهِ بازرسیِ بیو: هر {fa_number(admin_settings.branding_check_minutes)} دقیقه"),
         ("referral_reward_value", f"🎁 پورسانتِ معرف: {_percent_label(admin_settings.referral_reward_value)} از اولین شارژ (فقط به معرف)"),
-        ("grace_period_hours", f"⏳ مهلت گریس‌پیریود: {admin_settings.grace_period_hours} ساعت"),
+        ("grace_period_hours", f"⏳ مهلت گریس‌پیریود: {fa_number(admin_settings.grace_period_hours)} ساعت"),
         ("periodic_report_frequency_days", f"📈 بازه‌ی گزارش دوره‌ای: هر {fa_number(admin_settings.periodic_report_frequency_days)} روز"),
         (
             "nightly_report_hour_utc",
@@ -3535,7 +3535,7 @@ def crm_conversation_text(customer_name: str, messages, page: int, total_pages: 
 def crm_overview_text(counts: dict, total: int, truncated: bool) -> str:
     lines = [f"👥 مشتری‌هایِ فروشگاهت — کل: {fa_number(total)} نفر\n"]
     for key, label in CRM_SEGMENT_LABELS.items():
-        lines.append(f"{label}: {counts.get(key, 0)} نفر\n   ↳ {CRM_SEGMENT_HINTS[key]}")
+        lines.append(f"{label}: {fa_number(counts.get(key, 0))} نفر\n   ↳ {CRM_SEGMENT_HINTS[key]}")
     lines.append("\nروی یه بخش بزن تا فهرستش رو ببینی.")
     if truncated:
         lines.append(f"\n{CRM_TRUNCATED_NOTE}")
@@ -3583,7 +3583,7 @@ def crm_card_text(stat, customer, orders) -> str:
     lines = [
         f"👤 {crm_customer_name(stat)}",
         f"بخش: {CRM_SEGMENT_LABELS.get(stat.segment, stat.segment)}",
-        f"🧾 سفارشِ موفق: {stat.success_count} — 💰 خریدِ خالص: {format_toman(stat.net_toman)}",
+        f"🧾 سفارشِ موفق: {fa_number(stat.success_count)} — 💰 خریدِ خالص: {format_toman(stat.net_toman)}",
         f"📅 اولین حضور: {_crm_date(stat.first_seen_at)} — آخرین فعالیت: {_crm_date(stat.last_activity)}",
         "🏷 برچسب‌ها: " + (" ".join(f"#{tag}" for tag in tags) if tags else "—"),
         "📝 یادداشت: " + (customer.crm_notes if customer.crm_notes else "—"),

@@ -448,7 +448,7 @@ async def build_wallet_ledger_workbook(session: AsyncSession, limit: int = MAX_L
         money_cols=(7,),
         tab_index=0,
     )
-    note = "همهٔ تراکنش‌ها" if not truncated else f"فقط {limit} تراکنشِ جدیدتر (دفتر بزرگ‌تر است)"
+    note = "همهٔ تراکنش‌ها" if not truncated else f"فقط {fa_number(limit)} تراکنشِ جدیدتر (دفتر بزرگ‌تر است)"
     _plain_sheet(wb, "توضیحات", ["مورد", "مقدار"], [["محدوده", note], ["تعدادِ ردیف‌هایِ این فایل", len(rows)]], money_cols=(2,), tab_index=1)
 
     return _workbook_bytes(wb)

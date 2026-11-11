@@ -65,7 +65,7 @@ def describe_op(operation: CartOperation, product_name: str) -> str:
     if operation.action == "decrease":
         return f"➖ {name}: {fa_number(qty)} عدد کم بشه"
     if operation.action == "set":
-        return f"🔢 {name}: تعداد بشه {qty}"
+        return f"🔢 {name}: تعداد بشه {fa_number(qty)}"
     return f"🗑 {name}: از سبد حذف بشه"
 
 

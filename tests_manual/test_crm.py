@@ -271,7 +271,9 @@ async def test_overview_segment_screens_card_and_pagination(main_dp) -> None:
         "توضیح در docs/PROGRESS.md §۴۹ و docs/changelog-p56.md)"
     )
     button_texts = [button.text for row in owner.last_markup.inline_keyboard for button in row]
-    assert "💎 وفادار (2)" in button_texts and "⚠️ در حالِ ریزش (2)" in button_texts and "🆕 جدید (1)" in button_texts
+    # پ۵۷ · موردِ ۳۴-الف: شمارِ هر بخش با ارقامِ جلالی نوشته می‌شود (قاعدهٔ ۵). تغییرِ عمدیِ
+    # رفتارِ نمایشی است، نه ضعفِ ادعا — توضیح در docs/PROGRESS.md §۵۰ و docs/changelog-p57.md
+    assert "💎 وفادار (۲)" in button_texts and "⚠️ در حالِ ریزش (۲)" in button_texts and "🆕 جدید (۱)" in button_texts
 
     # callbackهایِ بخش: معتبر، خارج از محدوده (clamp) و جعلی
     assert crm_handlers._parse_segment_callback("crm_seg:loyal:2") == ("loyal", 2)
@@ -300,7 +302,7 @@ async def test_overview_segment_screens_card_and_pagination(main_dp) -> None:
     for expected in (
         "👤 مشتریِ وفادار (@loyal_user)",
         "بخش: 💎 وفادار",
-        "🧾 سفارشِ موفق: 3 — 💰 خریدِ خالص: ۳۰۰٬۰۰۰ تومان",
+        "🧾 سفارشِ موفق: ۳ — 💰 خریدِ خالص: ۳۰۰٬۰۰۰ تومان",
         "🏷 برچسب‌ها: —",
         "📝 یادداشت: —",
         "آخرین سفارش‌ها:",

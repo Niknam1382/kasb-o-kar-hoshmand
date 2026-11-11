@@ -15,6 +15,7 @@ import logging
 import time
 
 from app.config import settings
+from app.utils.validators import fa_number
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ def _dispatch(kind: str, detail: str, count: int) -> None:
         return
     text = (
         f"🚨 هشدارِ خودکارِ پلتفرم — {KIND_LABELS.get(kind, kind)}\n\n"
-        f"تعداد در {int(WINDOW_SECONDS // 60)} دقیقه: {count}\n"
+        f"تعداد در {fa_number(int(WINDOW_SECONDS // 60))} دقیقه: {fa_number(count)}\n"
         f"نمونه: {detail}\n\n"
         "این هشدار نرخ‌محدود است؛ جزئیاتِ کامل در لاگِ کانتینر و «🔎 آخرین رویدادهایِ پرداخت»."
     )
