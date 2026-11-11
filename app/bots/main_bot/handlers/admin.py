@@ -30,6 +30,7 @@ from app.bots.main_bot.states import (
     AdminSettingsStates,
     AdminWalletCorrectionStates,
     AiPoolStates,
+    PerfRangeStates,
     StatsRangeStates,
     AuditRangeStates,
     BroadcastStates,
@@ -345,26 +346,118 @@ async def stats_range_to_received(message: Message, state: FSMContext, session: 
 # =============================================================================
 # وضعیتِ همزمانی و عملکرد (P30)
 # =============================================================================
-async def _answer_perf_report(message: Message, session: AsyncSession, range_key: str) -> None:
+async def _perf_range_state(state: FSMContext) -> tuple[datetime.datetime | None, datetime.datetime | None]:
+    """بازهٔ دلخواه در FSM می‌ماند تا ادمین بینِ پنجره‌هایِ آماده و بازه جابه‌جا شود (موردِ ۲۰)."""
+    data = await state.get_data()
+    return _audit_iso_to_utc(data.get("perf_since")), _audit_iso_to_utc(data.get("perf_until"))
+
+
+async def _answer_perf_report(
+    message: Message, session: AsyncSession, range_key: str, state: FSMContext | None = None
+) -> None:
     from app.services import perf_report_service
 
-    data = await perf_report_service.build(session, range_key)
-    await message.answer(texts.perf_report_text(data), reply_markup=keyboards.perf_report_keyboard(range_key))
+    since = until = None
+    has_range = False
+    if state is not None:
+        since, until = await _perf_range_state(state)
+        has_range = since is not None or until is not None
+    if has_range:
+        data = await perf_report_service.build(session, range_key, since=since, until=until)
+    else:
+        data = await perf_report_service.build(session, range_key)
+    await session.commit()
+    await message.answer(
+        texts.perf_report_text(data),
+        reply_markup=keyboards.perf_report_keyboard(range_key, has_range=has_range),
+    )
+
+
+@router.callback_query(F.data == "perf_range_from")
+async def cb_perf_range_from(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    await state.update_data(perf_pending_since=None)
+    await state.set_state(PerfRangeStates.waiting_from)
+    await callback.message.answer(texts.PERF_FROM_ASK)
+
+
+@router.callback_query(F.data == "perf_range_clear")
+async def cb_perf_range_clear(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    for key in ("perf_since", "perf_until", "perf_pending_since"):
+        data.pop(key, None)
+    await state.set_data(data)
+    await state.set_state(None)
+    await callback.answer(texts.PERF_RANGE_CLEARED)
+    await _answer_perf_report(callback.message, session, "24h", state)
+
+
+async def _perf_range_endpoint(message: Message, state: FSMContext, key: str, next_state) -> bool:
+    raw = (message.text or "").strip()
+    data = await state.get_data()
+    if raw in ("انصراف", "لغو", "/cancel"):
+        data.pop("perf_pending_since", None)
+        await state.set_data(data)
+        await state.set_state(None)
+        await message.answer(texts.PERF_RANGE_CANCELLED)
+        return False
+    now = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        moment = _parse_audit_range_input(raw)
+        if key == "perf_since":
+            if moment is None or moment >= now:
+                raise ValueError
+        else:
+            since = _audit_iso_to_utc(data.get("perf_pending_since"))
+            if since is None or not since < (moment or now) <= now:
+                raise ValueError
+    except ValueError:
+        await message.answer(texts.PERF_RANGE_INVALID)
+        return False
+    if next_state is None:
+        data["perf_since"] = data.pop("perf_pending_since")
+        data["perf_until"] = None if moment is None else moment.isoformat()
+        await state.set_data(data)
+        return True
+    data["perf_pending_since"] = moment.isoformat()
+    await state.set_data(data)
+    await state.set_state(next_state)
+    await message.answer(texts.PERF_TO_ASK)
+    return False
+
+
+@router.message(PerfRangeStates.waiting_from, F.text)
+async def perf_range_from_received(message: Message, state: FSMContext) -> None:
+    await _perf_range_endpoint(message, state, "perf_since", PerfRangeStates.waiting_until)
+
+
+@router.message(PerfRangeStates.waiting_until, F.text)
+async def perf_range_to_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    if not await _perf_range_endpoint(message, state, "perf_until", None):
+        return
+    await state.set_state(None)
+    await message.answer(texts.PERF_RANGE_SET)
+    await _answer_perf_report(message, session, "24h", state)
 
 
 @router.message(F.text == "📈 وضعیتِ همزمانی و عملکرد")
-async def admin_perf_report(message: Message, session: AsyncSession) -> None:
-    await _answer_perf_report(message, session, "24h")
+async def admin_perf_report(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    await _answer_perf_report(message, session, "24h", state)
 
 
 @router.callback_query(F.data.startswith("perf_range:"))
-async def cb_perf_range(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_perf_range(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     from app.services import perf_report_service
 
     range_key = callback.data.split(":", 1)[1]
     if range_key not in perf_report_service.RANGES:
         await callback.answer("این بازه شناخته‌شده نیست.", show_alert=True)
         return
+    data = await state.get_data()
+    for key in ("perf_since", "perf_until", "perf_pending_since"):
+        data.pop(key, None)
+    await state.set_data(data)
+    await state.set_state(None)
     await callback.answer()
     await _answer_perf_report(callback.message, session, range_key)
 

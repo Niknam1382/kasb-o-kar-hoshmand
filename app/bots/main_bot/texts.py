@@ -534,22 +534,51 @@ _WALLET_REASON_LABELS = {
     "admin_grant": "🎁 هدیه‌ی ادمین",
     "admin_correction": "🧾 اصلاحِ ادمین",
     "expiry": "⌛️ انقضا",
+    "receipt_analysis": "تحلیلِ رسید",
+    "commission": "کمیسیونِ سفارش",
 }
 
 WALLET_HISTORY_EMPTY = "هنوز هیچ تراکنشی در کیف‌پولت ثبت نشده."
-WALLET_HISTORY_INTRO = "📜 تاریخچه‌ی تراکنش‌های کیف‌پول (۱۵ موردِ اخیر):"
+WALLET_HISTORY_INTRO = "تاریخچهٔ تراکنش‌های کیف‌پول، از جدیدترین به قدیمی‌ترین:"
+WALLET_HISTORY_PAGE_EMPTY = "در این بخش تراکنشی وجود ندارد؛ از دکمهٔ ابتدای تاریخچه استفاده کن."
+WALLET_HISTORY_INVALID = "این دکمه معتبر نیست؛ تاریخچهٔ کیف‌پول را دوباره باز کن."
+WALLET_HISTORY_UNAVAILABLE = "برای دیدن تاریخچه، ابتدا وارد پنلِ فروشگاهت شو."
+WALLET_HISTORY_NEWER = "تراکنش‌های جدیدتر"
+WALLET_HISTORY_OLDER = "تراکنش‌های قدیمی‌تر"
+WALLET_HISTORY_START = "ابتدای تاریخچه"
+WALLET_HISTORY_EXPORT = "دریافت فایلِ تاریخچه"
+WALLET_HISTORY_EXPORT_NEXT = "دریافت ادامهٔ فایل"
+WALLET_HISTORY_EXPORT_SCOPE = "فقط تراکنش‌های کیف‌پولِ خودت، از جدیدترین به قدیمی‌ترین."
+WALLET_HISTORY_EXPORT_CONTINUATION = "ادامهٔ تراکنش‌های قدیمی‌تر؛ ردیف‌های فایل‌های قبلی در این فایل نیستند."
+
+
+def wallet_history_export_note(count: int, *, has_more: bool, continuation: bool = False) -> str:
+    if not count:
+        return "در این بخش تراکنشی وجود ندارد."
+    if has_more:
+        return "این فایل همهٔ تاریخچه نیست؛ تراکنش‌های قدیمی‌تر را با دکمهٔ دریافت ادامهٔ فایل بگیر."
+    if continuation:
+        return "این بخش به پایانِ تاریخچه رسید؛ تراکنش‌های جدیدتر در فایل‌های قبلی هستند."
+    return "این فایل همهٔ تراکنش‌های موجود هنگام تهیه را در بر دارد."
+
+
+def wallet_history_export_caption(count: int, *, has_more: bool, continuation: bool = False) -> str:
+    lines = [WALLET_HISTORY_EXPORT_SCOPE, f"تعدادِ تراکنش‌های این فایل: {fa_number(count)}"]
+    if continuation:
+        lines.append(WALLET_HISTORY_EXPORT_CONTINUATION)
+    lines.append(wallet_history_export_note(count, has_more=has_more, continuation=continuation))
+    return "\n".join(lines)
 
 
 def wallet_reason_label(reason) -> str:
     reason_value = reason.value if hasattr(reason, "value") else reason
-    return _WALLET_REASON_LABELS.get(reason_value, reason_value)
+    return _WALLET_REASON_LABELS.get(reason_value, "سایر تراکنش‌ها")
 
 
 def wallet_transaction_line(transaction) -> str:
     from app.utils.jalali import format_jalali_datetime
 
-    reason_value = transaction.reason.value if hasattr(transaction.reason, "value") else transaction.reason
-    label = _WALLET_REASON_LABELS.get(reason_value, reason_value)
+    label = wallet_reason_label(transaction.reason)
     sign = "+" if transaction.amount_toman >= 0 else ""
     when = format_jalali_datetime(transaction.created_at) if transaction.created_at else "—"
     return f"{label}: {sign}{format_toman(transaction.amount_toman)} — {when}"
@@ -939,6 +968,26 @@ def platform_stats_text(stats: dict) -> str:
     )
 
 
+PERF_RANGE_BUTTONS: tuple[tuple[str, str], ...] = (("24h", "🕐 ۲۴ ساعت"), ("7d", "📅 ۷ روز"))
+PERF_FROM_ASK = (
+    "برایِ گزارشِ همزمانی، تاریخِ شروع را بنویس (میلادی، به وقتِ گرینویچ):\n"
+    "· نمونه: ۲۰۲۶-۱۱-۰۱ یا ۲۰۲۶-۱۱-۰۱ ۱۴:۰۰\n"
+    "· تاریخِ شروع لازم است و باید در گذشته باشد؛ برایِ لغو «انصراف» بنویس."
+)
+PERF_TO_ASK = (
+    "حالا تاریخِ پایان را بنویس (همان قالب؛ «همه» یعنی تا همین لحظه).\n"
+    "پایان باید پس از شروع و حداکثر همین لحظه باشد؛ خودِ لحظهٔ پایان در بازه نیست.\n"
+    "تاریخِ بدونِ ساعت یعنی ابتدایِ آن روز، نه پایانِ روز."
+)
+PERF_RANGE_INVALID = (
+    "تاریخ را نفهمیدم یا ترتیبِ بازه درست نیست. قالبِ درست: ۲۰۲۶-۱۱-۰۱ یا ۲۰۲۶-۱۱-۰۱ ۱۴:۰۰.\n"
+    "شروع باید در گذشته و پایان پس از شروع باشد؛ «همه» فقط برایِ پایان پذیرفته می‌شود."
+)
+PERF_RANGE_SET = "✅ بازهٔ گزارش تنظیم شد."
+PERF_RANGE_CANCELLED = "↩️ لغو شد؛ بازهٔ گزارش عوض نشد."
+PERF_RANGE_CLEARED = "✖️ بازهٔ دلخواه حذف شد؛ پنجرهٔ آماده برگشت."
+
+
 def perf_report_text(data: dict) -> str:
     """گزارشِ همزمانی و عملکرد (P30) — متنِ تخت با نوارِ متنی."""
     from app.services import perf_report_service
@@ -957,11 +1006,35 @@ def perf_report_text(data: dict) -> str:
         f"🛒 سفارش: {fa_number(data['orders'])} · 💬 مشاوره: {fa_number(data['consultations'])} · "
         f"✅ پرداختِ انجام‌شده: {fa_number(data['payments_paid'])} · 🔵 رویدادِ درگاه: {fa_number(data['gateway_events'])}"
     )
-    lines.append("\nبه تفکیکِ قابلیت (تعدادِ فراخوانی):")
+    lines.append("\nبه تفکیکِ قابلیت (تعدادِ مصرف‌هایِ ثبت‌شده):")
     lines += [f"• {label}: {fa_number(count)}" for label, count in data["features"] if count]
     if not any(count for _label, count in data["features"]):
-        lines.append("• هیچ فراخوانیِ هوش مصنوعی در این بازه ثبت نشده.")
-    lines.append("\n(همزمانی = مشتریِ متمایزی که در آن دانه پیام داده؛ نمایندهٔ بارِ واقعیِ AI و دیتابیس است.)")
+        lines.append("• هیچ مصرفِ اعتباری برایِ این قابلیت‌ها در بازه ثبت نشده.")
+    channels = data.get("channels") or []
+    if channels:
+        names = {"telegram": "تلگرام", "bale": "بله", "instagram": "اینستاگرام"}
+        lines.append("\nبه تفکیکِ کانال (مشتری / پیام):")
+        lines += [f"• {names.get(str(platform), str(platform))}: {fa_number(customers)} مشتری · {fa_number(messages)} پیام" for platform, customers, messages in channels]
+
+    top_shops = data.get("top_shops") or []
+    if top_shops:
+        lines.append("\nپرمشغله‌ترینِ فروشگاه‌ها (۵ تا):")
+        lines += [f"• @{username}: {fa_number(customers)} مشتری · {fa_number(messages)} پیام" for username, customers, messages in top_shops]
+
+    rate = float(data.get("messages_per_minute") or 0.0)
+    rate_label = f"{rate:.4f}".rstrip("0").rstrip(".").translate(str.maketrans("0123456789.", "۰۱۲۳۴۵۶۷۸۹٫"))
+    if 0 < rate < 0.0001:
+        rate_label = "کمتر از ۰٫۰۰۰۱"
+    needed = perf_report_service.ai_concurrency_estimate(rate)
+    lines.append(
+        f"\n⚙️ بارِ لازم برایِ هوشِ مصنوعی (تخمینی): {fa_number(needed)} درخواستِ هم‌زمان"
+        f" — میانگینِ {rate_label} پیام در دقیقه؛ با فرضِ یک فراخوانی برایِ هر پیام و تأخیرِ ۵ ثانیه"
+    )
+    if data.get("custom_range"):
+        lines.append(f"\n🗓 بازهٔ دلخواه: {data['label']} · دانه: {fa_number(data['bucket_minutes'])} دقیقه")
+    lines.append("\nهمزمانی در نمودار یعنی مشتریِ متمایزِ پیام‌دهنده در هر دانه؛ نه تعدادِ درخواست‌هایِ واقعاً هم‌زمان.")
+    lines.append("تخمینِ بالا میانگینِ بار است، نه ظرفیتِ تضمین‌شده یا بارِ اوج؛ تأخیرِ واقعیِ هوشِ مصنوعی سنجیده نشده.")
+    lines.append("آمارِ همین حالا مستقل از بازهٔ انتخابی است؛ شمارشِ قابلیت‌ها از دفترِ مصرفِ اعتبار می‌آید.")
     return "\n".join(lines)
 
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import Campaign, Customer, OrderConsultation, OrderType, Product, ShopOwner, WalletTransaction
 from app.services import accounting_service
 from app.utils.jalali import format_jalali_date, format_jalali_datetime
+from app.utils.validators import fa_number
 
 # P22 (مشکلِ ۴): همانِ پالتِ فاکتورِ PDF ⇒ فایلِ اکسل و کاغذِ فاکتور یکِ برند باشند.
 _BRAND = "0F5E5C"
@@ -358,6 +359,53 @@ def build_accounting_workbook(report) -> bytes:
     )
 
     return _workbook_bytes(wb)
+
+
+MAX_OWNER_WALLET_ROWS = 5_000
+
+
+async def build_owner_wallet_workbook(
+    session: AsyncSession,
+    owner_id: int,
+    *,
+    before_id: int | None = None,
+    limit: int = MAX_OWNER_WALLET_ROWS,
+) -> tuple[bytes, int, int | None]:
+    from app.bots.main_bot import texts
+
+    if type(limit) is not int or limit < 1:
+        raise ValueError("سقفِ ردیف‌ها باید مثبت باشد")
+    limit = min(limit, MAX_OWNER_WALLET_ROWS)
+    if before_id is not None and (type(before_id) is not int or not 1 <= before_id <= 2_147_483_647):
+        raise ValueError("نشانگرِ تاریخچه معتبر نیست")
+    query = select(
+        WalletTransaction.id, WalletTransaction.created_at, WalletTransaction.reason, WalletTransaction.amount_toman,
+    ).where(WalletTransaction.shop_owner_id == owner_id)
+    if before_id is not None:
+        query = query.where(WalletTransaction.id < before_id)
+    fetched = (await session.execute(query.order_by(WalletTransaction.id.desc()).limit(limit + 1))).all()
+    transactions = fetched[:limit]
+    next_cursor = transactions[-1].id if len(fetched) > limit else None
+    rows = [
+        [fa_number(index), _fmt(transaction.created_at), texts.wallet_reason_label(transaction.reason), transaction.amount_toman]
+        for index, transaction in enumerate(transactions, start=1)
+    ]
+    wb = Workbook()
+    ws = _plain_sheet(
+        wb, "تاریخچهٔ کیف‌پول", ["ردیف", "تاریخ (تهران)", "دلیل", "مبلغ (تومان؛ مثبت = افزایش، منفی = کاهش)"],
+        rows, first=True, money_cols=(4,),
+    )
+    for row in ws.iter_rows(min_row=2, min_col=4, max_col=4):
+        row[0].number_format = "+#,##0;[Red]-#,##0;0"
+    notes = [
+        ["محدوده", texts.WALLET_HISTORY_EXPORT_SCOPE],
+        ["تعدادِ ردیف‌های این فایل", fa_number(len(rows))],
+        ["وضعیت", texts.wallet_history_export_note(len(rows), has_more=next_cursor is not None, continuation=before_id is not None)],
+    ]
+    if before_id is not None:
+        notes.append(["ادامه", texts.WALLET_HISTORY_EXPORT_CONTINUATION])
+    _plain_sheet(wb, "توضیحات", ["مورد", "مقدار"], notes, tab_index=1)
+    return _workbook_bytes(wb), len(rows), next_cursor
 
 
 async def build_wallet_ledger_workbook(session: AsyncSession, limit: int = MAX_LEDGER_ROWS) -> bytes:

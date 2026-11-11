@@ -166,6 +166,13 @@ class ModerationStates(StatesGroup):
     waiting_pattern = State()
 
 
+class PerfRangeStates(StatesGroup):
+    """P52 · موردِ ۲۰: ویزاردِ بازهٔ دلخواهِ گزارشِ همزمانی."""
+
+    waiting_from = State()
+    waiting_until = State()
+
+
 class StatsRangeStates(StatesGroup):
     """P51 · موردِ ۴۴: ویزاردِ «بازهٔ دلخواه» برایِ نمودارِ درآمد (همان شکلِ بازهٔ ممیزی)."""
 

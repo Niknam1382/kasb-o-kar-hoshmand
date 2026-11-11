@@ -373,6 +373,28 @@ def wallet_topup_action_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def wallet_history_keyboard(
+    *,
+    newer_cursor: int | None = None,
+    older_cursor: int | None = None,
+    next_cursor: int | None = None,
+) -> InlineKeyboardMarkup:
+    rows = []
+    navigation = []
+    if newer_cursor is not None:
+        navigation.append(InlineKeyboardButton(text=texts.WALLET_HISTORY_NEWER, callback_data=f"wallet_history_page:newer:{newer_cursor}"))
+    if older_cursor is not None:
+        navigation.append(InlineKeyboardButton(text=texts.WALLET_HISTORY_OLDER, callback_data=f"wallet_history_page:older:{older_cursor}"))
+    if navigation:
+        rows.append(navigation)
+    rows.append([InlineKeyboardButton(text=texts.WALLET_HISTORY_EXPORT, callback_data="wallet_history_export")])
+    if next_cursor is not None:
+        rows.append([InlineKeyboardButton(text=texts.WALLET_HISTORY_EXPORT_NEXT, callback_data=f"wallet_history_export:{next_cursor}")])
+    rows.append([InlineKeyboardButton(text=texts.WALLET_HISTORY_START, callback_data="wallet_history")])
+    rows.append([InlineKeyboardButton(text="بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def topup_receipt_keyboard(payment_id: int) -> InlineKeyboardMarkup:
     """A7: «⬅️ برگشت» در حالتِ انتظارِ رسید — state پاک می‌شود ولی ردیفِ پرداخت می‌ماند."""
     return InlineKeyboardMarkup(
@@ -658,22 +680,18 @@ def switch_label(subject: str, enabled: bool) -> str:
     return f"⏸ خاموش‌کردنِ {subject}" if enabled else f"✅ روشن‌کردنِ {subject}"
 
 
-def perf_report_keyboard(active_range: str) -> InlineKeyboardMarkup:
-    """دکمه‌هایِ بازهٔ گزارشِ همزمانی (P30) — بازهٔ فعال با تیک علامت می‌خورد."""
-    from app.services import perf_report_service
-
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=("✅ " if key == active_range else "") + label,
-                callback_data=f"perf_range:{key}",
-            )
-        ]
-        for key, label in (
-            ("24h", perf_report_service.RANGE_LABELS["24h"]),
-            ("7d", perf_report_service.RANGE_LABELS["7d"]),
+def perf_report_keyboard(range_key: str, has_range: bool = False) -> InlineKeyboardMarkup:
+    rows = [[
+        InlineKeyboardButton(
+            text=("✅ " if key == range_key and not has_range else "") + label,
+            callback_data=f"perf_range:{key}",
         )
-    ]
+        for key, label in texts.PERF_RANGE_BUTTONS
+    ]]
+    extra = [InlineKeyboardButton(text="🗓 بازهٔ دلخواه", callback_data="perf_range_from")]
+    if has_range:
+        extra.append(InlineKeyboardButton(text="✖️ حذفِ بازه", callback_data="perf_range_clear"))
+    rows.append(extra)
     rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

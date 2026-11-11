@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.main_bot import keyboards, texts
-from app.bots.main_bot.handlers.owner_common import panel_keyboard
+from app.bots.main_bot.handlers.owner_common import panel_keyboard, safe_edit
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.main_bot.states import (
     AiInstructionsStates,
@@ -613,17 +613,88 @@ async def open_wallet(message: Message, session: AsyncSession) -> None:
     await message.answer(await _wallet_status_line(session, owner), reply_markup=keyboards.wallet_topup_action_keyboard())
 
 
+def _wallet_history_cursor(raw: str) -> int | None:
+    if not 1 <= len(raw) <= 10 or not raw.isascii() or not raw.isdecimal():
+        return None
+    cursor = int(raw)
+    return cursor if 1 <= cursor <= 2_147_483_647 else None
+
+
+async def _show_wallet_history(
+    callback: CallbackQuery,
+    session: AsyncSession,
+    *,
+    direction: str = "older",
+    cursor_id: int | None = None,
+) -> None:
+    owner = await _current_owner(callback, session)
+    if owner is None or not isinstance(callback.message, Message):
+        await callback.answer(texts.WALLET_HISTORY_UNAVAILABLE, show_alert=True)
+        return
+    transactions, has_newer, has_older = await wallet_service.get_owner_history_page(
+        session, owner.id, direction=direction, cursor_id=cursor_id,
+    )
+    keyboard = keyboards.wallet_history_keyboard(
+        newer_cursor=transactions[0].id if has_newer else None,
+        older_cursor=transactions[-1].id if has_older else None,
+    )
+    if transactions:
+        body = "\n".join([texts.WALLET_HISTORY_INTRO, "", *(texts.wallet_transaction_line(t) for t in transactions)])
+    else:
+        body = texts.WALLET_HISTORY_PAGE_EMPTY if cursor_id is not None else texts.WALLET_HISTORY_EMPTY
+    await session.commit()
+    await callback.answer()
+    if cursor_id is None:
+        await callback.message.answer(body, reply_markup=keyboard)
+    else:
+        await safe_edit(callback, body, reply_markup=keyboard)
+
+
 @router.callback_query(F.data == "wallet_history")
 async def cb_wallet_history(callback: CallbackQuery, session: AsyncSession) -> None:
-    owner = await _current_owner(callback, session)
-    transactions = await wallet_service.get_recent_transactions(session, owner.id)
-    await callback.answer()
-    if not transactions:
-        await callback.message.answer(texts.WALLET_HISTORY_EMPTY, reply_markup=keyboards.empty_screen_keyboard())
+    await _show_wallet_history(callback, session)
+
+
+@router.callback_query((F.data == "wallet_history_page") | F.data.startswith("wallet_history_page:"))
+async def cb_wallet_history_page(callback: CallbackQuery, session: AsyncSession) -> None:
+    parts = (callback.data or "").split(":")
+    if len(parts) != 3 or parts[1] not in {"older", "newer"}:
+        await callback.answer(texts.WALLET_HISTORY_INVALID, show_alert=True)
         return
-    lines = [texts.WALLET_HISTORY_INTRO, ""]
-    lines.extend(texts.wallet_transaction_line(t) for t in transactions)
-    await callback.message.answer("\n".join(lines), reply_markup=keyboards.empty_screen_keyboard())
+    cursor_id = _wallet_history_cursor(parts[2])
+    if cursor_id is None:
+        await callback.answer(texts.WALLET_HISTORY_INVALID, show_alert=True)
+        return
+    await _show_wallet_history(callback, session, direction=parts[1], cursor_id=cursor_id)
+
+
+@router.callback_query((F.data == "wallet_history_export") | F.data.startswith("wallet_history_export:"))
+async def cb_wallet_history_export(callback: CallbackQuery, session: AsyncSession) -> None:
+    before_id = None
+    if callback.data != "wallet_history_export":
+        parts = (callback.data or "").split(":")
+        before_id = _wallet_history_cursor(parts[1]) if len(parts) == 2 else None
+        if before_id is None:
+            await callback.answer(texts.WALLET_HISTORY_INVALID, show_alert=True)
+            return
+    owner = await _current_owner(callback, session)
+    if owner is None or not isinstance(callback.message, Message):
+        await callback.answer(texts.WALLET_HISTORY_UNAVAILABLE, show_alert=True)
+        return
+    raw, count, next_cursor = await excel_export_service.build_owner_wallet_workbook(session, owner.id, before_id=before_id)
+    keyboard = keyboards.wallet_history_keyboard(next_cursor=next_cursor)
+    caption = texts.wallet_history_export_caption(count, has_more=next_cursor is not None, continuation=before_id is not None)
+    await session.commit()
+    await callback.answer()
+    if not count:
+        await callback.message.answer(
+            texts.WALLET_HISTORY_PAGE_EMPTY if before_id is not None else texts.WALLET_HISTORY_EMPTY,
+            reply_markup=keyboard,
+        )
+        return
+    await callback.message.answer_document(
+        BufferedInputFile(raw, filename="تاریخچه-کیف‌پول.xlsx"), caption=caption, reply_markup=keyboard,
+    )
 
 
 @router.callback_query(F.data == "topup_start")

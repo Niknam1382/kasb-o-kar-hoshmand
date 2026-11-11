@@ -107,9 +107,9 @@ async def test_window_excludes_stale_message() -> None:
 async def test_feature_breakdown_and_text() -> None:
     data = await _report("24h")
     features = dict(data["features"])
-    assert features["چتِ متنی"] == 1 and features["خلاصهٔ CRM"] == 1, features
+    assert features["چتِ متنی"] == 1 and features["خلاصهٔ مشتری"] == 1, features
     body = texts.perf_report_text(data)
-    assert "چتِ متنی: ۱" in body and "خلاصهٔ CRM: ۱" in body, body
+    assert "چتِ متنی: ۱" in body and "خلاصهٔ مشتری: ۱" in body, body
     assert "تحلیلِ عکس" not in body, "قابلیتِ صفرفرخوانده نباید در گزارش بیاید"
     assert "📈 وضعیتِ همزمانی و عملکرد — ۲۴ ساعت (هر ۱۰ دقیقه)" in body
     print("✅ test_feature_breakdown_and_text PASSED")

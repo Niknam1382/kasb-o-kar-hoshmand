@@ -155,6 +155,8 @@ TEST_FILES = [
     "test_p49_instagram_channel.py",
     "test_p49_b_instagram_comments.py",
     "test_p51_revenue_chart.py",
+    "test_p52_concurrency_report.py",
+    "test_p53_wallet_history_export.py",
 ]
 
 
@@ -199,11 +201,11 @@ def main() -> int:
     total_passed = sum(1 for _, ok, _, _ in results if ok)
     for filename, ok, elapsed, output in results:
         mark = "✅" if ok else "❌"
-        test_count = output.count("✅ test_")
+        test_count = (output.count("✅ test_") + output.count("PASS test_"))
         print(f"{mark} {filename:<45} ({test_count} تست، {elapsed:.1f} ثانیه)")
 
     print(f"\n{total_passed}/{len(results)} فایل با موفقیت پاس شدن.")
-    total_individual_tests = sum(output.count("✅ test_") for _, _, _, output in results)
+    total_individual_tests = sum((output.count("✅ test_") + output.count("PASS test_")) for _, _, _, output in results)
     print(f"مجموعِ تست‌های جداگانه‌ی پاس‌شده: {total_individual_tests}")
 
     if total_passed < len(results):

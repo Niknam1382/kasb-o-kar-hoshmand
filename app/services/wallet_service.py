@@ -293,6 +293,42 @@ async def get_recent_transactions(session: AsyncSession, owner_id: int, limit: i
     return list(result.scalars().all())
 
 
+WALLET_HISTORY_PAGE_SIZE = 15
+
+
+async def get_owner_history_page(
+    session: AsyncSession,
+    owner_id: int,
+    *,
+    direction: str = "older",
+    cursor_id: int | None = None,
+) -> tuple[list[WalletTransaction], bool, bool]:
+    if direction not in {"older", "newer"}:
+        raise ValueError("جهتِ تاریخچه معتبر نیست")
+    if cursor_id is not None and (type(cursor_id) is not int or not 1 <= cursor_id <= 2_147_483_647):
+        raise ValueError("نشانگرِ تاریخچه معتبر نیست")
+    query = select(WalletTransaction).where(WalletTransaction.shop_owner_id == owner_id)
+    newer = cursor_id is not None and direction == "newer"
+    if cursor_id is not None:
+        query = query.where(WalletTransaction.id > cursor_id if newer else WalletTransaction.id < cursor_id)
+    query = query.order_by(WalletTransaction.id.asc() if newer else WalletTransaction.id.desc())
+    transactions = list((await session.execute(query.limit(WALLET_HISTORY_PAGE_SIZE))).scalars().all())
+    if not transactions:
+        return [], False, False
+    if newer:
+        # Ascending LIMIT selects the nearest newer page, even after concurrent inserts.
+        transactions.reverse()
+    has_newer, has_older = (await session.execute(select(
+        select(WalletTransaction.id).where(
+            WalletTransaction.shop_owner_id == owner_id, WalletTransaction.id > transactions[0].id,
+        ).exists(),
+        select(WalletTransaction.id).where(
+            WalletTransaction.shop_owner_id == owner_id, WalletTransaction.id < transactions[-1].id,
+        ).exists(),
+    ))).one()
+    return transactions, bool(has_newer), bool(has_older)
+
+
 async def reconcile_balances(session: AsyncSession, limit: int = 100) -> list[dict]:
     """
     PHASE 5E — همسنجیِ ادعایِ کلیدیِ کیف‌پول: «مجموعِ ردیف‌هایِ دفتر باید برابرِ
