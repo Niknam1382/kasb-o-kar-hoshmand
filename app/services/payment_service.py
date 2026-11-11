@@ -79,6 +79,40 @@ async def get_pending_payments(session: AsyncSession, limit: int = 20) -> list[P
     return list(result.scalars().all())
 
 
+PENDING_QUEUE_PAGE_SIZE = 10
+PENDING_QUEUE_MAX_PAGE_SIZE = 50
+
+
+async def pending_queue_page(
+    session: AsyncSession,
+    *,
+    owner_ids: set[int] | None = None,
+    page: int = 0,
+    page_size: int = PENDING_QUEUE_PAGE_SIZE,
+) -> tuple[list[Payment], int]:
+    """پ۵۴ · موردِ ۱۲: یکِ صفحه از پرداخت‌های در انتظارِ بررسی + شمارِ کلِ همان دامنه.
+
+    دامنه *پیش از* صفحه‌بندی اعمال می‌شود (همان قاعدهٔ P21-E): وگرنه شمارِ «N پرداخت» و
+    شمارهٔ صفحه‌ها از ردیف‌هایی پرده برمی‌داشت که ادمینِ عملیاتی اجازهٔ دیدنشان را ندارد.
+    ترتیب «قدیمی‌ترین اول» است تا صفِ مانده پشتِ صفِ تازه نیفتد؛ `OFFSET` اینجا مجاز است
+    چون این یکِ فهرستِ ادمینیِ کم‌ترافیک است، نه مسیرِ پیامِ مشتری (سقفِ ۱۲ جمله دست‌نخورده).
+    """
+    if type(page) is not int or page < 0:
+        raise ValueError("شمارهٔ صفحه معتبر نیست")
+    if type(page_size) is not int or not 1 <= page_size <= PENDING_QUEUE_MAX_PAGE_SIZE:
+        raise ValueError("اندازهٔ صفحه معتبر نیست")
+    conditions = [Payment.status == PaymentStatus.PENDING]
+    if owner_ids is not None:
+        if not owner_ids:
+            return [], 0
+        conditions.append(Payment.shop_owner_id.in_(sorted(owner_ids)))
+    total = int((await session.execute(select(func.count()).select_from(Payment).where(*conditions))).one()[0])
+    rows = await session.execute(
+        select(Payment).where(*conditions).order_by(Payment.id.asc()).limit(page_size).offset(page * page_size)
+    )
+    return list(rows.scalars().all()), total
+
+
 async def get_by_zarinpal_authority(session: AsyncSession, authority: str) -> Payment | None:
     result = await session.execute(select(Payment).where(Payment.zarinpal_authority == authority))
     return result.scalar_one_or_none()

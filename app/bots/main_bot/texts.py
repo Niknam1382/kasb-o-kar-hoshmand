@@ -1610,6 +1610,71 @@ ADMIN_ONLY_COMMAND = "این دستور فقط برای ادمین‌های پل
 ADMIN_NO_PENDING_PAYMENTS = "هیچ پرداختی در انتظار بررسی‌ای وجود نداره. ✅"
 ADMIN_PENDING_PAYMENTS_INTRO = "🧾 پرداخت‌های در انتظار بررسی:"
 
+# پ۵۴ · موردِ ۱۲: صفِ حرفه‌ایِ پرداخت‌ها (فهرستِ صفحه‌بندی‌شده + کارتِ جزئیات).
+PAYMENT_QUEUE_INVALID = "این درخواست دیگر در صفِ پرداخت نیست؛ صف را دوباره باز کن."
+_PAYMENT_QUEUE_PURPOSE_LABELS = {"wallet_topup": "شارژِ کیف‌پول", "subscription": "اشتراک"}
+_PAYMENT_QUEUE_METHOD_LABELS = {"card_to_card": "کارت‌به‌کارت", "zarinpal": "زرین‌پال", "bale": "بله"}
+
+
+def payment_queue_purpose_label(purpose) -> str:
+    value = purpose.value if hasattr(purpose, "value") else purpose
+    return _PAYMENT_QUEUE_PURPOSE_LABELS.get(value, "پرداخت")
+
+
+def payment_queue_method_label(method) -> str:
+    value = method.value if hasattr(method, "value") else method
+    return _PAYMENT_QUEUE_METHOD_LABELS.get(value, "پرداخت")
+
+
+def admin_payment_queue_intro(total: int, page: int, total_pages: int) -> str:
+    """شمارِ همین دامنه + شمارهٔ صفحه؛ دامنه پیش از صفحه‌بندی فیلتر شده، پس این عدد
+    چیزی را که ادمینِ عملیاتی اجازهٔ دیدنش را ندارد لو نمی‌دهد (قاعدهٔ P21-E)."""
+    head = f"{ADMIN_PENDING_PAYMENTS_INTRO}\n{fa_number(total)} پرداخت در انتظار بررسی"
+    if total_pages > 1:
+        head += f" — صفحهٔ {fa_number(page + 1)} از {fa_number(total_pages)}"
+    return head + "\n\n• روی هر پرداخت بزنی جزئیات و دکمه‌های تایید/رد را می‌بینی."
+
+
+def admin_payment_queue_line(payment, owner) -> str:
+    return (
+        f"• {display_user(owner, 'full')} · {payment_queue_purpose_label(payment.purpose)} · "
+        f"{format_toman(payment.final_amount)} · {payment_queue_method_label(payment.method)}"
+    )
+
+
+def admin_payment_queue_button(payment, owner, index: int) -> str:
+    """برچسبِ کوتاهِ دکمه (سقفِ ۶۴ نویسهٔ تلگرام): شماره + نامِ کوتاه، نه مبلغِ کامل."""
+    name = clip(display_user(owner, "short"), 34) if owner is not None else "پرداخت"
+    return f"{fa_number(index)} · {name}"
+
+
+def admin_payment_detail_text(payment, owner, *, page: int) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    lines = [
+        "🧾 جزئیاتِ پرداخت",
+        "",
+        f"فروشگاه‌دار: {display_user(owner, 'full')}",
+        f"هدف: {payment_queue_purpose_label(payment.purpose)}",
+        f"روش: {payment_queue_method_label(payment.method)}",
+        f"مبلغِ درخواستی: {format_toman(payment.base_amount)}",
+        f"مبلغی که باید واریز شده باشد: {format_toman(payment.final_amount)}",
+        _duration_label(payment),
+        f"زمانِ ثبت: {format_jalali_datetime(payment.created_at) if payment.created_at else '—'}",
+        f"مهلتِ رزرو تا: {format_jalali_datetime(payment.reserved_until) if payment.reserved_until else '—'}",
+    ]
+    if getattr(payment, "receipt_tracking_ref", None):
+        lines.append(f"شماره‌یِ پیگیری: {payment.receipt_tracking_ref}")
+    if getattr(payment, "receipt_text", None):
+        lines.append(f"\n📄 رسیدِ متنی (فقط برایِ تو):\n{clip(payment.receipt_text, 900)}")
+    if getattr(payment, "receipt_flags", None):
+        labels = {"dup_file": "رسیدِ تکراری", "dup_tracking": "پیگیریِ تکراری"}
+        found = [labels.get(flag, flag) for flag in str(payment.receipt_flags).split(",") if flag]
+        if found:
+            lines.append(f"\n⚠️ پرچم: {'، '.join(found)} — بررسی کن، خودکار رد نمی‌شود.")
+    lines.append(f"\nبا «🧾 بازگشت به صف» به صفحهٔ {fa_number(page + 1)} برمی‌گردی.")
+    return "\n".join(lines)
+
 
 def admin_payment_rejected_confirmation(owner_name: str) -> str:
     return f"❌ پرداخت {owner_name} رد شد."

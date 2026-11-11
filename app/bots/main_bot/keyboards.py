@@ -469,6 +469,34 @@ def admin_payment_approval_keyboard(payment_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def admin_payment_queue_keyboard(payments, owners, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """پ۵۴ · موردِ ۱۲: هر پرداخت یکِ دکمه (شماره‌دار، به همان ترتیبِ متن) + صفحه‌گردانی.
+
+    شمارهٔ صفحه داخلِ callback می‌آید تا کارتِ جزئیات بتواند به همان صفحه برگردد؛ این
+    حالتِ بی‌حالت، جایِ نگه‌داشتنِ صفحه در FSM است (و با stateهایِ دیگرِ پنلِ ادمین قاطی نمی‌شود).
+    """
+    rows = [
+        [InlineKeyboardButton(
+            text=texts.admin_payment_queue_button(payment, owners.get(payment.shop_owner_id), index),
+            callback_data=f"pay_queue_view:{page}:{payment.id}",
+        )]
+        for index, payment in enumerate(payments, start=1)
+    ]
+    pagination = _pagination_row(page, total_pages, "pay_queue")
+    if pagination:
+        rows.append(pagination)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_payment_detail_keyboard(payment_id: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✅ تایید", callback_data=f"admin_approve_payment:{payment_id}"), InlineKeyboardButton(text="❌ رد", callback_data=f"admin_reject_payment:{payment_id}")],
+            [InlineKeyboardButton(text="🧾 بازگشت به صف", callback_data=f"pay_queue:{page}")],
+        ]
+    )
+
+
 def excel_export_choice_keyboard(consultation: bool = False) -> InlineKeyboardMarkup:
     # C1: در مودِ مشاوره‌ای برچسبِ خروجی هم نباید «سفارش» بگوید.
     first = "👥 فهرست مخاطبان" if consultation else "👥 فهرست مشتریان"

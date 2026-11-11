@@ -36,6 +36,20 @@ async def ids_by_telegram_ids(session: AsyncSession, telegram_ids: list[int]) ->
     return {int(telegram_id): int(owner_id) for telegram_id, owner_id in result.all()}
 
 
+async def get_by_ids(session: AsyncSession, owner_ids: list[int]) -> dict[int, ShopOwner]:
+    """نگاشتِ «شناسهٔ داخلی ← ردیفِ صاحبِ حساب» در یکِ کوئری (فهرست‌هایِ پنلِ ادمین).
+
+    ترتیبِ ورودی تضمین نمی‌شود؛ فراخوان باید خودش از همان لیستِ ردیف‌ها استفاده کند. شناسهٔ
+    تکراری حذف می‌شود تا `IN` بی‌دوده بلند نشود و شناسهٔ ناموجود بی‌صدا از نگاشت بیرون می‌ماند
+    (فهرستِ ادمین نباید به‌خاطرِ یکِ ردیفِ پاک‌شده پایین بیاید).
+    """
+    ids = [int(owner_id) for owner_id in dict.fromkeys(owner_ids or [])]
+    if not ids:
+        return {}
+    result = await session.execute(select(ShopOwner).where(ShopOwner.id.in_(ids)))
+    return {owner.id: owner for owner in result.scalars().all()}
+
+
 async def get_all_registered(session: AsyncSession) -> list[ShopOwner]:
     result = await session.execute(select(ShopOwner).where(ShopOwner.registration_completed.is_(True)).order_by(ShopOwner.id))
     return list(result.scalars().all())

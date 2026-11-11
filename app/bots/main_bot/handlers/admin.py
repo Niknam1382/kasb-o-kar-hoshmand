@@ -222,17 +222,87 @@ async def cb_admin_reject_payment(callback: CallbackQuery, session: AsyncSession
         logger.exception("اطلاع‌رسانیِ ردِ پرداخت به فروشگاه‌دار %s ناموفق بود.", owner.telegram_id)
 
 
-@router.message(F.text == "🧾 صف تایید پرداخت‌ها")
-async def payment_queue_stub(message: Message, session: AsyncSession) -> None:
-    pending = await payment_service.get_pending_payments(session)
-    if not pending:
-        await message.answer(texts.ADMIN_NO_PENDING_PAYMENTS)
-        return
-    await message.answer(
-        texts.ADMIN_PENDING_PAYMENTS_INTRO
-        + f"\n\n{len(pending)} پرداخت در انتظار تایید هست.\n"
-        "یادآوری: هر پرداختِ جدید همون لحظه‌ای که رسیدش ارسال بشه با دکمه‌ی تایید/رد برات فرستاده می‌شه."
+_PAYMENT_QUEUE_MAX_PAGE = 100_000
+
+
+def _payment_queue_parts(data: str) -> tuple[int, int | None] | None:
+    """`pay_queue:<page>` و `pay_queue_view:<page>:<payment_id>` ⇒ (صفحه، شناسه) یا None.
+
+    شناسهٔ نامعتبر هیچ کوئری‌ای نمی‌زند؛ سقفِ صفحه هم عمداً محدود است تا `OFFSETِ` ساخته‌شده
+    از دادهٔ دکمه، کوئریِ بی‌معنیِ بزرگ نسازد.
+    """
+    parts = (data or "").split(":")
+    if len(parts) not in {2, 3} or not parts[1].isascii() or not parts[1].isdecimal():
+        return None
+    page = int(parts[1])
+    if page > _PAYMENT_QUEUE_MAX_PAGE:
+        return None
+    if len(parts) == 2:
+        return page, None
+    payment_id = _cb_id(f"pay_queue_view:{parts[2]}")
+    if payment_id is None or not 1 <= payment_id <= 2_147_483_647:
+        return None
+    return page, payment_id
+
+
+async def _payment_queue_screen(session: AsyncSession, actor_telegram_id: int, page: int) -> tuple[str, InlineKeyboardMarkup]:
+    scope = await admin_role_service.scope_for(session, actor_telegram_id)
+    payments, total = await payment_service.pending_queue_page(session, owner_ids=scope, page=page)
+    page_size = payment_service.PENDING_QUEUE_PAGE_SIZE
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    if not payments and page >= total_pages:
+        page = total_pages - 1
+        payments, total = await payment_service.pending_queue_page(session, owner_ids=scope, page=page)
+    owners = await shop_owner_service.get_by_ids(session, [payment.shop_owner_id for payment in payments])
+    visible = [payment for payment in payments if payment.shop_owner_id in owners]
+    if not visible:
+        return texts.ADMIN_NO_PENDING_PAYMENTS, NO_INLINE_KEYBOARD
+    body = "\n".join(
+        [texts.admin_payment_queue_intro(total, page, total_pages), "",
+         *(texts.admin_payment_queue_line(payment, owners[payment.shop_owner_id]) for payment in visible)]
     )
+    return body, keyboards.admin_payment_queue_keyboard(visible, owners, page, total_pages)
+
+
+@router.message(F.text == "🧾 صف تایید پرداخت‌ها")
+async def admin_payment_queue(message: Message, session: AsyncSession) -> None:
+    body, keyboard = await _payment_queue_screen(session, message.from_user.id, 0)
+    await session.commit()
+    await message.answer(body, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith("pay_queue:"))
+async def cb_payment_queue(callback: CallbackQuery, session: AsyncSession) -> None:
+    parts = _payment_queue_parts(callback.data)
+    if parts is None or parts[1] is not None:
+        await callback.answer(texts.PAYMENT_QUEUE_INVALID, show_alert=True)
+        return
+    body, keyboard = await _payment_queue_screen(session, callback.from_user.id, parts[0])
+    await session.commit()
+    await callback.answer()
+    await safe_edit(callback, body, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith("pay_queue_view:"))
+async def cb_payment_queue_view(callback: CallbackQuery, session: AsyncSession) -> None:
+    parts = _payment_queue_parts(callback.data)
+    if parts is None or parts[1] is None:
+        await callback.answer(texts.PAYMENT_QUEUE_INVALID, show_alert=True)
+        return
+    page, payment_id = parts
+    payment = await payment_service.get_by_id(session, payment_id)
+    if payment is None or payment.status != PaymentStatus.PENDING:
+        await callback.answer(texts.PAYMENT_QUEUE_INVALID, show_alert=True)
+        return
+    owner, allowed = await _scoped_owner(session, callback.from_user.id, payment.shop_owner_id)
+    if not allowed:
+        await callback.answer(texts.ADMIN_OWNER_OUT_OF_SCOPE_TOAST, show_alert=True)
+        return
+    body = texts.admin_payment_detail_text(payment, owner, page=page)
+    keyboard = keyboards.admin_payment_detail_keyboard(payment.id, page)
+    await session.commit()
+    await callback.answer()
+    await safe_edit(callback, body, reply_markup=keyboard)
 
 
 # =============================================================================
