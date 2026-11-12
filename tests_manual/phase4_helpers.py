@@ -45,6 +45,8 @@ class Chat:
         self.user_id = user_id
         self.bot = Bot(token="000000:MAIN_BOT_FAKE_TOKEN_FOR_TESTS", session=FakeSession())
         self.session: FakeSession = self.bot.session  # type: ignore[assignment]
+        # پ۶۴: این گفتگو شناسهٔ کال‌بک را خودش می‌شمارد (`_n`) ⇒ نگهبانِ «پاسخِ دوباره» روشن است.
+        self.session.strict_callback_answers = True
         self._n = 0
 
     async def say(self, text: str) -> None:

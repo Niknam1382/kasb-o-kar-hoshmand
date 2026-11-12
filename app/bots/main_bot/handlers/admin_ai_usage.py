@@ -172,12 +172,15 @@ async def open_ai_usage(message: Message, session: AsyncSession) -> None:
 
 
 @router.callback_query(F.data.startswith("ai_usage:"))
-async def cb_ai_usage(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_ai_usage(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     parts = _parts(callback.data, 3)
     window = _strict_window(parts[1]) if parts is not None else None
     if parts is None or window is None or _decimal(parts[2], maximum=_MAX_PAGE) is None:
         await callback.answer(texts.AI_USAGE_INVALID, show_alert=True)
         return
+    # پ۶۴ · قاعدهٔ پنل‌ها: هرِ ناوبریِ داخلِ صفحه حالتِ «در انتظارِ ورودی» را پاک می‌کند، وگرنه
+    # اگر ادمین وسطِ پرسشِ سقف این دکمه‌ها را بزند، متنِ بعدی‌اش ورودیِ قدیمی ذخیره می‌شود.
+    await state.clear()
     page = int(parts[2])
     body, keyboard = await _list_screen(session, window, page)
     await session.commit()
@@ -186,7 +189,7 @@ async def cb_ai_usage(callback: CallbackQuery, session: AsyncSession) -> None:
 
 
 @router.callback_query(F.data.startswith("ai_usage_view:"))
-async def cb_ai_usage_view(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_ai_usage_view(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     parts = _parts(callback.data, 4)
     if parts is None or _decimal(parts[3], maximum=_MAX_ID) is None or _decimal(parts[2], maximum=_MAX_PAGE) is None:
         await callback.answer(texts.AI_USAGE_INVALID, show_alert=True)
@@ -198,6 +201,7 @@ async def cb_ai_usage_view(callback: CallbackQuery, session: AsyncSession) -> No
     if screen is None:
         await callback.answer(texts.AI_USAGE_INVALID, show_alert=True)
         return
+    await state.clear()
     body, keyboard = screen
     await session.commit()
     await callback.answer()
@@ -205,7 +209,7 @@ async def cb_ai_usage_view(callback: CallbackQuery, session: AsyncSession) -> No
 
 
 @router.callback_query(F.data.startswith("ai_usage_pause:"))
-async def cb_ai_usage_pause(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_ai_usage_pause(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     parts = _parts(callback.data, 5)
     if parts is None or _decimal(parts[1], maximum=_MAX_ID) is None or _decimal(parts[4], maximum=_MAX_PAGE) is None:
         await callback.answer(texts.AI_USAGE_INVALID, show_alert=True)
@@ -230,6 +234,7 @@ async def cb_ai_usage_pause(callback: CallbackQuery, session: AsyncSession) -> N
         f"تا {until.isoformat() if until else 'همین حالا (آزاد)'}",
     )
     await session.commit()
+    await state.clear()
     screen = await _detail_screen(session, customer.id, parts[3], int(parts[4]))
     if screen is None:
         await callback.answer(texts.AI_USAGE_INVALID)
@@ -298,7 +303,7 @@ async def ai_usage_limit_received(message: Message, state: FSMContext, session: 
 
 
 @router.callback_query(F.data.startswith("ai_usage_block:"))
-async def cb_ai_usage_block(callback: CallbackQuery, session: AsyncSession) -> None:
+async def cb_ai_usage_block(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
     parts = _parts(callback.data, 5)
     if parts is None or _decimal(parts[1], maximum=_MAX_ID) is None or _decimal(parts[4], maximum=_MAX_PAGE) is None:
         await callback.answer(texts.AI_USAGE_INVALID, show_alert=True)
@@ -321,6 +326,7 @@ async def cb_ai_usage_block(callback: CallbackQuery, session: AsyncSession) -> N
         details=f"بلاکِ کاربرِ شناسهٔ داخلی {customer.id} از پنلِ ادمینِ پلتفرم: {'فعال' if blocked else 'خاموش'}",
     )
     await session.commit()
+    await state.clear()
     screen = await _detail_screen(session, customer.id, parts[3], int(parts[4]))
     if screen is None:
         await callback.answer(texts.AI_USAGE_INVALID)

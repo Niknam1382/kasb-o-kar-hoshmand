@@ -166,14 +166,20 @@ async def tok_telegram(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.in_({"tok_bale", "bale_open"}))
 async def tok_bale(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
-    """P42 · موردِ ۱ و ۲۹: صفحهٔ «هوشمندسازیِ بله» — از انتخابگرِ توکن و از پیامِ «ربات وصل شد»."""
-    await callback.answer()
+    """P42 · موردِ ۱ و ۲۹: صفحهٔ «هوشمندسازیِ بله» — از انتخابگرِ توکن و از پیامِ «ربات وصل شد».
+
+    پ۶۴: پاسخِ کال‌بک دقیقاً یکی است. قبلاً این‌جا بی‌قیدوشرط `answer()` می‌شد و اگر فروشگاه
+    رباتی نداشته باشد `_own_shop_bot_cb` هم پاسخ می‌داد ⇒ تلگرام پاسخِ دوم را رد می‌کرد
+    («query is already answered») و اخطارِ «رباتِ فروشگاهی تنظیم نشده» هرگز به کاربر نمی‌رسید.
+    """
     if not await bale_bot_service.visible_for(session):
+        await callback.answer()
         await callback.message.answer(texts.BALE_SHOP_BOT_UNAVAILABLE)
         return
     shop_bot = await _own_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
+    await callback.answer()
     await state.clear()
     await _bale_screen(callback.message, shop_bot, session)
 

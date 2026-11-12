@@ -167,6 +167,7 @@ TEST_FILES = [
     "test_p61_capacity_panel.py",
     "test_p62_server_doctor.py",
     "test_p63_instagram_management.py",
+    "test_p64_navigation_guards.py",
 ]
 
 

@@ -49,6 +49,11 @@ def fake_user(user_id: int, first_name: str = "Test", is_bot: bool = False, user
     return User.model_construct(id=user_id, is_bot=is_bot, first_name=first_name, username=username)
 
 
+class DuplicateCallbackAnswer(BaseException):
+    """نگهبانِ تستی (پ۶۴): از `Exception` ارث نمی‌برد تا هندلرِ خطایِ aiogram آن را ببلعد و
+    تست *بلند* شکست بخورد. در کدِ تولیدی هیچ وقت ساخته نمی‌شود (فقط همین هارنس)."""
+
+
 class FakeSession(BaseSession):
     """
     Session ی جعلی که به‌جای زدنِ درخواستِ واقعی به تلگرام، خروجیِ ازپیش‌پیکربندی‌شده
@@ -62,6 +67,10 @@ class FakeSession(BaseSession):
         self.sent_documents: list[dict[str, Any]] = []
         self.edited_texts: list[dict[str, Any]] = []  # EditMessageText ها (فازِ ۴: برایِ بررسیِ متنِ edit_text)
         self.answered_callbacks: list[dict[str, Any]] = []
+        # پ۶۴: شناسه‌هایی که *موفق* پاسخ گرفته‌اند — پاسخِ دوباره در هارنس خطا می‌سازد.
+        self._answered_ids: set[str] = set()
+        # نگهبان فقط برایِ تست‌هایی روشن است که شناسهٔ یکتا می‌سازند (`Chat`) یا روشنش می‌کنند.
+        self.strict_callback_answers: bool = False
         self.deleted_messages: list[dict[str, Any]] = []
         # P27: شبیه‌سازیِ «query is too old» — تلگرام اگر پاسخِ کالبک دیر برسد همین خطا را می‌دهد
         # و در لاگِ زندهٔ همین پروژه هم دیده شد؛ فقط تست‌هایی روشنش می‌کنند.
@@ -162,12 +171,29 @@ class FakeSession(BaseSession):
             return True
 
         if name == "AnswerCallbackQuery":
+            # پ۶۴ · نگهبانِ رفتاری: تلگرام برایِ یکِ callback_query فقط یکِ پاسخ می‌پذیرد و
+            # پاسخِ دوم «query is already answered» می‌سازد (دکمه بی‌جواب می‌ماند). این باگ سه بار
+            # در همین پروژه تولید شد (P19 رفعش کرد، پ۴۹ و پ۵۶ دوباره ساختند) و هیچ گیتی نمی‌گیرد؛
+            # پس از این‌جا خودِ هارنس می‌گیرد. (پاسخِ ناموفقِ حالتِ fail_answer_callbacks ثبت نمی‌شود
+            # تا تستِ «query is too old» مثلِ قبل کار کند.)
+            #
+            # چرا اختیاری: خیلی از تست‌هایِ قدیمی `make_callback_update(1, …)` را با شناسهٔ ثابتِ «۱»
+            # برایِ چند *رویدادِ جدا* می‌فرستند ⇒ آن شناسه در کلِ فایل تکراری است و نگهبانِ همیشگی
+            # آن‌ها را اشتباهاً «پاسخِ دوباره» می‌خواند (در اجرایِ کاملِ پ۶۴ همین دو نادرست دیده شد).
+            # `Chat` شناسه را خودش می‌شمارد ⇒ آن‌جا نگهبان روشن است.
+            if self.strict_callback_answers and method.callback_query_id in self._answered_ids:
+                raise DuplicateCallbackAnswer(
+                    f"پاسخِ دوباره به یکِ callback_query ({method.callback_query_id}) — "
+                    "یکِ هندلر باید دقیقاً یکِ callback.answer() بفرستد"
+                )
             self.answered_callbacks.append(
                 {"callback_query_id": method.callback_query_id, "text": getattr(method, "text", None), "show_alert": getattr(method, "show_alert", None)}
             )
             if self.fail_answer_callbacks:
                 # همان خطایِ واقعیِ تلگرام در لاگِ زنده (P27) — برایِ تستِ این‌که هندلر نباید به آن بمیرد.
                 raise TelegramBadRequest(method="answerCallbackQuery", message="Bad Request: query is too old and response timeout expired or query ID is invalid")
+            if self.strict_callback_answers:
+                self._answered_ids.add(method.callback_query_id)
             return True
 
         if name == "GetFile":
