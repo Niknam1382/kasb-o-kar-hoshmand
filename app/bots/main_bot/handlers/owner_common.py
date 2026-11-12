@@ -10,8 +10,33 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardMarkup
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts
-from app.database.models import ShopBot
+from app.database.models import ShopBot, TenantMode
 from app.services import shop_bot_service, shop_owner_service
+
+
+def sales_mode(shop_bot: ShopBot) -> bool:
+    """یکِ منبع برایِ «آیا این فروشگاه کاتالوگ/سبد/سفارش دارد؟» (پ۵۸ · موردِ ۲۴)."""
+    return shop_bot.tenant_mode == TenantMode.SALES
+
+
+async def require_sales_mode(message: Message, shop_bot: ShopBot) -> bool:
+    """دروازهٔ ورودیِ صفحه‌هایِ فروشگاهی برایِ مودِ مشاوره‌ای؛ True ⇒ ادامه بده.
+
+    دکمه‌ها از منویِ مشاوره‌ای حذف شده‌اند، ولی کیبوردِ قدیمیِ تلگرام تا یکِ منویِ تازه عوض
+    نشود آن‌ها را نگه می‌دارد و متنِ دکمه را می‌شود تایپ هم کرد — پس دروازه باید همین‌جا باشد،
+    نه فقط در کیبورد.
+    """
+    if sales_mode(shop_bot):
+        return True
+    await message.answer(texts.MODE_SALES_ONLY)
+    return False
+
+
+async def require_sales_mode_cb(callback: CallbackQuery, shop_bot: ShopBot) -> bool:
+    if sales_mode(shop_bot):
+        return True
+    await callback.answer(texts.MODE_SALES_ONLY, show_alert=True)
+    return False
 
 
 async def require_shop_bot(message: Message, session: AsyncSession) -> ShopBot | None:

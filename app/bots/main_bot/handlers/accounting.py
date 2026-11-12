@@ -10,7 +10,12 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
-from app.bots.main_bot.handlers.owner_common import require_shop_bot, require_shop_bot_cb, safe_edit
+from app.bots.main_bot.handlers.owner_common import (
+    require_sales_mode,
+    require_shop_bot,
+    require_shop_bot_cb,
+    safe_edit,
+)
 from app.services import accounting_service, excel_export_service
 
 router = Router(name="accounting")
@@ -26,6 +31,8 @@ async def open_accounting(message: Message, session: AsyncSession, state: FSMCon
     await state.clear()
     shop_bot = await require_shop_bot(message, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode(message, shop_bot):
         return
     report = await accounting_service.build_report(session, shop_bot.id, "today")
     await message.answer(texts.accounting_report_text(report), reply_markup=keyboards.accounting_keyboard("today"))

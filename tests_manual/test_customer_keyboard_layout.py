@@ -173,6 +173,10 @@ def test_panel_inline_screens_are_paired() -> None:
         bale_encrypted_token = None
         bale_bot_enabled = False
         low_stock_alert_threshold = 3
+        # پ۵۸ · موردِ ۲۴-الف: کیبوردِ تنظیمات مود را می‌خواند تا «📦 اخطارِ موجودی» را در مشاوره
+        # نشان ندهد؛ این فیکِ هم‌شکلِ `ShopBot` باید همان صفت را داشته باشد (رشته هم پذیرفته است،
+        # مثلِ خودِ `shop_owner_panel_keyboard`).
+        tenant_mode = "sales"
 
     class _Row:
         card_enabled = bale_enabled = zarinpal_enabled = manual_enabled = auto_accept_online = True

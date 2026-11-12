@@ -12,7 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
 from app.services.admin_settings_service import get_admin_settings  # noqa: E402
-from app.bots.main_bot.handlers.owner_common import parse_suffix_int, require_shop_bot, require_shop_bot_cb, safe_edit
+from app.bots.main_bot.handlers.owner_common import (
+    parse_suffix_int,
+    require_sales_mode_cb,
+    require_shop_bot,
+    require_shop_bot_cb,
+    safe_edit,
+)
 from app.bots.main_bot.states import ShopSettingsStates
 from app.services import bot_branding_service, shop_bot_service
 from app.utils.validators import fa_text, normalize_telegram_username, to_e164_iran
@@ -256,6 +262,8 @@ async def stock_threshold_open(callback: CallbackQuery, session: AsyncSession, s
     """P21-D (F7): خودِ فروشگاه‌دار تعیین می‌کند کِی از اتمامِ موجودی باخبر شود (NULL ⇒ خاموش)."""
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     await state.clear()
     await state.set_state(ShopSettingsStates.waiting_stock_threshold)

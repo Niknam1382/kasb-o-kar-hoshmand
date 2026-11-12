@@ -161,6 +161,7 @@ TEST_FILES = [
     "test_p55_customer_ai_usage.py",
     "test_p56_search.py",
     "test_p57_persian_digits.py",
+    "test_p58_mode_gates.py",
 ]
 
 

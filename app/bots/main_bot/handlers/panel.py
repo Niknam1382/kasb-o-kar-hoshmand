@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.common.keyboard_utils import NO_INLINE_KEYBOARD
 from app.bots.main_bot import keyboards, texts
-from app.bots.main_bot.handlers.owner_common import panel_keyboard, safe_edit
+from app.bots.main_bot.handlers.owner_common import panel_keyboard, require_sales_mode, safe_edit
 from app.bots.shop_bot import texts as shop_texts
 from app.bots.main_bot.states import (
     AiInstructionsStates,
@@ -1402,6 +1402,8 @@ async def open_bale_provider_token(message: Message, session: AsyncSession) -> N
     if shop_bot is None:
         await message.answer(texts.SHOP_BOT_NOT_SET_UP)
         return
+    if not await require_sales_mode(message, shop_bot):
+        return
     row = await payment_settings_service.get_or_create(session, shop_bot.id)
     status = await bale_credentials_service.shop_status(session, shop_bot, row)
     await message.answer(
@@ -1442,6 +1444,8 @@ async def open_checkout_questions(message: Message, session: AsyncSession, state
     shop_bot = await shop_bot_service.get_by_owner(session, owner)
     if shop_bot is None:
         await message.answer(texts.SHOP_BOT_NOT_SET_UP)
+        return
+    if not await require_sales_mode(message, shop_bot):
         return
 
     await message.answer(texts.checkout_questions_current(shop_bot))

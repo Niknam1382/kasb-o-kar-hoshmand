@@ -20,6 +20,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
+from app.bots.main_bot.handlers.owner_common import require_sales_mode, require_sales_mode_cb
 from app.bots.main_bot.states import CampaignWizardStates, CustomerBroadcastStates
 from app.database.models import Campaign, CampaignDiscountType, ShopBot
 from app.services import campaign_service, customer_service, shop_bot_service, shop_owner_service
@@ -108,6 +109,8 @@ async def open_campaigns(message: Message, session: AsyncSession, state: FSMCont
     await state.clear()
     shop_bot = await _require_shop_bot(message, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode(message, shop_bot):
         return
     text, keyboard = await _list_payload(session, shop_bot)
     await message.answer(text, reply_markup=keyboard)
@@ -207,6 +210,8 @@ async def campaign_announce(callback: CallbackQuery, session: AsyncSession, stat
 async def campaign_new(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     shop_bot = await _require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     await state.clear()
     await state.set_state(CampaignWizardStates.waiting_name)

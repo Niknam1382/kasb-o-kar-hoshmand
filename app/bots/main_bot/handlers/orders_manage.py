@@ -13,7 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.common.wizard_nav import page_label
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.handlers import order_ops
-from app.bots.main_bot.handlers.owner_common import require_shop_bot, require_shop_bot_cb, safe_edit
+from app.bots.main_bot.handlers.owner_common import (
+    require_sales_mode,
+    require_shop_bot,
+    require_shop_bot_cb,
+    safe_edit,
+)
 from app.bots.shop_bot import texts as shop_texts
 from app.database.models import Customer
 from app.services import order_payment_service, order_state, order_transition_service, orders_manage_service as oms
@@ -108,6 +113,8 @@ async def open_orders_manage(message: Message, session: AsyncSession, state: FSM
     await state.clear()
     shop_bot = await require_shop_bot(message, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode(message, shop_bot):
         return
     text, keyboard = await _list_payload(session, shop_bot, oms.FILTER_ALL, 1)
     await message.answer(text, reply_markup=keyboard)

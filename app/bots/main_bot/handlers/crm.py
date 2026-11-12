@@ -16,7 +16,13 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
-from app.bots.main_bot.handlers.owner_common import parse_suffix_int, require_shop_bot, require_shop_bot_cb, safe_edit
+from app.bots.main_bot.handlers.owner_common import (
+    parse_suffix_int,
+    require_sales_mode,
+    require_shop_bot,
+    require_shop_bot_cb,
+    safe_edit,
+)
 from app.bots.main_bot.states import CrmStates, CustomerBroadcastStates
 from app.database.models import AuditEventType, ShopBot, WalletTransactionReason
 from app.services import (
@@ -58,6 +64,8 @@ async def open_crm(message: Message, session: AsyncSession, state: FSMContext) -
     await state.clear()
     shop_bot = await require_shop_bot(message, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode(message, shop_bot):
         return
     text, keyboard = await _overview_payload(session, shop_bot)
     await message.answer(text, reply_markup=keyboard)

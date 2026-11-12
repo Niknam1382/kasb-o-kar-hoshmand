@@ -1419,6 +1419,8 @@ def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
     from app.bots.main_bot import texts
 
     current = shop_bot.message_batch_seconds
+    # پ۵۸ · موردِ ۲۴: اخطارِ موجودی بدونِ کاتالوگ معنا ندارد (مودِ مشاوره‌ای کالا ندارد).
+    mode_value = shop_bot.tenant_mode.value if hasattr(shop_bot.tenant_mode, "value") else shop_bot.tenant_mode
     buttons = [
         InlineKeyboardButton(text=("✅ " if current == seconds else "") + label, callback_data=f"bs_batch:{seconds}")
         for seconds, label in texts.BATCH_PRESETS
@@ -1429,9 +1431,10 @@ def shop_settings_keyboard(shop_bot) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📈 گزارشِ دوره‌ای", callback_data="rp_open"),
         InlineKeyboardButton(text="✏️ بیوگرافیِ ربات", callback_data="br_open"),
         InlineKeyboardButton(text="⏱ مهلت‌ها و حافظه", callback_data="sp_prefs_open"),
-        InlineKeyboardButton(text=texts.stock_alert_button_label(shop_bot), callback_data="bs_stock"),
         InlineKeyboardButton(text="📞 پشتیبانیِ مشتری‌ها", callback_data="sp_open"),
     ]
+    if mode_value != "consultation":
+        buttons.insert(-1, InlineKeyboardButton(text=texts.stock_alert_button_label(shop_bot), callback_data="bs_stock"))
     # P22: چهار preset هم دونادونه شد (۲×۲)؛ قبلاً یکِ ردیفِ چهارتایی و هفت ردیفِ تک بود.
     return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=30))
 
