@@ -23,6 +23,7 @@ from app.services import (
     notification_service,
     report_service,
     scheduled_broadcast_service,
+    server_doctor,
     shop_prefs_service,
     stock_alert_service,
     time_freeze_service,
@@ -163,6 +164,14 @@ async def _run_periodic_pass_locked(main_bot: Bot, bot_manager) -> None:
             backup_result = await backup_service.run_nightly(session, main_bot)
         if backup_result.get("sent") or backup_result.get("deleted"):
             logger.info("جابِ بکاپ: %s", backup_result)
+    # P62 · خواستهٔ ۱۱-۱۲: ایجنتِ عیب‌یابیِ سرور. فقط لاگ و اعداد را می‌خواند و «پیشنهاد» می‌دهد؛
+    # هیچ تنظیماتی را عوض نمی‌کند و برایِ هرِ یافته یکِ خنک‌کردنِ یک‌ساعته دارد (این پاس هر ~۳۰
+    # دقیقه و زیرِ قفلِ advisory می‌چرخد، پس با چند نسخهٔ اپ هم هشدارِ دوباره نمی‌فرستد).
+    if not job_gate_service.is_paused(admin_settings, "doctor"):
+        async with session_scope() as session:
+            doctor_result = await server_doctor.run(session, main_bot)
+        if doctor_result.get("sent"):
+            logger.info("عیب‌یابِ سرور: %s مورد · %s هشدارِ تازه ارسال شد.", doctor_result["findings"], doctor_result["sent"])
 
 
 async def reconcile_wallet_ledgers() -> int:

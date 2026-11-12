@@ -694,6 +694,7 @@ def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
             KeyboardButton(text=texts.SERVER_LOG_BUTTON),  # P48 · موردِ ۱۳ (فقط سوپرادمین)
             KeyboardButton(text=texts.AI_USAGE_BUTTON),  # P55 · موردِ ۲۳ (فقط سوپرادمین)
             KeyboardButton(text=texts.CAPACITY_BUTTON),  # P61 · خواستهٔ ۱۱-۱۲ (فقط سوپرادمین)
+            KeyboardButton(text=texts.DOCTOR_BUTTON),  # P62 · خواستهٔ ۱۱-۱۲ (فقط سوپرادمین)
         ]
     return ReplyKeyboardMarkup(keyboard=grid(buttons), resize_keyboard=True)
 
@@ -704,6 +705,19 @@ def capacity_keyboard() -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=texts.CAPACITY_REFRESH, callback_data="capacity_refresh")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")],
+        ]
+    )
+
+
+def doctor_keyboard() -> InlineKeyboardMarkup:
+    """پ۶۲: عیب‌یاب هم مثلِ ظرفیت فقط‌خواندنی است؛ اقدام‌ها در همان پنل‌هایِ موجود انجام می‌شوند."""
+    from app.bots.main_bot import texts
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.DOCTOR_REFRESH, callback_data="doctor_refresh")],
             [InlineKeyboardButton(text=texts.CAPACITY_REFRESH, callback_data="capacity_refresh")],
             [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")],
         ]

@@ -1,5 +1,6 @@
-"""پ۶۱ · خواستهٔ مالکِ محصول (۲۰۲۶-۱۱-۱۲): «یکِ قسمت در پنلِ ادمین برایِ بررسیِ وضعیتِ ظرفیت
-API‌ها و فشارِ سرور به‌صورتِ درصدی و آمارِ دقیق».
+"""پ۶۱ و پ۶۲ · خواستهٔ مالکِ محصول (۲۰۲۶-۱۱-۱۲): «یکِ قسمت در پنلِ ادمین برایِ بررسیِ وضعیتِ
+ظرفیت API‌ها و فشارِ سرور به‌صورتِ درصدی و آمارِ دقیق» + «ایجنتی در محیطِ سرور برایِ لاگ‌ها و
+بررسیِ مشکلات».
 
 سه ستونِ زنده در یکِ صفحه:
 ۱. ظرفیتِ AI: برایِ هرِ کلیدِ استخر «چند درخواستِ همانِ کلید همین حالا درِ حالِ اجراست» نسبت به
@@ -18,6 +19,7 @@ API‌ها و فشارِ سرور به‌صورتِ درصدی و آمارِ د�
 
 from __future__ import annotations
 
+import datetime
 import logging
 
 from aiogram import F, Router
@@ -28,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.filters import IsSuperAdmin
 from app.bots.main_bot.handlers.owner_common import safe_edit
-from app.services import capacity_service
+from app.services import capacity_service, server_doctor
 
 logger = logging.getLogger(__name__)
 
@@ -54,4 +56,28 @@ async def open_capacity(message: Message, state: FSMContext, session: AsyncSessi
 async def cb_capacity_refresh(callback: CallbackQuery, session: AsyncSession) -> None:
     await callback.answer()
     body, markup = await _screen(session)
+    await safe_edit(callback, body, markup)
+
+
+async def _doctor_screen(session: AsyncSession) -> tuple[str, object]:
+    findings = await server_doctor.inspect(session)
+    await session.commit()
+    return (
+        texts.doctor_screen_text(findings, datetime.datetime.now(datetime.timezone.utc)),
+        keyboards.doctor_keyboard(),
+    )
+
+
+@router.message(F.text == texts.DOCTOR_BUTTON)
+async def open_doctor(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    await state.clear()
+    body, markup = await _doctor_screen(session)
+    await message.answer(body, reply_markup=markup)
+
+
+@router.callback_query(F.data == "doctor_refresh")
+async def cb_doctor_refresh(callback: CallbackQuery, session: AsyncSession) -> None:
+    """بازرسیِ دوباره از همان پروسه: خنک‌کردنِ هشدارهایِ جاب دست‌نخورده می‌ماند (این‌جا فقط خواندن)."""
+    await callback.answer()
+    body, markup = await _doctor_screen(session)
     await safe_edit(callback, body, markup)

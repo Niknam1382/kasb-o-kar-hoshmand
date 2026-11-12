@@ -165,6 +165,7 @@ TEST_FILES = [
     "test_p59_output_polish.py",
     "test_p60_instagram_panel.py",
     "test_p61_capacity_panel.py",
+    "test_p62_server_doctor.py",
 ]
 
 

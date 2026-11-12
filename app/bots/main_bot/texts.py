@@ -1739,6 +1739,60 @@ def capacity_text(snapshot: dict) -> str:
     return "\n".join(lines)
 
 
+# پ۶۲ · خواستهٔ مالکِ محصول: ایجنتی که لاگ و وضعیتِ سرور را بخواند و مشکل را بگوید.
+DOCTOR_BUTTON = "🩺 عیب‌یابِ سرور"
+DOCTOR_REFRESH = "🔄 تازه‌سازیِ بازرسی"
+DOCTOR_CLEAN = "✅ هیچِ موردِ غیرعادی پیدا نشد: فشارِ سرور، استخرِ دیتابیس، استخرِ کلیدهایِ " \
+               "هوشِ مصنوعی و لاگِ همین پروسه همه در محدوده‌اند."
+DOCTOR_NO_ACTION_NOTE = (
+    "این صفحه فقط تشخیص می‌دهد و هیچ چیزی را عوض نمی‌کند؛ هر اقدام از همان دکمه‌هایِ خودِ "
+    "پنل انجام می‌شود و در «📜 گزارشِ ممیزی» ثبت می‌گردد."
+)
+
+
+def doctor_line(finding) -> str:
+    """یکِ یافته: شدت + عنوان + عددِ دقیق + جایِ اقدام (بدونِ هیچ شناسهٔ فنیِ بی‌معنا)."""
+    from app.services.server_doctor import SEVERITY_ICON
+
+    icon = SEVERITY_ICON.get(finding.severity, "🔵")
+    return f"{icon} {finding.title}\n{finding.detail}\n➖ اقدام: {finding.suggestion}"
+
+
+def doctor_screen_text(findings: list, moment) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    lines = [f"🩺 عیب‌یابِ سرور — {format_jalali_datetime(moment)}"]
+    if not findings:
+        lines.append("\n" + DOCTOR_CLEAN)
+    else:
+        counts: dict[str, int] = {}
+        for finding in findings:
+            counts[finding.severity] = counts.get(finding.severity, 0) + 1
+        lines.append(
+            "\n"
+            + f"{fa_number(len(findings))} مورد: "
+            + f"🔴 {fa_number(counts.get('error', 0))} · "
+            + f"🟠 {fa_number(counts.get('warn', 0))} · "
+            + f"🔵 {fa_number(counts.get('info', 0))}"
+        )
+        for finding in findings:
+            lines.append("\n" + doctor_line(finding))
+    lines.append("\n" + DOCTOR_NO_ACTION_NOTE)
+    return "\n".join(lines)
+
+
+def doctor_alert_text(findings: list, moment) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    lines = [
+        "🩺 عیب‌یابِ سرور: "
+        + f"{fa_number(len(findings))} موردِ تازه — {format_jalali_datetime(moment)}"
+    ]
+    for finding in findings:
+        lines.append("\n" + doctor_line(finding))
+    lines.append("\nبرایِ دیدنِ همه‌چیز: پنلِ ادمین ⇒ «🩺 عیب‌یابِ سرور» یا «📡 ظرفیت و فشارِ سرور».")
+    return "\n".join(lines)
+
 
 AI_USAGE_BUTTON = "📊 مصرفِ کاربران"
 AI_USAGE_WINDOWS: tuple[tuple[str, str], ...] = (("24h", "۲۴ ساعت"), ("7d", "۷ روز"), ("30d", "۳۰ روز"))
