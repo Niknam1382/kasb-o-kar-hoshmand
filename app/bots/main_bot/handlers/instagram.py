@@ -19,7 +19,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
@@ -102,6 +102,77 @@ async def cb_toggle_flag(callback: CallbackQuery, session: AsyncSession) -> None
     await session.flush()
     await callback.answer(toast)
     await _screen(callback, shop_bot, session)
+
+
+# پ۶۳ · مدیریتِ زمان‌دار و گزارشِ فعالیت (فقط با اتصالِ برقرار؛ مالکیت با require_shop_bot_cb).
+@router.callback_query(F.data == "ig_screen")
+async def cb_screen(callback: CallbackQuery, session: AsyncSession) -> None:
+    """بازگشت از صفحهٔ فرعی به همان صفحهٔ اینستاگرام (دروازهٔ سراسری داخلِ `_screen` چک می‌شود)."""
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    await _screen(callback, shop_bot, session)
+
+
+@router.callback_query(F.data == "ig_mute")
+async def cb_mute_open(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    account = await instagram_service.account_for_shop(session, shop_bot.id)
+    if account is None:
+        await callback.answer(texts.INSTAGRAM_NOT_CONNECTED, show_alert=True)
+        return
+    await callback.answer()
+    await safe_edit(callback, texts.instagram_mute_screen_text(account), keyboards.instagram_mute_keyboard(account))
+
+
+@router.callback_query(F.data.startswith("ig_mute:"))
+async def cb_mute_set(callback: CallbackQuery, session: AsyncSession) -> None:
+    raw = callback.data.split(":", 1)[1]
+    if not raw.isascii() or not raw.isdecimal():
+        await callback.answer(texts.INSTAGRAM_MUTE_INVALID, show_alert=True)
+        return
+    hours = int(raw)
+    if hours not in instagram_service.MUTE_HOURS and hours != 0:
+        await callback.answer(texts.INSTAGRAM_MUTE_INVALID, show_alert=True)
+        return
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    account = await instagram_service.account_for_shop(session, shop_bot.id)
+    if account is None:
+        await callback.answer(texts.INSTAGRAM_NOT_CONNECTED, show_alert=True)
+        return
+    await instagram_service.set_mute(session, account, None if hours == 0 else hours, actor_telegram_id=callback.from_user.id)
+    await session.commit()
+    await callback.answer(texts.INSTAGRAM_MUTE_OFF_TOAST if hours == 0 else texts.INSTAGRAM_MUTE_ON_TOAST)
+    await safe_edit(callback, texts.instagram_mute_screen_text(account), keyboards.instagram_mute_keyboard(account))
+
+
+@router.callback_query(F.data == "ig_activity")
+async def cb_activity(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    account = await instagram_service.account_for_shop(session, shop_bot.id)
+    if account is None:
+        await callback.answer(texts.INSTAGRAM_NOT_CONNECTED, show_alert=True)
+        return
+    summary = await instagram_service.activity_summary(session, shop_bot.id)
+    await session.commit()
+    await callback.answer()
+    await safe_edit(
+        callback,
+        texts.instagram_activity_text(summary, account),
+        InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 تازه‌سازی", callback_data="ig_activity")],
+                [InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")],
+            ]
+        ),
+    )
 
 
 @router.callback_query(F.data == "ig_back")

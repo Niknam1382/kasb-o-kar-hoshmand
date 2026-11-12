@@ -36,13 +36,15 @@ from dataclasses import dataclass
 
 import aiohttp
 from aiogram.exceptions import TelegramAPIError
-from sqlalchemy import select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts as main_texts
 from app.bots.shop_bot import texts as shop_texts
 from app.database.models import (
     AuditEventType,
+    ConversationMessage,
+    Customer,
     InstagramAccount,
     OrderConsultation,
     OrderStatus,
@@ -196,6 +198,91 @@ async def account_by_ig_id(session: AsyncSession, ig_account_id: str) -> Instagr
     """نگاشتِ «شناسهٔ اکانتِ رسیده از متا → فروشگاه» (قاعدهٔ P19: عددِ کاربر فقط داخلِ یک سرویس یکتا)."""
     result = await session.execute(select(InstagramAccount).where(InstagramAccount.ig_account_id == ig_account_id))
     return result.scalars().first()
+
+
+# پ۶۳ · خواستهٔ مالکِ محصول: «پنلِ ویژهٔ مدیریتیِ اینستاگرام» در پنلِ خودِ فروشگاه. اولینِ فعلِ
+# مدیریتیِ واقعیِ همین فهرست است: خاموش‌کردنِ *موقتِ* کانال بدونِ قطعِ اتصال و بدونِ دست‌کاریِ توکن.
+MUTE_PRESETS: tuple[tuple[int, str], ...] = ((1, "۱ ساعت"), (6, "۶ ساعت"), (24, "۲۴ ساعت"), (72, "۳ روز"))
+MUTE_HOURS = {hours for hours, _label in MUTE_PRESETS}
+
+
+def _aware(moment: datetime.datetime) -> datetime.datetime:
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=datetime.timezone.utc)
+
+
+def is_muted(account, moment: datetime.datetime | None = None) -> bool:
+    """True یعنی کانال *فعلاً* خاموش است (اتصال سالم است و فقط پاسخ‌گویی متوقف شده)."""
+    until = getattr(account, "muted_until", None) if account is not None else None
+    if until is None:
+        return False
+    return _aware(until) > (moment or datetime.datetime.now(datetime.timezone.utc))
+
+
+def mute_until(account, moment: datetime.datetime | None = None) -> datetime.datetime | None:
+    """پایانِ خاموشیِ موقت (اگر هنوز نرسیده باشد)؛ None یعنی کانال روشن است."""
+    return _aware(account.muted_until) if account is not None and is_muted(account, moment) else None
+
+
+async def set_mute(session: AsyncSession, account, hours: int | None, *, actor_telegram_id: int) -> datetime.datetime | None:
+    """`hours` از فهرستِ پیش‌فرض‌هاست (None ⇒ آزاد کردن). هیچ چیزِ دیگری لمس نمی‌شود."""
+    if hours is not None and hours not in MUTE_HOURS:
+        return None
+    until = None if hours is None else datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=hours)
+    account.muted_until = until
+    await session.flush()
+    label = "لغوِ خاموشیِ موقت" if until is None else f"خاموش تا {_aware(until).isoformat(timespec='minutes')}"
+    await audit_log_service.log(
+        session,
+        AuditEventType.INSTAGRAM_TOGGLED,
+        shop_bot_id=account.shop_bot_id,
+        actor_telegram_id=actor_telegram_id,
+        details=f"مدیریتِ اینستاگرام: {label}",
+    )
+    return until
+
+
+async def activity_summary(session: AsyncSession, shop_bot_id: int, *, now: datetime.datetime | None = None) -> dict:
+    """چند گفتگو و چند پیامِ مشتری در ۲۴ ساعت و ۷ روزِ اخیر، *فقط* از راهِ دیتابیسِ خودمان.
+
+    صراحتِ لازم: کامنت‌ها جایی ذخیره نمی‌شوند (متا فقط رویداد می‌دهد و ما پاسخ را زیرِ کامنت
+    می‌فرستیم)، پس این صفحه «فعالیتِ دایرکت» را می‌شمارد و برایِ کامنت فقط ردیف‌هایِ نگهبانِ
+    محتوا در ممیزی هست. عددِ ساختگی ساخته نمی‌شود.
+    """
+    moment = now or datetime.datetime.now(datetime.timezone.utc)
+    windows = {"24h": moment - datetime.timedelta(days=1), "7d": moment - datetime.timedelta(days=7)}
+    out: dict[str, object] = {"since_24h": 0, "since_7d": 0, "chats_7d": 0, "at": moment}
+    for label, since in windows.items():
+        count = (
+            await session.execute(
+                select(func.count())
+                .select_from(ConversationMessage)
+                .join(Customer, ConversationMessage.customer_id == Customer.id)
+                .where(
+                    Customer.shop_bot_id == shop_bot_id,
+                    Customer.platform == platform_service.INSTAGRAM,
+                    ConversationMessage.role == "user",
+                    ConversationMessage.created_at >= since,
+                )
+            )
+        ).scalar_one()
+        if label == "24h":
+            out["since_24h"] = count
+        else:
+            out["since_7d"] = count
+    out["chats_7d"] = (
+        await session.execute(
+            select(func.count(distinct(ConversationMessage.customer_id)))
+            .select_from(ConversationMessage)
+            .join(Customer, ConversationMessage.customer_id == Customer.id)
+            .where(
+                Customer.shop_bot_id == shop_bot_id,
+                Customer.platform == platform_service.INSTAGRAM,
+                ConversationMessage.role == "user",
+                ConversationMessage.created_at >= windows["7d"],
+            )
+        )
+    ).scalar_one()
+    return out
 
 
 # ============================================================================= ۲ — آدرس‌ها و توکنِ وضعیت
@@ -869,7 +956,7 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
     if not enabled(admin_settings):
         return
     account = await account_by_ig_id(session, event.ig_account_id)
-    if account is None or not account.is_active or not account.auto_reply_comments:
+    if account is None or not account.is_active or not account.auto_reply_comments or is_muted(account):
         return
     shop_bot = await shop_bot_service.get_by_id(session, account.shop_bot_id)
     if shop_bot is None or not shop_bot.is_active or admin_settings.maintenance_mode:
@@ -1003,7 +1090,7 @@ async def _handle_inbound(session: AsyncSession, main_bot, event: DirectMessage)
     if not enabled(admin_settings):
         return  # کانال خاموش ⇒ بی‌صدا رد (پیامِ «خاموش است» به مشتری معنایی ندارد)
     account = await account_by_ig_id(session, event.shop_account_id)
-    if account is None or not account.is_active:
+    if account is None or not account.is_active or is_muted(account):
         return
     shop_bot = await shop_bot_service.get_by_id(session, account.shop_bot_id)
     if shop_bot is None or not shop_bot.is_active:

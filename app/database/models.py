@@ -764,6 +764,9 @@ class InstagramAccount(Base):
     # پ۶۰: دستورِ اختصاصیِ خودِ فروشگاه برایِ پاسخ‌هایِ اینستاگرام (دایرکت و کامنت).
     # NULL/خالی ⇒ فقط متنِ سراسریِ ادمین اجرا می‌شود؛ این ستون هیچ متنِ دیگری را پاک نمی‌کند.
     instructions: Mapped[str | None] = mapped_column(Text, nullable=True, server_default="")
+    # پ۶۳: خاموش‌سازیِ *زمان‌دارِ* کانال (نه قطعِ اتصال). NULL ⇒ روشن؛ درِ اینستاگرام مثلِ
+    # `is_active` عمل می‌کند تا وقتی این زمان نگذشته باشد.
+    muted_until: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     connected_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime
+
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -1629,11 +1631,41 @@ def instagram_panel_keyboard(account) -> InlineKeyboardMarkup:
         )
         actions.append(InlineKeyboardButton(text="👋 متنِ خوشآمد", callback_data="ig_greeting"))
         actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_INSTRUCTIONS_BUTTON, callback_data="ig_instructions"))
+        # پ۶۳ · دو فعلِ مدیریتیِ تازه در پنلِ خودِ فروشگاه (فقط وقتی اتصال هست معنا دارند).
+        actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_MUTE_BUTTON, callback_data="ig_mute"))
+        actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_ACTIVITY_BUTTON, callback_data="ig_activity"))
         actions.append(InlineKeyboardButton(text="🧪 تستِ ارسال", callback_data="ig_test"))
         actions.append(InlineKeyboardButton(text="🚫 لغوِ اتصال", callback_data="ig_unbind"))
     actions.append(InlineKeyboardButton(text="📖 راهنمایِ فعال‌سازی", callback_data="ig_guide"))
     rows = grid(actions, max_label=26)
     rows.append([InlineKeyboardButton(text=texts.SHOP_PREF_BACK_BUTTON, callback_data="ig_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def instagram_mute_keyboard(account) -> InlineKeyboardMarkup:
+    """پ۶۳: مهلت‌هایِ آماده (۱/۶/۲۴ ساعت و ۳ روز) + آزاد کردنِ همین حالا.
+
+    مهلتِ فعال تیک می‌خورد تا فروشگاه‌دار بفهمد الان در کدامِ حالت است؛ «۰» یعنی لغوِ خاموشی.
+    """
+    from app.services.instagram_service import MUTE_PRESETS, mute_until
+
+    active_hours = None
+    until = mute_until(account)
+    if until is not None:
+        left = (until - datetime.datetime.now(datetime.timezone.utc)).total_seconds() / 3600.0
+        active_hours = min(MUTE_PRESETS, key=lambda preset: abs(preset[0] - left))[0]
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=("✅ " if active_hours == hours else "") + label,
+                callback_data=f"ig_mute:{hours}",
+            )
+            for hours, label in pair
+        ]
+        for pair in (MUTE_PRESETS[0:2], MUTE_PRESETS[2:4])
+    ]
+    rows.append([InlineKeyboardButton(text="▶️ آزاد کردنِ همین حالا", callback_data="ig_mute:0")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

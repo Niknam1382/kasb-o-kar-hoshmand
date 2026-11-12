@@ -2469,6 +2469,59 @@ INSTAGRAM_STEPS_CHECKLIST = (
 INSTAGRAM_SCREEN_INTRO = "🟣 اینستاگرام — پیام‌هایِ دایرکتِ فروشگاه تو با همان هوشِ مصنوعی و همان کیف‌پول پاسخ داده می‌شوند."
 
 
+# پ۶۳ · خواستهٔ مالکِ محصول: «پنلِ ویژهٔ مدیریتیِ اینستاگرام» در پنلِ خودِ فروشگاه — اولینِ حلقه:
+# خاموش‌سازیِ *زمان‌دارِ* کانال (بی‌قطعِ اتصال) و گزارشِ فعالیتِ دایرکت از دیتابیسِ خودمان.
+INSTAGRAM_MUTE_BUTTON = "⏸ خاموش‌سازیِ موقت"
+INSTAGRAM_ACTIVITY_BUTTON = "📊 فعالیتِ اینستاگرام"
+INSTAGRAM_MUTE_TITLE = "⏸ خاموش‌سازیِ موقتِ اینستاگرام"
+INSTAGRAM_MUTE_INTRO = (
+    "در این مدت هیچ پاسخی برایِ دایرکت و کامنت ساخته نمی‌شود، ولی اتصال، توکن و بقیهٔ تنظیماتِ تو "
+    "دست‌نخورده می‌مانند و بعد ازِ پایانِ مهلت همه‌چیز خودش برمی‌گردد."
+)
+INSTAGRAM_MUTE_ON_TOAST = "⏸ اینستاگرام موقتاً خاموش شد"
+INSTAGRAM_MUTE_OFF_TOAST = "▶️ اینستاگرام دوباره روشن شد"
+INSTAGRAM_MUTE_INVALID = "آن گزینه در فهرستِ مهلت‌ها نیست."
+INSTAGRAM_MUTED_LINE = "• ⏸ خاموش تا: {until} (پاسخِ خودکار متوقف است)"
+INSTAGRAM_LIVE_LINE = "• وضعیتِ کانال: ✅ روشن"
+INSTAGRAM_ACTIVITY_TITLE = "📊 فعالیتِ اینستاگرام — {when}"
+INSTAGRAM_ACTIVITY_NOTE = (
+    "کامنت‌ها در دیتابیسِ ما ذخیره نمی‌شوند (متا فقط رویداد می‌دهد و پاسخ زیرِ همان کامنت می‌نشیند)، "
+    "پس این صفحه فقط گفتگوهایِ دایرکت را می‌شمارد. اگر نگهبانِ محتوا کامنتی را گرفته باشد، ردیفش در "
+    "«📜 گزارشِ ممیزی» هست."
+)
+
+
+def instagram_mute_line(account) -> str:
+    from app.services import instagram_service
+    from app.utils.jalali import format_jalali_datetime
+
+    until = instagram_service.mute_until(account)
+    if until is None:
+        return INSTAGRAM_LIVE_LINE
+    return INSTAGRAM_MUTED_LINE.format(until=format_jalali_datetime(until))
+
+
+def instagram_mute_screen_text(account) -> str:
+    lines = [INSTAGRAM_MUTE_TITLE, "", INSTAGRAM_MUTE_INTRO, "", instagram_mute_line(account)]
+    lines.append("")
+    lines.append("• اتصالِ اکانت و متنِ هوشمندسازی با خاموش‌کردنِ موقت پاک نمی‌شوند.")
+    return "\n".join(lines)
+
+
+def instagram_activity_text(summary: dict, account) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    lines = [INSTAGRAM_ACTIVITY_TITLE.format(when=format_jalali_datetime(summary["at"]))]
+    lines.append(f"• گفتگوهایِ دایرکت در ۷ روز: {fa_number(summary['chats_7d'])}")
+    lines.append(f"• پیامِ مشتری در ۲۴ ساعت: {fa_number(summary['since_24h'])}")
+    lines.append(f"• پیامِ مشتری در ۷ روز: {fa_number(summary['since_7d'])}")
+    lines.append(instagram_mute_line(account))
+    if account is not None and account.last_error:
+        lines.append(INSTAGRAM_LAST_ERROR.format(error=account.last_error))
+    lines += ["", INSTAGRAM_ACTIVITY_NOTE]
+    return "\n".join(lines)
+
+
 def instagram_status_text(account, admin_settings) -> str:
     """صفحهٔ فروشگاه‌دار: وضعیتِ اتصال + وضعیتِ سراسری + خطایِ آخر + قاعدهٔ ۲۴ ساعت."""
     lines = [INSTAGRAM_SCREEN_INTRO, ""]
@@ -2479,6 +2532,7 @@ def instagram_status_text(account, admin_settings) -> str:
     else:
         lines.append(INSTAGRAM_CONNECTED_AS.format(username="@" + (account.ig_username or "—")))
         lines.append(f"• پاسخ‌گوییِ خودکار: {'روشن' if account.auto_reply_dm else 'خاموش'}")
+        lines.append(instagram_mute_line(account))
         lines.append(
             INSTAGRAM_INSTRUCTIONS_LINE.format(
                 state="دارد" if (account.instructions or "").strip() else "ندارد (فقط تنظیماتِ عمومی)"
