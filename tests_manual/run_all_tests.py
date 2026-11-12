@@ -164,6 +164,7 @@ TEST_FILES = [
     "test_p58_mode_gates.py",
     "test_p59_output_polish.py",
     "test_p60_instagram_panel.py",
+    "test_p61_capacity_panel.py",
 ]
 
 

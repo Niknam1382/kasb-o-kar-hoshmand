@@ -8,6 +8,7 @@ from app.bots.main_bot.handlers import (
     accounting,
     admin,
     admin_ai_usage,
+    admin_capacity,
     admin_inactive,
     admin_time,
     assistant,
@@ -89,6 +90,7 @@ _KNOWN_MENU_BUTTONS = {
     "📤 دفترِ کیف‌پول (اکسل)",
     "🧾 لاگِ سرور",  # P48 · موردِ ۱۳ (فقط سوپرادمین)
     "📊 مصرفِ کاربران",  # P55 · موردِ ۲۳ (فقط سوپرادمین)
+    "📡 ظرفیت و فشارِ سرور",  # P61 · خواستهٔ ۱۱-۱۲ (فقط سوپرادمین)
 }
 
 
@@ -145,6 +147,7 @@ def build_main_router() -> Router:
     router.include_router(admin.super_router)
     router.include_router(admin_inactive.router)  # P22 · مشکلِ ۸ (دستهٔ غیرفعال‌ها + حذفِ حساب؛ دامنه‌دار)
     router.include_router(admin_ai_usage.router)  # P55 · موردِ ۲۳ (رتبه‌بندیِ مصرفِ هر کاربر؛ فقط سوپرادمین)
+    router.include_router(admin_capacity.router)  # P61 · خواستهٔ ۱۱-۱۲ (ظرفیتِ AI و فشارِ سرور؛ فقط سوپرادمین)
     router.include_router(admin_time.super_router)  # K3/K4: سوپرادمین اول؛ بعدش روترِ عمومی «غیرسوپر ⇒ پیامِ مودبانه»
     router.include_router(admin_time.router)
     router.include_router(profile.router)

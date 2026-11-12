@@ -693,8 +693,21 @@ def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:
             KeyboardButton(text="📤 دفترِ کیف‌پول (اکسل)"),
             KeyboardButton(text=texts.SERVER_LOG_BUTTON),  # P48 · موردِ ۱۳ (فقط سوپرادمین)
             KeyboardButton(text=texts.AI_USAGE_BUTTON),  # P55 · موردِ ۲۳ (فقط سوپرادمین)
+            KeyboardButton(text=texts.CAPACITY_BUTTON),  # P61 · خواستهٔ ۱۱-۱۲ (فقط سوپرادمین)
         ]
     return ReplyKeyboardMarkup(keyboard=grid(buttons), resize_keyboard=True)
+
+
+def capacity_keyboard() -> InlineKeyboardMarkup:
+    """پ۶۱: صفحهٔ ظرفیت فقط خواندنی است — «تازه‌سازی» و «بازگشت به پنل»، هیچ فعلِ مدیریتی دیگر."""
+    from app.bots.main_bot import texts
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.CAPACITY_REFRESH, callback_data="capacity_refresh")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")],
+        ]
+    )
 
 
 def mandatory_channels_list_keyboard(channels) -> InlineKeyboardMarkup:

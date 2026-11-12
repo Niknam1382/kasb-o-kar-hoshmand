@@ -1677,6 +1677,69 @@ def admin_payment_detail_text(payment, owner, *, page: int) -> str:
 
 
 # پ۵۵ · موردِ ۲۳: رتبه‌بندیِ مصرفِ هوشِ مصنوعی به‌ازایِ هر کاربر + سه اهرمِ مدیریتی.
+# پ۶۱ · خواستهٔ مالکِ محصول: درصدِ مصرفِ ظرفیتِ API و فشارِ سرور در پنلِ ادمین.
+CAPACITY_BUTTON = "📡 ظرفیت و فشارِ سرور"
+CAPACITY_REFRESH = "🔄 تازه‌سازی"
+CAPACITY_NO_KEYS = "هیچِ کلیدِ فعالی برایِ پاسخِ متنی در استخر نیست؛ تا تنظیماتِ هوشِ مصنوعی خالی باشد هیچ پاسخی ساخته نمی‌شود."
+CAPACITY_NOT_RUN_NOTE = (
+    "⚠️ این اعداد زندهٔ همین پروسه است (از زمانِ بالا آمدنِ ربات). سقفِ واقعیِ سرویسِ "
+    "ارائه‌دهندهٔ هوشِ مصنوعی هنوز سنجیده نشده و ادعا نمی‌شود — فقط سقفِ تنظیمیِ خودمان نشان داده می‌شود."
+)
+
+
+def capacity_text(snapshot: dict) -> str:
+    ai, db, system = snapshot["ai"], snapshot["db"], snapshot["system"]
+    lines = ["📡 ظرفیت و فشارِ سرور"]
+    lines.append(
+        f"\n🤖 پاسخِ مشتری — {fa_number(ai['inflight_total'])} درخواستِ در حالِ اجرا از "
+        f"ظرفیتِ قابلِ استفاده {fa_number(ai['usable'])} ({fa_percent(ai['percent'])})"
+    )
+    if ai["keys"]:
+        for load in ai["keys"]:
+            lines.append(
+                f"• {load.label}: {fa_number(load.inflight)} از {fa_number(load.cap)} ({fa_percent(load.percent)})"
+            )
+        bottleneck = "جمعِ سقفِ کلیدها" if ai["bottleneck"] == "keys" else "سقفِ پلتفرم"
+        lines.append(
+            f"گلوگاهِ فعلی: {bottleneck} — جمعِ سقفِ کلیدها {fa_number(ai['sum_caps'])}، "
+            f"سقفِ پلتفرم {fa_number(ai['platform_ceiling'])}"
+        )
+    else:
+        lines.append(CAPACITY_NO_KEYS)
+    voice = ai["voice"]
+    if voice["count"]:
+        lines.append(
+            f"🎙 صوت — {fa_number(voice['count'])} کلید · {fa_number(voice['inflight'])} درخواستِ در حالِ اجرا "
+            f"از {fa_number(voice['sum_caps'])}"
+        )
+    lines.append(
+        f"\n🗄 دیتابیس — {fa_number(db['checked_out'])} اتصالِ در کار از {fa_number(db['capacity'])} "
+        f"({fa_percent(db['percent'])}) · اتصال‌هایِ اضافه {fa_number(db['overflow'])}"
+    )
+    load1 = system["load1"]
+    if load1 is None:
+        lines.append("\n🖥 سرور — بارِ میانگین در این محیط خوانده نشد")
+    else:
+        lines.append(
+            f"\n🖥 سرور — بارِ میانگینِ ۱ دقیقه {fa_number(f'{load1:.2f}'.replace('.', '٫'))} رویِ "
+            f"{fa_number(system['cores'])} هسته ({fa_percent(system['load_percent'])})"
+        )
+    memory = system["memory_used_percent"]
+    disk = system["disk_used_percent"]
+    lines.append(
+        f"• رمِ استفاده‌شده: {fa_percent(memory) if memory is not None else 'خوانده نشد'} · "
+        f"دیسکِ {system['disk_label']}: {fa_percent(disk) if disk is not None else 'خوانده نشد'}"
+    )
+    counters = snapshot["counters"]
+    if counters:
+        lines.append("\n📚 شمارنده‌ها (از شروعِ این پروسه):")
+        for label, value in counters[:12]:
+            lines.append(f"• {label}: {fa_number(value)}")
+    lines.append("\n" + CAPACITY_NOT_RUN_NOTE)
+    return "\n".join(lines)
+
+
+
 AI_USAGE_BUTTON = "📊 مصرفِ کاربران"
 AI_USAGE_WINDOWS: tuple[tuple[str, str], ...] = (("24h", "۲۴ ساعت"), ("7d", "۷ روز"), ("30d", "۳۰ روز"))
 AI_USAGE_HISTORY_NOTE = "شمارش از همین نسخه شروع می‌شود؛ در ردیف‌هایِ قدیمیِ دفتر، مصرف به کاربرِ خاصی وصل نبود."

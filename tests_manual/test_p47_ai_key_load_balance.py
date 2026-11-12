@@ -176,13 +176,23 @@ async def test_broken_key_is_still_isolated_by_the_circuit() -> None:
     print("✅ test_broken_key_is_still_isolated_by_the_circuit PASSED")
 
 
+_held_loops: list[object] = []
+
+
 def _slot_identity_in_new_loop() -> tuple[int, int]:
-    """یکِ loopِ تازه (داخلِ رشتهٔ جدا) می‌سازد و شناسهٔ جایگاهِ کارِ کلید را برمی‌گرداند."""
+    """یکِ loopِ تازه (داخلِ رشتهٔ جدا) می‌سازد و شناسهٔ جایگاهِ کارِ کلید را برمی‌گرداند.
+
+    خودِ شیءِ loop هم نگه داشته می‌شود: `id()` یکِ loopِ بسته و زباله‌بردایی‌شده می‌تواند به
+    loopِ بعدیِ همان رشته برگردد، و آن‌وقت دو loopِ واقعاً مستقل «یکی» به‌نظر می‌رسیدند
+    (این ادعا در سوئیتِ کامل، دو بار پشتِ هم، رویِ ماشینِ تحتِ بار می‌شکست).
+    """
 
     async def _read() -> tuple[int, int]:
+        loop = asyncio.get_running_loop()
+        _held_loops.append(loop)
         slots = ai_service.slots_for(99_977)
         slots.inflight = 4
-        return id(asyncio.get_running_loop()), id(slots)
+        return id(loop), id(slots)
 
     return asyncio.run(_read())
 
@@ -190,6 +200,7 @@ def _slot_identity_in_new_loop() -> tuple[int, int]:
 async def test_pool_state_is_loop_scoped() -> None:
     """`slots_for` برایِ هر event loop یکِ شمارندهٔ مستقل می‌سازد (تست‌ها loopهایِ جدا دارند)."""
     ai_service.reset_pool_state_for_tests()
+    _held_loops.clear()
     (loop_a, slots_a), (loop_b, slots_b) = await asyncio.gather(
         asyncio.to_thread(_slot_identity_in_new_loop), asyncio.to_thread(_slot_identity_in_new_loop)
     )
