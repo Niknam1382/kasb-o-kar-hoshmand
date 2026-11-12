@@ -394,7 +394,8 @@ async def test_panel_screens_excel_download_and_no_customer_pii(main_dp) -> None
     await owner.tap("acct_xlsx:week")
     assert len(owner.documents) == 1
     document = owner.documents[-1]["document"]
-    assert document.filename == "accounting-week.xlsx" and owner.documents[-1]["caption"] == texts.ACCOUNTING_EXCEL_READY
+    # پ۵۹ · موردِ ۳۴: نامِ فایلِ فارسی شد؛ بازهٔ زمانی در محتوای فایل و کپشن است، نه در نام
+    assert document.filename == texts.EXCEL_ACCOUNTING_FILENAME and owner.documents[-1]["caption"] == texts.ACCOUNTING_EXCEL_READY
     workbook = load_workbook(io.BytesIO(document.data))
     pairs = _sheet_pairs(workbook, "خلاصه")
     assert pairs["فروشِ خالص (تومان)"] == 180_000 and pairs["تعدادِ سفارشِ تاییدشده"] == 3
@@ -404,7 +405,7 @@ async def test_panel_screens_excel_download_and_no_customer_pii(main_dp) -> None
         assert secret not in everything, f"اکسلِ حسابداری نباید «{secret}» رو داشته باشه"
 
     await owner.tap("acct_xlsx:evil")
-    assert owner.documents[-1]["document"].filename == "accounting-today.xlsx", "کلیدِ جعلی → امروز"
+    assert owner.documents[-1]["document"].filename == texts.EXCEL_ACCOUNTING_FILENAME, "کلیدِ جعلی ⇒ فایلِ بی‌خطا (اعتبارِ کلید در _period_key تست می‌شود)"
 
     # فروشگاه‌دارِ دیگه گزارشِ خودش رو می‌بینه
     other = Chat(main_dp, OTHER_OWNER_TG_ID)

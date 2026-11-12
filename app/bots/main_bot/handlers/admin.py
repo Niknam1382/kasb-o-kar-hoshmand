@@ -2682,7 +2682,7 @@ async def cb_audit_csv(callback: CallbackQuery, state: FSMContext, session: Asyn
     )
     await callback.answer()
     await callback.message.answer_document(
-        BufferedInputFile(content, filename="audit-log.csv"),
+        BufferedInputFile(content, filename=texts.AUDIT_CSV_FILENAME),
         caption=fa_text(texts.AUDIT_CSV_READY, count=len(rows)),
     )
 
@@ -2744,7 +2744,7 @@ async def export_wallet_ledger(message: Message, state: FSMContext, session: Asy
         details="خروجیِ اکسلِ دفترِ کیف‌پول",
     )
     await message.answer_document(
-        BufferedInputFile(content, filename="wallet-ledger.xlsx"),
+        BufferedInputFile(content, filename=texts.EXCEL_WALLET_LEDGER_FILENAME),
         caption=texts.ADMIN_WALLET_LEDGER_READY,
         reply_markup=keyboards.wallet_ledger_keyboard(),
     )

@@ -369,9 +369,9 @@ async def _finish_receipt(
     markup = main_keyboards.receipt_review_keyboard(payment.id, key)
     try:
         if data and is_photo:
-            await main_bot.send_photo(owner.telegram_id, BufferedInputFile(data, filename=filename or "receipt.jpg"), caption=caption, reply_markup=markup)
+            await main_bot.send_photo(owner.telegram_id, BufferedInputFile(data, filename=filename or f"{main_texts.RECEIPT_FALLBACK_FILENAME}.jpg"), caption=caption, reply_markup=markup)
         elif data:
-            await main_bot.send_document(owner.telegram_id, BufferedInputFile(data, filename=filename or "receipt"), caption=caption, reply_markup=markup)
+            await main_bot.send_document(owner.telegram_id, BufferedInputFile(data, filename=filename or main_texts.RECEIPT_FALLBACK_FILENAME), caption=caption, reply_markup=markup)
         else:
             await main_bot.send_message(owner.telegram_id, caption, reply_markup=markup)
     except TelegramAPIError:

@@ -64,19 +64,35 @@ def _data(**over):
 
 
 def _captured_strings(data: dict) -> list[str]:
-    """هر رشته‌ای که واردِ shaping می‌شود = هر خطِ چاپ‌شده در PDF."""
+    """هر چیزی که رویِ کاغذ نوشته می‌شود: هم رشتهٔ shaped و هم مقدارِ لاتینِ خام.
+
+    پ۵۹ · موردِ ۳۴: قبلاً فقط `arabic_reshaper.reshape` جاسازی می‌شد («هر ورودیِ shaping = یکِ
+    خطِ چاپی»)؛ ولی خطِ «شمارهٔ فاکتور» عمداً به دو سلولِ جدا شکافته شد تا bidi ترتیب را خراب
+    نکند، و مقدارِ لاتینِ شماره **بدونِ shaping** نوشته می‌شود. پس روایتِ قبلی ادعایِ جدید را
+    نمی‌دید؛ حالا هر `cell` هم ثبت می‌شود.
+    """
+    from fpdf import FPDF
+
     original = arabic_reshaper.reshape
+    original_cell = FPDF.cell
     seen: list[str] = []
 
     def spy(text):
         seen.append(str(text))
         return original(text)
 
+    def cell_spy(self, w=None, h=None, text="", *args, **kwargs):
+        if text:
+            seen.append(str(text))
+        return original_cell(self, w, h, text, *args, **kwargs)
+
     arabic_reshaper.reshape = spy
+    FPDF.cell = cell_spy
     try:
         payload = invoice_service.build_invoice_pdf(data)
     finally:
         arabic_reshaper.reshape = original
+        FPDF.cell = original_cell
     assert payload is not None and payload.startswith(b"%PDF"), "فاکتور باید PDF باشد"
     return seen
 

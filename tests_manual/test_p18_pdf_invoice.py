@@ -239,7 +239,7 @@ async def test_handler_prefers_pdf_and_falls_back_to_html(main_bot: Bot) -> None
     session_obj = await _send_with(main_bot, "INV-9-202611-1", data)
     assert len(session_obj.sent_documents) == 1, session_obj.sent_documents
     doc = session_obj.sent_documents[0]["document"]
-    assert doc.filename == "INV-9-202611-1.pdf", doc.filename
+    assert doc.filename == "فاکتور-INV-9-202611-1.pdf", doc.filename  # پ۵۹: نامِ فایلِ فارسی، شمارهٔ پیگیری دست‌نخورده
     assert doc.data.startswith(b"%PDF"), "فایلِ ارسالی واقعاً PDF است"
 
     original = invoice_service.font_path
@@ -249,7 +249,7 @@ async def test_handler_prefers_pdf_and_falls_back_to_html(main_bot: Bot) -> None
     finally:
         invoice_service.font_path = original
     doc = session_obj.sent_documents[0]["document"]
-    assert doc.filename == "INV-9-202611-2.html", doc.filename
+    assert doc.filename == "فاکتور-INV-9-202611-2.html", doc.filename
     assert doc.data.lstrip().startswith(b"<!DOCTYPE html>"), "بدونِ PDF همان HTMLِ قبلی می‌رود (فاکتور هرگز گم نمی‌شود)"
     print("✅ test_handler_prefers_pdf_and_falls_back_to_html PASSED")
 

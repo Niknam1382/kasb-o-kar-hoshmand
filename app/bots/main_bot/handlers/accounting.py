@@ -59,5 +59,5 @@ async def accounting_excel(callback: CallbackQuery, session: AsyncSession) -> No
     content = excel_export_service.build_accounting_workbook(report)
     await callback.answer()
     await callback.message.answer_document(
-        BufferedInputFile(content, filename=f"accounting-{key}.xlsx"), caption=texts.ACCOUNTING_EXCEL_READY
+        BufferedInputFile(content, filename=texts.EXCEL_ACCOUNTING_FILENAME), caption=texts.ACCOUNTING_EXCEL_READY
     )

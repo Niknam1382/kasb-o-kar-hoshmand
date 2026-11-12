@@ -177,7 +177,7 @@ def build_invoice_html(data: dict) -> str:
         status_class, status_text = "pending", f"⏳ منتظرِ پرداخت · {method_label}"
 
     item_rows = "".join(
-        f"<tr><td>{esc(str(i['name']))}</td><td class='n'>{esc(str(i['qty']))}</td>"
+        f"<tr><td>{esc(str(i['name']))}</td><td class='n'>{esc(fa_number(i['qty']))}</td>"
         f"<td class='m'>{esc(format_toman(i['line_total']))}</td></tr>"
         for i in data["items"]
     )
@@ -340,9 +340,15 @@ def build_invoice_pdf(data: dict) -> bytes | None:
             pdf.set_font("fa", "", 15)
             pdf.set_xy(_PDF_MARGIN + 2.0, top + 2.0)
             pdf.cell(_PDF_USABLE - 4.0, 9.0, fa(_clip(pdf, shop_title, _PDF_USABLE - 4.0)), align="R")
+            # «two_cell» پایینِ همین فایل قانون را نوشته: برچسبِ فارسی و مقدارِ لاتین در دو
+            # سلولِ جدا، وگرنه bidi ترتیبشان را به‌هم می‌ریزد. داخلِ نوارِ تیره باید همان کار را
+            # با رنگِ خودِ نوار کرد (two_cell رنگِ جوهری دارد و رویِ زمینهٔ تیره دیده نمی‌شود).
             pdf.set_font("fa", "", 9)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_xy(right - 42.0, top + 12.2)
+            pdf.cell(40.0, 5.4, fa("شمارهٔ فاکتور"), align="R")
             pdf.set_xy(_PDF_MARGIN + 2.0, top + 12.2)
-            pdf.cell(_PDF_USABLE - 4.0, 5.4, fa(f"شمارهٔ فاکتور: {number}"), align="R")
+            pdf.cell(_PDF_USABLE - 46.0, 5.4, number, align="L")
             pdf.set_xy(_PDF_MARGIN + 2.0, top + 18.0)
             pdf.cell(_PDF_USABLE - 4.0, 5.4, fa(f"تاریخ: {date}"), align="R")
             pdf.set_text_color(*ink)

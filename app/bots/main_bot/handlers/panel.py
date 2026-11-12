@@ -1124,14 +1124,14 @@ async def cb_export_excel(callback: CallbackQuery, session: AsyncSession) -> Non
             await callback.message.answer(texts.EXCEL_EXPORT_EMPTY)
             return
         content = await excel_export_service.build_customers_workbook(session, shop_bot.id, consultation=_is_consultation(shop_bot))
-        filename = "customers.xlsx"
+        filename = texts.EXCEL_CUSTOMERS_FILENAME
     else:
         count = await session.scalar(select(func.count()).select_from(OrderConsultation).where(OrderConsultation.shop_bot_id == shop_bot.id))
         if not count:
             await callback.message.answer(texts.EXCEL_EXPORT_EMPTY)
             return
         content = await excel_export_service.build_orders_workbook(session, shop_bot.id, consultation=_is_consultation(shop_bot))
-        filename = "orders.xlsx"
+        filename = texts.EXCEL_ORDERS_FILENAME
 
     await callback.message.answer_document(BufferedInputFile(content, filename=filename), caption=texts.EXCEL_EXPORT_READY)
 

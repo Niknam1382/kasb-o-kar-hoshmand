@@ -162,6 +162,7 @@ TEST_FILES = [
     "test_p56_search.py",
     "test_p57_persian_digits.py",
     "test_p58_mode_gates.py",
+    "test_p59_output_polish.py",
 ]
 
 

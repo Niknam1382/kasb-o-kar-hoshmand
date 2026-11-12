@@ -213,10 +213,10 @@ async def send_invoice_to_customer(session: AsyncSession, shop_bot, rows, custom
         await target_bot.send_message(chat_id, invoice_service.format_invoice_text(data))
         pdf_bytes = invoice_service.build_invoice_pdf(data)
         if pdf_bytes is not None:
-            await target_bot.send_document(chat_id, BufferedInputFile(pdf_bytes, filename=f"{invoice.number}.pdf"))
+            await target_bot.send_document(chat_id, BufferedInputFile(pdf_bytes, filename=texts.invoice_file_name(invoice.number, "pdf")))
         else:
             html_bytes = invoice_service.build_invoice_html(data).encode("utf-8")
-            await target_bot.send_document(chat_id, BufferedInputFile(html_bytes, filename=f"{invoice.number}.html"))
+            await target_bot.send_document(chat_id, BufferedInputFile(html_bytes, filename=texts.invoice_file_name(invoice.number, "html")))
     except TelegramAPIError:
         logger.exception("ارسالِ فاکتورِ %s ناموفق بود.", invoice.number)
         return False

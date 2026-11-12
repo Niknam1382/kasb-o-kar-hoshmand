@@ -164,6 +164,13 @@ def cart_summary(items_with_products) -> str:
     return "\n".join(lines)
 
 
+def invoice_file_name(number: str, extension: str) -> str:
+    # پ۵۹ · موردِ ۳۴: نامِ فایلِ فارسی، ولی خودِ شمارهٔ فاکتور دست‌نخورده می‌ماند تا کدِ پیگیریِ
+    # مشتری و سوابتِ فروشگاه به هم بخورد؛ پسوند هم عمداً لاتین است (تلگرام/ویندوز با پسوندِ
+    # فارسی فایل را نمی‌شناسند).
+    return f"فاکتور-{number}.{extension}"
+
+
 ASK_CHECKOUT_ANSWER_PREFIX = "برایِ تکمیلِ سفارش:\n"
 
 
