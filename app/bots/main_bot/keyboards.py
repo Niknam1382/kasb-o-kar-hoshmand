@@ -1601,6 +1601,7 @@ def instagram_panel_keyboard(account) -> InlineKeyboardMarkup:
             )
         )
         actions.append(InlineKeyboardButton(text="👋 متنِ خوشآمد", callback_data="ig_greeting"))
+        actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_INSTRUCTIONS_BUTTON, callback_data="ig_instructions"))
         actions.append(InlineKeyboardButton(text="🧪 تستِ ارسال", callback_data="ig_test"))
         actions.append(InlineKeyboardButton(text="🚫 لغوِ اتصال", callback_data="ig_unbind"))
     actions.append(InlineKeyboardButton(text="📖 راهنمایِ فعال‌سازی", callback_data="ig_guide"))

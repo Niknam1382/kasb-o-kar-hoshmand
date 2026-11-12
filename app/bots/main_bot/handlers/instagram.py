@@ -205,6 +205,53 @@ async def save_greeting(message: Message, state: FSMContext, session: AsyncSessi
     await _screen(message, shop_bot, session)
 
 
+@router.callback_query(F.data == "ig_instructions")
+async def cb_instructions(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    """پ۶۰ · خواستهٔ مالکِ محصول: خودِ فروشگاه بنویسد رباتش در اینستاگرام چطور جواب بدهد."""
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    admin_settings = await get_admin_settings(session)
+    if not instagram_service.enabled(admin_settings):
+        await callback.answer(texts.INSTAGRAM_TOGGLED_OFF, show_alert=True)
+        return
+    account = await instagram_service.account_for_shop(session, shop_bot.id)
+    if account is None:
+        await callback.answer(texts.INSTAGRAM_NOT_CONNECTED, show_alert=True)
+        return
+    await state.set_state(InstagramStates.waiting_instructions)
+    await callback.answer()
+    await callback.message.answer(texts.INSTAGRAM_INSTRUCTIONS_ASK)
+
+
+@router.message(InstagramStates.waiting_instructions, F.text)
+async def save_instructions(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot(message, session)
+    if shop_bot is None:
+        return
+    account = await instagram_service.account_for_shop(session, shop_bot.id)
+    if account is None:
+        await state.clear()
+        await message.answer(texts.INSTAGRAM_NOT_CONNECTED)
+        return
+    raw = (message.text or "").strip()
+    if raw in ("خالی", "پاک کن", "/cancel"):
+        account.instructions = None
+        await state.clear()
+        await session.flush()
+        await message.answer(texts.INSTAGRAM_INSTRUCTIONS_CLEARED)
+        await _screen(message, shop_bot, session)
+        return
+    if len(raw) > 1500:
+        await message.answer(texts.INSTAGRAM_INSTRUCTIONS_TOO_LONG)
+        return
+    account.instructions = raw
+    await state.clear()
+    await session.flush()
+    await message.answer(texts.INSTAGRAM_INSTRUCTIONS_SAVED)
+    await _screen(message, shop_bot, session)
+
+
 @router.callback_query(F.data == "ig_test")
 async def cb_test(callback: CallbackQuery, session: AsyncSession) -> None:
     """یکِ ارسالِ واقعی به متا، تا فروشگاه‌دار ببیند توکن و تنظیمات کار می‌کنند یا نه.

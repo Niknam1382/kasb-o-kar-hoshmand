@@ -104,6 +104,7 @@ def build_system_prompt(
     learned_answers: list[LearnedAnswer] | None = None,
     gap_detection: bool = False,
     bot_tools: list[str] | None = None,
+    channel_directive: str | None = None,
 ) -> str:
     is_consultation = shop_bot.tenant_mode == TenantMode.CONSULTATION
     parts = []
@@ -164,5 +165,9 @@ def build_system_prompt(
         parts.append(learned_block)
     if gap_detection:
         parts.append(GAP_DETECTION_INSTRUCTION)
+    # پ۶۰: دستورِ اختصاصیِ کانال (فعلاً اینستاگرام) همیشه *آخرِ* پرامپت؛ بدونِ این،
+    # خروجی دقیقاً مثلِ قبل می‌ماند ⇒ هیچ مسیرِ تلگرام/بله تحتِ تأثیر نمی‌رود.
+    if channel_directive:
+        parts.append(channel_directive)
 
     return "\n\n".join(parts)

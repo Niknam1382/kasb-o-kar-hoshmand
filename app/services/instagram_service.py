@@ -909,6 +909,7 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
         learned_answers=learned_answers,
         gap_detection=False,  # «سوالِ بی‌جواب» برایِ گفتگویِ خصوصی است، نه کامنتِ عمومی
         bot_tools=[],
+        channel_directive=instruction_directive(account, admin_settings, shop_bot),
     )
     ai = await ai_pool_service.build_ai_service(session, admin_settings, "chat")
     if ai is None:
@@ -935,6 +936,37 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
     cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
     await chat_billing_service.deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot)
     await session.commit()
+
+
+def instruction_directive(account, admin_settings, shop_bot) -> str | None:
+    """پ۶۰ · خواستهٔ مالکِ محصول: متنِ هوشمندسازیِ اینستاگرامِ *خودِ فروشگاه*.
+
+    دو لایه دارد: متنِ سراسریِ ادمین (اگر پر باشد) و متنِ خودِ فروشگاه؛ و در آخر یکِ
+    قاعدهٔ مود. در مودِ مشاوره‌ای فروش ممنوع است (نه قیمت، نه لینکِ پرداخت، نه دعوت به سبد)
+    ولی پاسخِ سؤالات و پاسخِ کامنت آزاد است. هیچ‌کدام جایِ متنِ اصلیِ فروشگاه را نمی‌گیرد.
+    """
+    parts = []
+    platform = (getattr(admin_settings, "instagram_platform_instructions", None) or "").strip()
+    if platform:
+        parts.append("دستورِ سراسریِ پلتفرم برایِ اینستاگرام:\n" + platform)
+    own = (getattr(account, "instructions", None) or "").strip() if account is not None else ""
+    if own:
+        parts.append("دستورِ خودِ این فروشگاه برایِ اینستاگرام:\n" + own)
+    mode_value = shop_bot.tenant_mode.value if hasattr(shop_bot.tenant_mode, "value") else shop_bot.tenant_mode
+    if mode_value == "consultation":
+        parts.append(
+            "قاعدهٔ کانالِ اینستاگرام (حالتِ مشاوره): فقط به سؤالات جواب بده و مشاوره بده. "
+            "هیچ قیمتی اعلام نکن، هیچ سبد/پرداخت/لینکِ خرید نساز، و هیچ عددی را از خودت "
+            "نساز؛ اگر مشتری قیمت یا خرید خواست، بگو از راهِ ارتباطِ رسمیِ همان فروشگاه "
+            "پرسش کند."
+        )
+    else:
+        parts.append(
+            "قاعدهٔ کانالِ اینستاگرام (حالتِ فروش): می‌توانی محصول و قیمت را از فهرستِ "
+            "موجود بگویی، ولی در کامنتِ عمومی هیچ لینکِ پرداختی نساز و برایِ گرفتنِ "
+            "شمارهٔ تماس یا آدرس، مشتری را به دایرکت دعوت کن."
+        )
+    return "\n\n".join(parts) if parts else None
 
 
 def private_reply_text(answer: str, shop_bot) -> str:
@@ -1070,6 +1102,7 @@ async def _handle_inbound(session: AsyncSession, main_bot, event: DirectMessage)
         # در دایرکتِ اینستاگرام هیچ دکمه‌ای نمایش داده نمی‌شود ⇒ «ابزارهایِ ربات» خالی می‌ماند تا
         # مدل مشتری را به دکمه‌ای دعوت نکند که وجود ندارد (همان قاعدهٔ P24ِ «دکمهٔ مرده»).
         bot_tools=[],
+        channel_directive=instruction_directive(account, admin_settings, shop_bot),
     )
     history = await conversation_service.get_recent_history(
         session, customer.id, shop_prefs_service.resolve(shop_prefs_service.HISTORY_LIMIT, shop_bot, admin_settings)

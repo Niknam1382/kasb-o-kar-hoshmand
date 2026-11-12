@@ -307,6 +307,9 @@ class AdminSettings(Base):
     instagram_app_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     instagram_app_secret: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
     instagram_webhook_verify_token: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+    # پ۶۰ · خواستهٔ مالکِ محصول: متنِ پیش‌فرضِ سراسریِ هوشمندسازیِ اینستاگرام. مثلِ «متنِ پلتفرم»
+    # در بیوگرافی: اگر خودِ فروشگاه چیزی ننویسد، همین اجرا می‌شود؛ اگر بنویسد، کنارِ هم می‌نشینند.
+    instagram_platform_instructions: Mapped[str | None] = mapped_column(Text, nullable=True, server_default="")
     rate_limit_window_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     payment_reservation_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
     # مدتِ رزروِ خودکارِ موجودی برای سفارش‌هایی که هوش مصنوعی تشخیص داده ولی
@@ -758,6 +761,9 @@ class InstagramAccount(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     auto_reply_dm: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     greeting_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # پ۶۰: دستورِ اختصاصیِ خودِ فروشگاه برایِ پاسخ‌هایِ اینستاگرام (دایرکت و کامنت).
+    # NULL/خالی ⇒ فقط متنِ سراسریِ ادمین اجرا می‌شود؛ این ستون هیچ متنِ دیگری را پاک نمی‌کند.
+    instructions: Mapped[str | None] = mapped_column(Text, nullable=True, server_default="")
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     connected_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

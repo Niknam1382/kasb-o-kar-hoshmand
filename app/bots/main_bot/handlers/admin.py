@@ -1260,6 +1260,8 @@ _NULLABLE_TEXT_FIELDS: dict[str, str] = {
     # P49-الف: دو رازِ متا (امضایِ وب‌هوک + توکنِ تأیید) — قابلِ تنظیم و قابلِ «خالی»کردن.
     "instagram_app_secret": texts.ADMIN_ASK_INSTAGRAM_APP_SECRET,
     "instagram_webhook_verify_token": texts.ADMIN_ASK_INSTAGRAM_VERIFY_TOKEN,
+    # پ۶۰: متنِ سراسریِ هوشمندسازیِ اینستاگرام (رِاز نیست، پس در گروهِ رمزنگاری نمی‌نشیند)
+    "instagram_platform_instructions": texts.ADMIN_ASK_INSTAGRAM_PLATFORM_INSTRUCTIONS,
 }
 
 # P18 · A1: بعدِ ذخیره‌یِ این فیلدها کشِ اعتبارهایِ بله تازه می‌شود ⇒ تغییر بدونِ ری‌استارت اعمال می‌شود.
@@ -1673,6 +1675,11 @@ async def setting_value_entered(
     else:
         value = raw
 
+    if field == "instagram_platform_instructions" and value is not None and len(str(value)) > 2000:
+        # پ۶۰: سقفِ متنِ سراسریِ اینستاگرام (این متن به پرامپتِ هرِ فروشگاه اضافه می‌شود،
+        # پس بلندِ بی‌حدِ آن یعنی مصرفِ توکنِ همه، نه فقط یکِ فروشگاه)
+        await message.answer(texts.ADMIN_INVALID_INSTAGRAM_PLATFORM_INSTRUCTIONS)
+        return
     if field in _INSTAGRAM_FIELDS and value is not None:
         error = _instagram_value_error(field, str(value))
         if error is not None:

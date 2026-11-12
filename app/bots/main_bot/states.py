@@ -47,6 +47,7 @@ class InstagramStates(StatesGroup):
     """P49-الف: متنِ خوشآمدِ دایرکتِ اینستاگرام (تنظیم/پاک‌کردن با «خالی»)."""
 
     waiting_greeting = State()
+    waiting_instructions = State()  # پ۶۰: متنِ هوشمندسازیِ اینستاگرامِ خودِ فروشگاه
 
 
 class ProductStates(StatesGroup):

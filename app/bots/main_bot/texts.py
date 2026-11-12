@@ -2204,6 +2204,7 @@ ADMIN_SETTING_GROUP: dict[str, str] = {
     "bale_provider_token": "bale",
     # P49-الف: سه مقدارِ متا که بدونِ هیچ‌کدام اتصال ممکن نیست (دستهٔ «🟣 اینستاگرام»).
     "instagram_app_id": "instagram",
+    "instagram_platform_instructions": "instagram",
     "instagram_app_secret": "instagram",
     "instagram_webhook_verify_token": "instagram",
     "sms_api_key": "messaging",
@@ -2233,6 +2234,16 @@ ADMIN_SETTINGS_STALE_GROUP = "این دسته باز نیست. «🔑 تنظیم
 INSTAGRAM_BUTTON = "🟣 اینستاگرام"
 INSTAGRAM_TOGGLED_ON = "کانالِ اینستاگرام روشن شد؛ دکمهٔ «🟣 اینستاگرام» در پنلِ فروشگاه‌دارها دیدنی شد."
 INSTAGRAM_TOGGLED_OFF = "کانالِ اینستاگرام خاموش شد؛ دکمه‌یِ پنل هم رفت و هیچ پیامی پاسخ داده نمی‌شود."
+
+# پ۶۰ · خواستهٔ مالکِ محصول: متنِ سراسریِ هوشمندسازیِ اینستاگرام (فقط سوپرادمین)
+ADMIN_ASK_INSTAGRAM_PLATFORM_INSTRUCTIONS = (
+    "متنِ پیش‌فرضِ سراسریِ اینستاگرام رو بنویس (حداکثر ۲۰۰۰ حرف).\n\n"
+    "این متن به همهٔ فروشگاه‌هایی اضافه می‌شه که اینستاگرامشون هوشمند شده — کنارِ متنِ "
+    "خودِ فروشگاه، نه جایِ آن. برایِ پاک‌کردن «خالی» بنویس."
+)
+ADMIN_INSTAGRAM_PLATFORM_INSTRUCTIONS_SAVED = "✅ متنِ سراسریِ اینستاگرام ذخیره شد."
+ADMIN_INVALID_INSTAGRAM_PLATFORM_INSTRUCTIONS = "این متن نباید بیشتر از ۲۰۰۰ حرف باشد."
+
 
 ADMIN_ASK_INSTAGRAM_APP_ID = (
     "«App ID» اپلیکیشنِ متا را بفرست (از developers.facebook.com ⇒ اپِ خودت ⇒ Settings ⇒ Basic).\n\n"
@@ -2281,6 +2292,20 @@ INSTAGRAM_LINK_SENT = (
     "{link}\n\n"
     "بعد ازِ تأیید، یکِ صفحهٔ کوتاه می‌بینی و همین‌جا در پنل وضعیت «وصل است» می‌شود."
 )
+# پ۶۰ · متنِ هوشمندسازیِ اینستاگرامِ خودِ فروشگاه
+INSTAGRAM_INSTRUCTIONS_BUTTON = "📝 متنِ هوشمندسازیِ اینستاگرام"
+INSTAGRAM_INSTRUCTIONS_ASK = (
+    "✍️ بنویس رباتت در اینستاگرام چطور جواب بده (حداکثر ۱۵۰۰ حرف).\n\n"
+    "مثلاً: لحنِ صمیمی، ساعتِ پاسخ‌گویی، چه سؤالاتی را جواب ندهد، چه چیزی را به دایرکت بکشاند.\n"
+    "این متن جایِ دستورِ اصلیِ فروشگاه را نمی‌گیرد، کنارِ آن می‌نشیند.\n"
+    "برایِ پاک‌کردن بنویس: «خالی»"
+)
+INSTAGRAM_INSTRUCTIONS_SAVED = "متنِ هوشمندسازیِ اینستاگرام ذخیره شد ✅"
+INSTAGRAM_INSTRUCTIONS_CLEARED = "متنِ هوشمندسازیِ اینستاگرام پاک شد؛ فقط تنظیماتِ عمومی اجرا می‌شه."
+INSTAGRAM_INSTRUCTIONS_TOO_LONG = "این متن بیشتر از ۱۵۰۰ حرف است؛ کوتاه‌ترش کن."
+INSTAGRAM_INSTRUCTIONS_LINE = "• متنِ هوشمندسازیِ اینستاگرام: {state}"
+
+
 INSTAGRAM_GREETING_ASK = (
     "✍️ متنِ خوشآمدِ اینستاگرام را بنویس (حداکثر ۵۰۰ حرف).\n\n"
     "برایِ پاک‌کردن بنویس: «خالی»"
@@ -2337,6 +2362,11 @@ def instagram_status_text(account, admin_settings) -> str:
     else:
         lines.append(INSTAGRAM_CONNECTED_AS.format(username="@" + (account.ig_username or "—")))
         lines.append(f"• پاسخ‌گوییِ خودکار: {'روشن' if account.auto_reply_dm else 'خاموش'}")
+        lines.append(
+            INSTAGRAM_INSTRUCTIONS_LINE.format(
+                state="دارد" if (account.instructions or "").strip() else "ندارد (فقط تنظیماتِ عمومی)"
+            )
+        )
     lines += ["", INSTAGRAM_DM_RULE_TEXT, INSTAGRAM_PAYMENTS_NOTE]
     if account is not None and account.last_error:
         lines += ["", INSTAGRAM_LAST_ERROR.format(error=account.last_error)]
@@ -2480,6 +2510,12 @@ def admin_settings_button_labels(admin_settings, group: str | None = None) -> li
         (
             "instagram_webhook_verify_token",
             f"🔐 توکنِ تأییدِ وب‌هوک: {_mask_secret(admin_settings.instagram_webhook_verify_token)}",
+        ),
+        # پ۶۰ · خواستهٔ مالکِ محصول: متنِ سراسریِ هوشمندسازیِ اینستاگرام (رِاز نیست، متنِ کامل نشان داده می‌شود)
+        (
+            "instagram_platform_instructions",
+            "🟣 متنِ سراسریِ هوشمندسازیِ اینستاگرام: "
+            + ("تنظیم‌شده ✅" if (admin_settings.instagram_platform_instructions or "").strip() else "خالی"),
         ),
         ("platform_card_number", f"💳 شماره کارت پلتفرم: {_mask_secret(admin_settings.platform_card_number)}"),
         ("platform_card_holder_name", f"👤 صاحب کارت: {admin_settings.platform_card_holder_name or 'تنظیم‌نشده'}"),
