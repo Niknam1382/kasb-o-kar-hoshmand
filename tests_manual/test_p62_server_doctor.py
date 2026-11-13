@@ -237,6 +237,25 @@ async def _doctor_gate_state() -> bool:
     return job_gate_service.is_paused(admin_settings, "doctor")
 
 
+def test_ready_to_alert_treats_never_alerted_as_fresh() -> None:
+    """پ۶۵: «هنوز هشدار نشده» باید None باشد، نه `0.0`.
+
+    `time.monotonic()` از مبدأِ دلخواهِ سیستم‌عامل می‌آید و رویِ ماشین/VMِ تازه‌روشن خودش از
+    `ALERT_COOLDOWN_SECONDS` کوچک‌تر است؛ با sentinelِ صفری اولین هشدارِ هرِ بوت بی‌صدا خفه می‌شد
+    (همین را سوئیتِ کاملِ پ۶۵ گرفتش: `sent == 0` رویِ اجرایِ اول).
+    """
+    finding = server_doctor.Finding(key="disk", severity="warn", title="عنوان", detail="جزئیات", suggestion="پیشنهاد")
+    real_time = server_doctor.time
+    server_doctor.time = type("_Clock", (), {"monotonic": staticmethod(lambda: 5.0)})
+    try:
+        server_doctor.reset_alert_clock_for_tests()
+        assert [item.key for item in server_doctor._ready_to_alert([finding])] == ["disk"], "اجرایِ اول باید هشدار بدهد"
+        assert server_doctor._ready_to_alert([finding]) == [], "دوباره داخلِ خنک‌کردنِ یک‌ساعته است"
+    finally:
+        server_doctor.time = real_time
+    print("PASS test_ready_to_alert_treats_never_alerted_as_fresh")
+
+
 async def test_job_gate_has_the_doctor_group() -> None:
     await reset_database()
     assert "doctor" in job_gate_service.GROUPS
@@ -300,10 +319,11 @@ async def main() -> None:
     await test_counter_and_log_rules()
     await test_inspect_is_read_only_and_uses_live_numbers()
     await test_run_cooldown_and_recipients()
+    test_ready_to_alert_treats_never_alerted_as_fresh()
     await test_job_gate_has_the_doctor_group()
     await test_doctor_screen(main_dp)
     await test_access_and_menu(main_dp)
-    print("📊 نتیجه: ۷ تستِ پ۶۲ (ایجنتِ عیب‌یابیِ سرور) پاس شد · قوانین/لاگ/فقط‌خواندنی/خنک‌کردن/دروازه/پنل/دسترسی")
+    print("📊 نتیجه: ۸ تستِ پ۶۲ (ایجنتِ عیب‌یابیِ سرور) پاس شد · قوانین/لاگ/فقط‌خواندنی/خنک‌کردن/مبدأِ clock/دروازه/پنل/دسترسی")
 
 
 if __name__ == "__main__":

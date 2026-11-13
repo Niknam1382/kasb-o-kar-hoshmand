@@ -185,20 +185,39 @@ def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True, inst
     return ReplyKeyboardMarkup(keyboard=grid([KeyboardButton(text=label) for label in labels]), resize_keyboard=True)
 
 def profile_keyboard() -> InlineKeyboardMarkup:
-    """P22: شش فعلِ این صفحه در سه ردیفِ دونفره (قبلاً دو ردیفِ تک در آخر داشت)."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=grid(
-            [
-                InlineKeyboardButton(text="✏️ نام", callback_data="pf_edit:first_name"),
-                InlineKeyboardButton(text="✏️ نامِ خانوادگی", callback_data="pf_edit:last_name"),
-                InlineKeyboardButton(text="✏️ موبایل", callback_data="pf_edit:phone"),
-                InlineKeyboardButton(text="✏️ ایمیل", callback_data="pf_edit:email"),
-                InlineKeyboardButton(text="🔀 نوعِ کسب‌وکار", callback_data="pf_mode"),
-                InlineKeyboardButton(text="📞 پشتیبانیِ پلتفرم", callback_data="pf_support"),
-            ],
-            max_label=26,
-        )
+    """P22: شش فعلِ این صفحه در سه ردیفِ دونفره (قبلاً دو ردیفِ تک در آخر داشت).
+
+    پ۶۵ · موردِ ۲۷/۴۱-ب: «🗑 حذفِ حسابِ من» ردیفِ *تنهایِ آخر* است و عمداً دونفره نشده:
+    خطرناک‌ترین فعلِ این صفحه نباید کنارِ «✏️ نام» بیفتد، چون یکِ دابل‌تپِ بی‌دقت حساب را می‌بندد.
+    """
+    rows = grid(
+        [
+            InlineKeyboardButton(text="✏️ نام", callback_data="pf_edit:first_name"),
+            InlineKeyboardButton(text="✏️ نامِ خانوادگی", callback_data="pf_edit:last_name"),
+            InlineKeyboardButton(text="✏️ موبایل", callback_data="pf_edit:phone"),
+            InlineKeyboardButton(text="✏️ ایمیل", callback_data="pf_edit:email"),
+            InlineKeyboardButton(text="🔀 نوعِ کسب‌وکار", callback_data="pf_mode"),
+            InlineKeyboardButton(text="📞 پشتیبانیِ پلتفرم", callback_data="pf_support"),
+        ],
+        max_label=26,
     )
+    rows.append([InlineKeyboardButton(text=texts.ACCOUNT_DELETE_BUTTON, callback_data="acc_delete")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def account_delete_keyboard() -> InlineKeyboardMarkup:
+    """پ۶۵: دو فعلِ صفحهٔ پیش‌نمایشِ حذفِ حساب — تاییدِ نخست و بازگشتِ بی‌عمل."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.ACCOUNT_DELETE_GO_BUTTON, callback_data="acc_delete_yes")],
+            [InlineKeyboardButton(text="⬅️ انصراف", callback_data="pf_back")],
+        ]
+    )
+
+
+def account_delete_blocked_keyboard() -> InlineKeyboardMarkup:
+    """پ۶۵: شرطِ پول برقرار نیست ⇒ دکمهٔ تایید نشان داده نمی‌شود (تا کاربر رویِ «بله» نزند و هیچ‌چیز نشود)."""
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ انصراف", callback_data="pf_back")]])
 
 
 def tenant_mode_ask_keyboard(target: str) -> InlineKeyboardMarkup:

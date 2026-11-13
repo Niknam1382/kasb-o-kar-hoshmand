@@ -48,14 +48,17 @@ class Chat:
         # پ۶۴: این گفتگو شناسهٔ کال‌بک را خودش می‌شمارد (`_n`) ⇒ نگهبانِ «پاسخِ دوباره» روشن است.
         self.session.strict_callback_answers = True
         self._n = 0
+        # پ۶۵: برخی جریان‌ها هندلرشان یکِ وابستگیِ تزریق‌شده می‌خواهد (مثلاً `bot_manager`).
+        # پیش‌فرضِ خالی یعنی «هیچ» ⇒ هیچ تستِ قدیمی نباید چیزی حس کند.
+        self.extra: dict = {}
 
     async def say(self, text: str) -> None:
         self._n += 1
-        await self.dp.feed_update(self.bot, make_message_update(self._n, text=text, user_id=self.user_id))
+        await self.dp.feed_update(self.bot, make_message_update(self._n, text=text, user_id=self.user_id), **self.extra)
 
     async def tap(self, data: str) -> None:
         self._n += 1
-        await self.dp.feed_update(self.bot, make_callback_update(self._n, data=data, user_id=self.user_id))
+        await self.dp.feed_update(self.bot, make_callback_update(self._n, data=data, user_id=self.user_id), **self.extra)
 
     @property
     def sent(self) -> list[dict]:

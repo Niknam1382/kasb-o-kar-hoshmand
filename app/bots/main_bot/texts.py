@@ -3287,6 +3287,8 @@ _AUDIT_EVENT_LABELS = {
     "owner_deactivated": "🧊 غیرفعال‌کردنِ حسابِ فروشگاه‌دار",
     "owner_restored": "♻️ بازگرداندنِ حسابِ فروشگاه‌دار",
     "owner_purged": "🔥 حذفِ قطعیِ دادهٔ فروشگاه‌دار",
+    # پ۶۵ · موردِ ۲۷/۴۱-ب: حذفِ حساب *از پنلِ خودِ فروشگاه‌دار* (بی‌نام‌سازیِ هویت، اسنادِ مالی می‌ماند).
+    "owner_self_deleted": "🧊 حذفِ حسابِ خودِ فروشگاه‌دار",
     # P49-الف: کانالِ اینستاگرام (سوییچِ سراسری + اتصال/قطعِ اتصالِ فروشگاه).
     "instagram_toggled": "🟣 تغییرِ سوییچِ اینستاگرام",
     "instagram_connected": "🟣 اتصالِ اکانت اینستاگرام",
@@ -4634,3 +4636,64 @@ def inactive_purge_summary(removed_rows: int, touched_tables: int) -> str:
     return INACTIVE_PURGE_SUMMARY.format(
         items=f"{fa_number(removed_rows)} ردیف در {fa_number(touched_tables)} جدول", tail=INACTIVE_PURGE_WORD
     )
+
+
+# =============================================================================
+# پ۶۵ · موردِ ۲۷/۴۱-ب — «حذفِ حسابِ من» در پنلِ خودِ فروشگاه‌دار
+# =============================================================================
+# واژهٔ تایید عمداً در `_KNOWN_MENU_BUTTONS` ثبت نشده (دیدنی‌بودنش حالتِ تایید را می‌شکند):
+# توضیحش در `AccountDeletionStates` است.
+ACCOUNT_DELETE_BUTTON = "🗑 حذفِ حسابِ من"
+ACCOUNT_DELETE_GO_BUTTON = "✅ بله، حسابم را ببند"
+ACCOUNT_DELETE_WORD = "حذفِ حساب"
+ACCOUNT_DELETE_NOT_REGISTERED = "برایِ حذفِ حساب اول باید ثبت‌نامت را تمام کنی."
+ACCOUNT_DELETE_ALREADY = "🧊 این حساب ازپیش بسته شده است."
+ACCOUNT_DELETE_BAD_WORD = "عبارت را دقیقاً «{word}» بنویس. برایِ بیرون‌آمدن از این مرحله دکمه‌هایِ منو را بزن."
+ACCOUNT_DELETE_STALE = "چیزی برایِ حذفِ حساب باز نمانده؛ از «👤 پروفایل من» دوباره شروع کن."
+ACCOUNT_DELETE_ASK = (
+    "⚠️ بستنِ حساب برگشت‌ناپذیر است: ربات خاموش و هویت‌ها بی‌نام می‌شوند. اگر مطمئنی، همین عبارت را بنویس: {word}\n"
+    "برایِ بی‌عمل ماندن /cancel را بزن."
+)
+ACCOUNT_DELETE_BLOCKED_WALLET = "⚠️ کیف‌پولت هنوز {wallet} اعتبار دارد. با موجودیِ غیرصفر حساب بسته نمی‌شود: اول مصرفش کن یا با پشتیبانیِ پلتفرم هماهنگ شو."
+ACCOUNT_DELETE_BLOCKED_RESERVED = "⚠️ {reserved} کمیسیونِ سفارش‌هایِ درجریانِ پرداخت قفل شده است؛ وقتی همان سفارش‌ها بسته شدند دوباره تلاش کن."
+ACCOUNT_DELETE_DONE = "🧊 حساب بسته شد. {summary}\nهر وقت خواستی برایِ بازگشت با پشتیبانیِ پلتفرم صحبت کن."
+ACCOUNT_DELETE_DONE_SUMMARY = "{erased} ردیف پاک و {customers} مشتری بی‌نام شد؛ {documents} سندِ مالی و ردیفِ ممیزی نگه داشته شد."
+ACCOUNT_DELETE_FAILED = "❌ حذفِ حساب انجام نشد: {error}"
+
+
+def account_delete_preview_text(
+    *,
+    customers: int,
+    messages: int,
+    addresses: int,
+    documents: int,
+    open_orders: int,
+    bot_count: int,
+    instagram_accounts: int,
+    bale_bots: int,
+    pending_messages: int,
+) -> str:
+    """صفحهٔ پیشِ تایید: چه چیزی می‌رود، چه چیزی می‌ماند و چه خطری هست (ارقامِ جلالی)."""
+    lines = [
+        "🗑 حذفِ حسابِ من",
+        "",
+        "این‌ها پاک یا بی‌نام می‌شوند:",
+        f"• {fa_number(bot_count)} رباتِ فروشگاه خاموش می‌شود و هر کلیدِ اتصال (تلگرام، بله، اینستاگرام، درگاهِ پرداخت) پاک می‌شود",
+        f"• {fa_number(messages)} پیامِ گفتگو با مشتری‌ها حذف می‌شود",
+        f"• هویتِ {fa_number(customers)} مشتری بی‌نام می‌ماند (نام، یوزرنیم، شماره، یادداشت و برچسب)",
+        f"• {fa_number(addresses)} آدرسِ دفترچهٔ آدرس حذف می‌شود",
+        f"• {fa_number(pending_messages)} پیامِ ارسال‌نشده از صف می‌رود",
+        "• نام، موبایل و ایمیلِ خودِ تو پاک می‌شود",
+        "",
+        "این‌ها می‌مانند (بدونِ نامِ کسی):",
+        f"• {fa_number(documents)} سفارش، فاکتور و ردیفِ کیف‌پول — سندِ حسابداریِ تو و پلتفرم",
+        "• ردیف‌هایِ ممیزی، که پاک‌کردنشان دفترِ شاهدِ تصمیمها را بی‌ارزش می‌کند",
+    ]
+    if instagram_accounts:
+        lines.append(f"• اتصالِ اینستاگرام ({fa_number(instagram_accounts)} پیج) هم قطع می‌شود")
+    if bale_bots:
+        lines.append(f"• رباتِ بله‌یِ خودِ فروشگاه ({fa_number(bale_bots)} مورد) هم خاموش می‌شود")
+    if open_orders:
+        lines += ["", f"⚠️ {fa_number(open_orders)} سفارشِ باز داری؛ با حذفِ حساب هیچ‌کس آنها را پردازش نمی‌کند."]
+    lines += ["", "اگر مطمئنی «بله، حسابم را ببند» را بزن؛ بعدش همان عبارتِ «حذفِ حساب» را باید بنویسی."]
+    return "\n".join(lines)

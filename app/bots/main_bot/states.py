@@ -301,6 +301,18 @@ class InactiveOwnerStates(StatesGroup):
     waiting_word = State()
 
 
+class AccountDeletionStates(StatesGroup):
+    """پ۶۵ · موردِ ۲۷/۴۱: تاییدِ نوشتاریِ «حذفِ حسابِ من» در پنلِ خودِ فروشگاه‌دار.
+
+    عمداً گروهی جدا از `InactiveOwnerStates` (آن مسیرِ ادمین است و `IsAdmin` فیلتر دارد) و
+    عمدتاً واژه‌ای که اینجا پرسیده می‌شود در `_KNOWN_MENU_BUTTONS` ثبت *نمی‌شود*: میدل‌ورِ فرارِ
+    منو هر متنی را که با برچسبِ یکِ دکمهٔ منو برابر باشد first `state.clear()` می‌کند، پس اگر
+    «حذفِ حساب» دکمهٔ منو هم می‌شد، تایپِ خودِ واژهٔ تایید حالت را می‌ساخت و هیچ‌چیز حذف نمی‌شد.
+    """
+
+    waiting_word = State()
+
+
 class AdminTimeStates(StatesGroup):
     """W5 · K1–K4: هدیه/تمدیدِ گروهی، توقفِ زمان."""
 

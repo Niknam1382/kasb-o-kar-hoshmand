@@ -254,11 +254,20 @@ def alert_text(findings: list[Finding], moment: datetime.datetime) -> str:
 
 
 def _ready_to_alert(findings: list[Finding]) -> list[Finding]:
-    """یافته‌هایی که تازه‌اند (نه چیزی که همین‌الاخ هشدارش رفته است)."""
+    """یافته‌هایی که تازه‌اند (نه چیزی که همین‌الاخ هشدارش رفته است).
+
+    «هیچ‌وقت هشدار نشده» باید `None` باشد، نه `0.0`: `time.monotonic()` از *مبدأِ دلخواهِ
+    سیستم‌عامل* شمرده می‌شود و رویِ ماشین/VM تازه‌روشن (کمتر از یکِ ساعت کارکرد) خودش از
+    `ALERT_COOLDOWN_SECONDS` کوچک‌تر است ⇒ با sentinelِ صفری، اولین هشدارِ هرِ بوتِ تازه بی‌صدا
+    خفه می‌شد (همین باگ در سوئیتِ پ۶۵ پیدا شد).
+    """
     now = time.monotonic()
-    fresh = [finding for finding in findings if now - _last_alert_at.get(finding.key, 0.0) >= ALERT_COOLDOWN_SECONDS]
-    for finding in fresh:
-        _last_alert_at[finding.key] = now
+    fresh: list[Finding] = []
+    for finding in findings:
+        last = _last_alert_at.get(finding.key)
+        if last is None or now - last >= ALERT_COOLDOWN_SECONDS:
+            fresh.append(finding)
+            _last_alert_at[finding.key] = now
     return fresh
 
 

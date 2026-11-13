@@ -186,7 +186,9 @@ def test_panel_inline_screens_are_paired() -> None:
     widths = [len(row) for row in rows(main_keyboards.payments_menu_keyboard(_Row(), _Bot()))]
     assert max(widths) <= 2, widths
     widths = [len(row) for row in rows(main_keyboards.profile_keyboard())]
-    assert widths == [2, 2, 2], widths
+    # پ۶۵ · قاعدهٔ ۸: تغییرِ عمدیِ انتظار — «🗑 حذفِ حسابِ من» ردیفِ *تنهایِ آخر* است (چهارم)،
+    # تا خطرناک‌ترین فعلِ صفحه کنارِ ویرایش‌هایِ بی‌خطر دونفره نشود. بقیهٔ چینش دست‌نخورده است.
+    assert widths == [2, 2, 2, 1], widths
     widths = [len(row) for row in rows(main_keyboards.audit_filter_keyboard("money", "24"))]
     assert max(widths) <= 2, widths
     print("✅ test_panel_inline_screens_are_paired PASSED")

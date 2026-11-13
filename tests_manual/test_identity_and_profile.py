@@ -185,7 +185,9 @@ async def test_profile_card_edit_and_audit(main_dp) -> None:
     assert str(OWNER_TG_ID) not in visible and "آیدی" not in visible, "H2: آیدیِ عددی نباید در پروفایل باشه"
     assert "فروشنده فعال" in owner.last_text and "+98912" in owner.last_text
     assert callbacks(owner.last_markup) == [
-        "pf_edit:first_name", "pf_edit:last_name", "pf_edit:phone", "pf_edit:email", "pf_mode", "pf_support",
+        # پ۶۵ · قاعدهٔ ۸: تغییرِ عمدیِ انتظار — «🗑 حذفِ حسابِ من» (`acc_delete`) به فهرستِ فعل‌هایِ
+        # صفحهٔ پروفایل اضافه شد؛ شش فعلِ قبلی به همان ترتیب دست‌نخورده‌اند.
+        "pf_edit:first_name", "pf_edit:last_name", "pf_edit:phone", "pf_edit:email", "pf_mode", "pf_support", "acc_delete",
     ]
     for legacy in ("✏️ ویرایش اطلاعات", "🔀 نوعِ کسب‌وکار"):  # دکمه‌یِ کهنه → همون پروفایل
         await owner.say(legacy)

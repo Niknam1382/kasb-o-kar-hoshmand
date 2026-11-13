@@ -227,6 +227,9 @@ class AuditEventType(str, enum.Enum):
     OWNER_DEACTIVATED = "owner_deactivated"  # P22 · مشکلِ ۸ (حذفِ نرمِ حسابِ فروشگاه‌دار)
     OWNER_RESTORED = "owner_restored"
     OWNER_PURGED = "owner_purged"  # حذفِ قطعیِ محتوا (پوسته ماندنی است اگر ممیزی دارد)
+    # پ۶۵ · موردِ ۲۷/۴۱: حذفِ حساب *از خودِ پنلِ فروشگاه‌دار* (بستنِ حساب + بی‌نام‌سازیِ هویت؛
+    # اسنادِ مالی و ممیزی می‌مانند). نوعِ ستون String(32) است ⇒ افزودنِ عضوِ تازه مایگریشن نمی‌خواهد.
+    OWNER_SELF_DELETED = "owner_self_deleted"
     # P49-الف: کانالِ اینستاگرام (فقط APIِ رسمیِ متا). سوییچِ سراسری + اتصال/قطعِ اتصالِ فروشگاه.
     INSTAGRAM_TOGGLED = "instagram_toggled"
     INSTAGRAM_CONNECTED = "instagram_connected"

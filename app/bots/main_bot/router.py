@@ -5,6 +5,7 @@ from aiogram import Router
 from app.bots.common.error_handler import on_handler_error
 from app.bots.common.middlewares import ChannelGateMiddleware, IdentityRefreshMiddleware, MenuButtonEscapeMiddleware
 from app.bots.main_bot.handlers import (
+    account_delete,
     accounting,
     admin,
     admin_ai_usage,
@@ -152,6 +153,9 @@ def build_main_router() -> Router:
     router.include_router(admin_time.super_router)  # K3/K4: سوپرادمین اول؛ بعدش روترِ عمومی «غیرسوپر ⇒ پیامِ مودبانه»
     router.include_router(admin_time.router)
     router.include_router(profile.router)
+    # پ۶۵ · موردِ ۲۷/۴۱-ب: «حذفِ حسابِ من» — عمداً بی‌دروازهٔ کانالِ اجباری (بستنِ حساب نباید مشروطِ
+    # عضویتِ کانالِ بازاریابی باشد) و عمداً *پیش از* پنل، تا واژهٔ تایید در هندلرِ خودِ جریان بماند.
+    router.include_router(account_delete.router)
     router.include_router(panel.router)
     router.include_router(order_ops.router)
     router.include_router(payment_ops.router)
