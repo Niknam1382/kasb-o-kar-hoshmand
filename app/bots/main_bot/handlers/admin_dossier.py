@@ -25,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.filters import IsAdmin
-from app.bots.main_bot.handlers.owner_common import safe_edit
 from app.bots.main_bot.states import OwnerDossierStates
 from app.config import settings
 from app.database.models import AuditEventType, ShopOwner

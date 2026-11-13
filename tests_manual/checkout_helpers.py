@@ -25,6 +25,7 @@ async def run_checkout(
     saved_address_id: int | None = None,
     province: str = DEFAULT_PROVINCE,
     city: str = DEFAULT_CITY,
+    region_steps: bool = False,
     address: str = DEFAULT_ADDRESS,
     postal: str | None = None,
     ship_method_id: int | None = None,
@@ -34,7 +35,8 @@ async def run_checkout(
     has_saved_addresses: bool = False,
 ) -> None:
     """از «🧾 نهایی‌کردن» تا پیش‌نمایشِ نهایی. physical=False ⇒ سبدِ فقط‌دیجیتال (بدونِ آدرس/ارسال).
-    saved_address_id ⇒ آدرس از دفترچه؛ وگرنه آدرسِ تازه (استان ← شهر ← آدرس ← کدپستی/رد).
+    saved_address_id ⇒ آدرس از دفترچه؛ وگرنه آدرسِ تازه (پ۶۸: با region_steps=True استان ← شهر ← آدرس ← کدپستی/رد،
+    و با پیش‌فرضِ جدیدِ محصول فقط آدرس ← کدپستی/رد).
     ship_method_id همیشه وقتی لازمه که فروشگاه حتی یک روشِ ارسالِ فعال داره (B8: انتخابِ خودکار حذف شد).
     از P22 اگر None باشد و سبد فیزیکی باشد، «هماهنگیِ ارسال» (ck_ship:0) انتخاب می‌شود — گام رد نمی‌شود.
     has_saved_addresses=True وقتی این مشتری قبلاً آدرسی ذخیره کرده (چک‌اوتِ دوم به بعد): فهرستِ آدرس‌ها نشون داده
@@ -49,8 +51,9 @@ async def run_checkout(
         else:
             if has_saved_addresses:
                 await tap("ck_addr_new")
-            await say(province)
-            await say(city)
+            if region_steps:
+                await say(province)
+                await say(city)
             await say(address)
             if postal is None:
                 await tap("ck_skip")

@@ -171,6 +171,7 @@ TEST_FILES = [
     "test_p65_account_deletion.py",
     "test_p66_consultation_screens.py",
     "test_p67_user_dossier.py",
+    "test_p68_checkout_province_city.py",
 ]
 
 

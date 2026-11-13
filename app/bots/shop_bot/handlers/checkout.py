@@ -178,6 +178,24 @@ def _ask(data: dict, key: str, default: str) -> str:
     return (data.get("ck_questions") or {}).get(key) or default
 
 
+_REGION_LABELS = {checkout_flow.POS_PROV: "استان", checkout_flow.POS_CITY: "شهر"}
+
+
+def _address_prompt(data: dict) -> str:
+    """پ۶۸: پرسشِ آدرس + راهنمایِ همان زیرگامی که از مشتری پرسیده نمی‌شود."""
+    disabled = _disabled(data)
+    missing = [_REGION_LABELS[pos] for pos in (checkout_flow.POS_PROV, checkout_flow.POS_CITY) if pos in disabled]
+    question = _ask(data, "address", ui.ASK_ADDRESS_TEXT)
+    hint = ui.region_hint(missing)
+    return f"{question}\n\n{hint}" if hint else question
+
+
+async def _addr_next(ctx: _Ctx, pos: str) -> None:
+    """پ۶۸: بعد از یک زیرمرحله‌یِ آدرس، پرسشِ بعدیِ همان زنجیره (خاموش‌ها رد می‌شوند)."""
+    disabled = _disabled(await ctx.state.get_data())
+    await _go(ctx, checkout_flow.address_next(pos, disabled))
+
+
 def _qa_pairs(data: dict, method, fee: int) -> list[tuple[str, str]]:
     phone = data.get("ck_phone") or ""
     return checkout_flow.build_qa_pairs(
@@ -272,7 +290,7 @@ async def _render(ctx: _Ctx, pos: str) -> None:
     if pos == checkout_flow.POS_ADDR_PICK:
         addresses = await address_book_service.list_addresses(ctx.session, ctx.customer.id)
         if not addresses:
-            await _go(ctx, checkout_flow.POS_PROV, push=False)
+            await _go(ctx, checkout_flow.address_first(_disabled(data)), push=False)
             return
         await ctx.state.set_state(_POS_TO_STATE[pos])
         await message.answer(ui.ASK_ADDRESS_PICK, reply_markup=ui.address_pick_keyboard(addresses))
@@ -300,7 +318,7 @@ async def _render(ctx: _Ctx, pos: str) -> None:
     elif pos == checkout_flow.POS_CITY:
         await message.answer(ui.ASK_CITY, reply_markup=ui.nav_keyboard())
     elif pos == checkout_flow.POS_ADDR_TEXT:
-        await message.answer(_ask(data, "address", ui.ASK_ADDRESS_TEXT), reply_markup=ui.nav_keyboard())
+        await message.answer(_address_prompt(data), reply_markup=ui.nav_keyboard())
     elif pos == checkout_flow.POS_POSTAL:
         await message.answer(ui.ASK_POSTAL, reply_markup=ui.nav_keyboard(skip=True))
     elif pos == checkout_flow.POS_SHIP:
@@ -562,7 +580,7 @@ async def checkout_address_new(callback: CallbackQuery, session: AsyncSession, s
         return
     await callback.answer()
     await state.update_data(ck_addr_new={})
-    await _go(ctx, checkout_flow.POS_PROV)
+    await _go(ctx, checkout_flow.address_first(_disabled(await ctx.state.get_data())))
 
 
 @router.callback_query(CheckoutStates.choosing_address, F.data == "ck_addr_mng")
@@ -635,7 +653,7 @@ async def checkout_province_received(message: Message, session: AsyncSession, st
     if ctx is None:
         return
     await _store_new_address_field(state, "province", value)
-    await _go(ctx, checkout_flow.POS_CITY)
+    await _addr_next(ctx, checkout_flow.POS_PROV)
 
 
 @router.message(CheckoutStates.entering_city, F.text)
@@ -648,7 +666,7 @@ async def checkout_city_received(message: Message, session: AsyncSession, state:
     if ctx is None:
         return
     await _store_new_address_field(state, "city", value)
-    await _go(ctx, checkout_flow.POS_ADDR_TEXT)
+    await _addr_next(ctx, checkout_flow.POS_CITY)
 
 
 @router.message(CheckoutStates.entering_address, F.text)
@@ -661,13 +679,13 @@ async def checkout_address_text_received(message: Message, session: AsyncSession
     if ctx is None:
         return
     await _store_new_address_field(state, "address", value)
-    await _go(ctx, checkout_flow.POS_POSTAL)
+    await _addr_next(ctx, checkout_flow.POS_ADDR_TEXT)
 
 
 async def _finish_new_address(ctx: _Ctx, postal: str | None) -> None:
     data = await ctx.state.get_data()
     fields = data.get("ck_addr_new")
-    if not fields or not all(fields.get(k) for k in ("province", "city", "address")):
+    if not fields or not fields.get("address"):
         # دابل‌تپ/آپدیتِ کهنه: آدرسِ در-حالِ-ساخت دیگه نیست ⇒ اثرِ دوم نداریم.
         await ctx.message.answer(ui.STALE_STEP)
         return
@@ -676,8 +694,8 @@ async def _finish_new_address(ctx: _Ctx, postal: str | None) -> None:
     row = await address_book_service.add_address(
         ctx.session,
         ctx.customer.id,
-        province=fields["province"],
-        city=fields["city"],
+        province=fields.get("province"),
+        city=fields.get("city"),
         address=fields["address"],
         postal_code=postal,
     )

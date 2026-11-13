@@ -19,6 +19,7 @@ POS_NOTE = "note"
 POS_PREVIEW = "preview"
 
 _ADDRESS_POSITIONS = {POS_ADDR_PICK, POS_PROV, POS_CITY, POS_ADDR_TEXT, POS_POSTAL}
+_ADDRESS_SUBSTEP_ORDER = (POS_PROV, POS_CITY, POS_ADDR_TEXT, POS_POSTAL)
 
 MAX_CUSTOM_QUESTIONS = 10
 MAX_NOTE_LENGTH = 300
@@ -92,6 +93,32 @@ def first_position(*, physical: bool = False, ship_choice: bool = False, has_que
         return POS_PREVIEW
     nxt = order[0]
     return POS_ADDR_PICK if nxt == "addr" else nxt
+
+
+def address_chain(disabled: frozenset[str] = frozenset()) -> list[str]:
+    """پ۶۸: زیرمرحله‌هایِ آدرس که واقعاً پرسیده می‌شوند، به همان ترتیب.
+
+    «آدرسِ کامل» هیچ‌وقت حذف نمی‌شود (همان گامِ «آدرس» است)؛ استان و شهر را فروشگاه روشن می‌کند
+    و پیش‌فرض خاموش‌اند ⇒ زنجیره‌یِ پیش‌فرض فقط [addr_text, postal] است."""
+    return [pos for pos in _ADDRESS_SUBSTEP_ORDER if pos not in disabled]
+
+
+def address_first(disabled: frozenset[str] = frozenset()) -> str:
+    """اولین چیزی که بعد از «➕ آدرسِ جدید» از مشتری خواسته می‌شود."""
+    return address_chain(disabled)[0]
+
+
+def address_next(pos: str, disabled: frozenset[str] = frozenset()) -> str:
+    """موقعیتِ پرسشِ بعدیِ آدرس؛ زیرمرحله‌هایِ خاموش رد می‌شوند.
+
+    «آدرسِ کامل» و «کدپستی» هیچ‌وقت در `disabled` نمی‌آیند (کلیدِ پیکربندیِ ندارند)، پس زنجیره
+    همیشه دونمرحله دارد و خروجی همیشه یکِ پرسشِ معتبر است. اگر موقعیتِ فعلی خاموش باشد
+    (آپدیتِ کهنه) از اولِ زنجیره ادامه می‌دهیم تا مشتری در بن‌بست نیفتد."""
+    chain = address_chain(disabled)
+    if pos not in chain:
+        return chain[0]
+    index = chain.index(pos)
+    return chain[min(index + 1, len(chain) - 1)]
 
 
 def push_history(stack: Iterable[str], pos: str | None) -> list[str]:

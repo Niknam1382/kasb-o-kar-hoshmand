@@ -181,19 +181,17 @@ async def test_full_cart_flow_creates_grouped_orders_and_notifies_owner(shop_dp,
 
     await _step("tap", "cart_checkout_start", 5, 3, "نامِ تحویل‌گیرنده")
     await _step("say", "علی رضایی", 6, 4, "شماره‌یِ موبایل")
-    await _step("say", "09120000000", 7, 5, "استان")  # دفترچه‌آدرسِ خالی ⇒ مستقیم ورودِ آدرسِ تازه
-    await _step("say", "تهران", 8, 6, "شهر")
-    await _step("say", "تهران", 9, 7, "آدرسِ کامل")
-    await _step("say", "خیابونِ آزادی، پلاکِ ۱۰", 10, 8, "کدپستی")
-    await _step("tap", "ck_skip", 11, 9, "هماهنگی")  # P22: بعد از کدپستی، پرسشِ ارسال (بدونِ روش ⇒ هماهنگی)
-    await _step("tap", "ck_ship:0", 12, 10, "توضیح")
-    await _step("tap", "ck_skip", 13, 11, "ثبت بشه؟")  # پیش‌نمایشِ نهایی send می‌شه
+    await _step("say", "09120000000", 7, 5, "آدرسِ کامل")  # پ۶۸: استان/شهر پیش‌فرض پرسیده نمی‌شوند
+    await _step("say", "خیابونِ آزادی، پلاکِ ۱۰", 8, 6, "کدپستی")
+    await _step("tap", "ck_skip", 9, 7, "هماهنگی")  # P22: بعد از کدپستی، پرسشِ ارسال (بدونِ روش ⇒ هماهنگی)
+    await _step("tap", "ck_ship:0", 10, 8, "توضیح")
+    await _step("tap", "ck_skip", 11, 9, "ثبت بشه؟")  # پیش‌نمایشِ نهایی send می‌شه
     confirm_text = sent.sent_messages[-1]["text"]
     assert "علی رضایی" in confirm_text and "+989120000000" in confirm_text and "خیابونِ آزادی" in confirm_text
     assert "برنج" in confirm_text and "چای" in confirm_text and "۲۵۰٬۰۰۰" in confirm_text  # جمعِ کل: ۲۰۰٬۰۰۰ + ۵۰٬۰۰۰
 
     await shop_dp.feed_update(shop_bot_instance, make_callback_update(14, data="cart_checkout_confirm", user_id=CUSTOMER_TG_ID))
-    assert len(sent.sent_messages) == 11, "تاییدِ نهایی edit_text ـه، شمارش نباید عوض بشه"
+    assert len(sent.sent_messages) == 9, "تاییدِ نهایی edit_text ـه، شمارش نباید عوض بشه"
 
     async with session_scope() as session:
         cart = await cart_service.get_or_create_cart(session, shop_bot_id, customer_id=await _customer_id(session, shop_bot_id))
@@ -211,7 +209,7 @@ async def test_full_cart_flow_creates_grouped_orders_and_notifies_owner(shop_dp,
     assert len(main_bot.session.sent_messages) == 1, "باید دقیقاً یه اطلاع‌رسانیِ ترکیبی به فروشگاه‌دار بره"
     owner_text = main_bot.session.sent_messages[0]["text"]
     assert "برنج" in owner_text and "چای" in owner_text and "۲۵۰٬۰۰۰" in owner_text
-    assert "+989120000000" in owner_text and "تهران" in owner_text and "علی رضایی" in owner_text
+    assert "+989120000000" in owner_text and "خیابونِ آزادی" in owner_text and "علی رضایی" in owner_text
 
     print("✅ test_full_cart_flow_creates_grouped_orders_and_notifies_owner PASSED")
 
@@ -228,7 +226,7 @@ async def test_checkout_uses_owner_configured_questions(shop_dp, main_bot, bot_m
 
     await shop_dp.feed_update(shop_bot_instance, make_callback_update(1, data=f"cart_add:{product1_id}", user_id=CUSTOMER_TG_ID))
     sent: FakeSession = shop_bot_instance.session  # type: ignore[assignment]
-    steps = [("tap", "cart_checkout_start"), ("say", "علی رضایی"), ("say", "09120000000"), ("say", "تهران"), ("say", "تهران"),
+    steps = [("tap", "cart_checkout_start"), ("say", "علی رضایی"), ("say", "09120000000"),
              ("say", "خیابونِ آزادی، پلاکِ ۱۰"), ("tap", "ck_skip"), ("tap", "ck_ship:0")]  # P22: هماهنگیِ ارسال
     for index, (kind, value) in enumerate(steps, start=2):
         if kind == "tap":
@@ -408,9 +406,10 @@ async def test_bale_pay_offered_for_cart_when_configured(shop_dp, bot_manager) -
     await _quick_checkout(shop_dp, shop_bot_instance, [product1_id, product2_id])
 
     sent: FakeSession = shop_bot_instance.session  # type: ignore[assignment]
-    # W5/C3: _quick_checkout پیام‌هایِ مرحله‌ایِ چک‌اوت را می‌فرستد (نام، موبایل، استان، شهر، آدرس، کدپستی، توضیح، پیش‌نمایش).
-    # P22: پرسشِ «ارسال» هم اضافه شد (با «هماهنگیِ ارسال» وقتی روشی نیست) ⇒ ۹ تا، و با بله‌پی +۱ = ۱۰.
-    assert len(sent.sent_messages) == 10, f"باید ۹ تایِ چک‌اوتِ مرحله‌ای + ۱ پیشنهادِ پرداخت بره، شد {len(sent.sent_messages)}"
+    # W5/C3: _quick_checkout پیام‌هایِ مرحله‌ایِ چک‌اوت را می‌فرستد (نام، موبایل، آدرس، کدپستی، توضیح، پیش‌نمایش).
+    # P22: پرسشِ «ارسال» هم اضافه شد (با «هماهنگیِ ارسال» وقتی روشی نیست) ⇒ ۷ تا، و با بله‌پی +۱ = ۸.
+    # پ۶۸: استان و شهر پیش‌فرض پرسیده نمی‌شوند (دو پیامِ کمتر).
+    assert len(sent.sent_messages) == 8, f"باید ۷ تایِ چک‌اوتِ مرحله‌ای + ۱ پیشنهادِ پرداخت بره، شد {len(sent.sent_messages)}"
     offer_text = sent.sent_messages[-1]["text"]
     assert offer_text == shop_texts.online_payment_offer(250_000)  # ۲۰۰٬۰۰۰ + ۵۰٬۰۰۰
 

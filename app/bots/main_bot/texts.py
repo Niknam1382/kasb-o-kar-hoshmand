@@ -4014,6 +4014,9 @@ CONSULT_CONTACTS_PAGE_SIZE = 10
 # ------------------------------------------------------------------ P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت
 CHECKOUT_STEPS_BUTTON = "🧾 گام‌هایِ پیش‌فرضِ چک‌اوت"
 CHECKOUT_STEP_LABELS = {
+    # پ۶۸: «استان» و «شهر» زیرگامِ «آدرسِ تحویل» هستند و پیش‌فرض خاموش‌اند (از مشتری پرسیده نمی‌شود).
+    "province": "🗺 استان",
+    "city": "🏙 شهر",
     "name": "👤 نامِ تحویل‌گیرنده",
     "phone": "📱 شماره‌یِ موبایل",
     "address": "🏠 آدرسِ تحویل",
@@ -4037,6 +4040,10 @@ CHECKOUT_STEP_QUESTION_TOO_LONG = (
     "متنِ پرسش نباید بیشتر از ۱۵۰ نویسه باشه. کوتاه‌ترش کن یا «خالی» بنویس تا متنِ پیش‌فرض برگردد."
 )
 CHECKOUT_STEP_PHYSICAL_HINT = "🧾 این گام فقط وقتی در چک‌اوت می‌آید که سبد کالایِ فیزیکی داشته باشد."
+CHECKOUT_STEP_REGION_HINT = (
+    "🗺 «استان» و «شهر» دو زیرگامِ جدا از «آدرس» هستند و پیش‌فرض خاموش‌اند تا مشتری آدرس را در یک پیام بنویسد. "
+    "اگر می‌خواهی هر کدام را جدا از مشتری بپرسی، روشنشان کن."
+)
 CHECKOUT_SHIPPING_HINT = (
     "🧾 گامِ «روشِ ارسال» علاوه بر کالایِ فیزیکی، دستکم یک روشِ ارسالِ فعال هم لازم دارد. "
     "از «📦 محصولات › روش‌هایِ ارسال» بسازیش."
@@ -4055,12 +4062,15 @@ def checkout_steps_text(steps) -> str:
         marks = []
         if key in ("address", "shipping"):
             marks.append("فقط برایِ کالایِ فیزیکی")
+        if key in ("province", "city"):
+            marks.append("زیرِ گامِ «آدرسِ تحویل»")
         if step.question != checkout_config_service.DEFAULT_QUESTIONS[key]:
             marks.append("متنِ خودت")
         tail = f" ({' · '.join(marks)})" if marks else ""
         lines.append(f"• {label}: {state}{tail}")
     lines.append("")
     lines.append("گامی که خاموش باشد از مشتری پرسیده نمی‌شود و در سفارش هم ثبت نمی‌شود.")
+    lines.append(CHECKOUT_STEP_REGION_HINT)
     lines.append(CHECKOUT_STEP_PHYSICAL_HINT)
     return "\n".join(lines)
 

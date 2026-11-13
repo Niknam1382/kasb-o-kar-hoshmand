@@ -24,11 +24,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import (
-    AiUsageDebt,
     AuditLogEntry,
     Campaign,
-    Customer,
-    ModerationReport,
     OrderConsultation,
     Payment,
     PaymentStatus,

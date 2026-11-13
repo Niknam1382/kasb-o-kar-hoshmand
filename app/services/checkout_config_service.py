@@ -1,10 +1,14 @@
 """پیکربندیِ گام‌هایِ پیش‌فرضِ چک‌اوت (P18 · B9) — per-shop، منطقِ خالصِ JSON بدونِ I/O.
 
-فقط پنج گامِ ثابتِ چک‌اوت (نام، موبایل، آدرس، ارسال، توضیح) روشن/خاموش و متنِ پرسششان قابلِ ویرایش
-است. سوالاتِ سفارشیِ فروشگاه‌دار (`ShopBot.checkout_questions`) مسیرِ جداگانه‌یِ خودش را دارد و دست‌نخورده
+هفت گامِ چک‌اوت — پنج گامِ اصلی (نام، موبایل، آدرس، ارسال، توضیح) و دو زیرگامِ «آدرس»
+(استان، شهر) — روشن/خاموش و متنِ پرسششان قابلِ ویرایش است.
+سوالاتِ سفارشیِ فروشگاه‌دار (`ShopBot.checkout_questions`) مسیرِ جداگانه‌یِ خودش را دارد و دست‌نخورده
 مانده. همه‌چیز در یک ستونِ متنیِ `ShopBot.checkout_config` ذخیره می‌شود:
 
-* `None`/خالی یا «همه روشن با متنِ پیش‌فرض» ⇒ رفتارِ امروز ⇒ هیچ مهاجرتِ داده‌ای لازم نیست.
+* `None`/خالی ⇒ پیش‌فرض‌هایِ همین فایل ⇒ پنج گامِ اصلی روشن، استان و شهر خاموش.
+* پ۶۸: `province` و `city` دو زیرگامِ «آدرس»‌اند؛ پیش‌فرض «نپرس» است و فروشگاه‌دار از همان
+  صفحه روشنشان می‌کند. پیش‌فرضِ خاموش با ستونِ خالی یکی است ⇒ `dump` همان `None` را می‌نویسد
+  و هیچ مهاجرتِ داده‌ای لازم نیست.
 * JSON خراب، کلیدِ ناشناخته، یا متنِ بلند ⇒ بی‌صدا به پیش‌فرضِ همان گام برمی‌گردد (هرگز کرش نمی‌کند).
 
 قاعده‌یِ ایمنی: «آدرس» و «موبایل» هیچ‌وقت با هم خاموش نمی‌شوند؛ سفارشِ فیزیکی باید راهی برایِ تحویل داشته باشد.
@@ -16,15 +20,20 @@ import json
 
 from app.bots.shop_bot import checkout_ui
 
-STEP_KEYS = ("name", "phone", "address", "shipping", "note")
+STEP_KEYS = ("name", "phone", "address", "province", "city", "shipping", "note")
+# پ۶۸ (موردِ ۱۹): «استان» و «شهر» پیش‌فرض خاموش‌اند ⇒ ستونِ خالی یعنی «نپرس»، نه «بپرس».
+DEFAULT_ENABLED = dict.fromkeys(STEP_KEYS, True) | {"province": False, "city": False}
 MAX_QUESTION_LENGTH = 150
 # گامِ «آدرس» در چک‌اوت ماکرو است و چند زیرمرحله دارد؛ در `checkout_flow` با کلیدِ «addr» شناخته می‌شود.
-STEP_TO_POSITION = {"name": "name", "phone": "phone", "address": "addr", "shipping": "ship", "note": "note"}
+STEP_TO_POSITION = {"name": "name", "phone": "phone", "address": "addr", "province": "prov", "city": "city",
+                    "shipping": "ship", "note": "note"}
 # متنِ پرسشی که متنِ فروشگاه‌دار جایگزینش می‌شود (بقیه‌یِ متن‌ها — از جمله پیام‌هایِ خطا — ثابت می‌مانند).
 DEFAULT_QUESTIONS = {
     "name": checkout_ui.ASK_NAME_PLAIN,
     "phone": checkout_ui.ASK_PHONE,
     "address": checkout_ui.ASK_ADDRESS_TEXT,
+    "province": checkout_ui.ASK_PROVINCE,
+    "city": checkout_ui.ASK_CITY,
     "shipping": checkout_ui.ASK_SHIPPING,
     "note": checkout_ui.ASK_NOTE,
 }
@@ -38,8 +47,8 @@ class CheckoutStep:
 
 
 def parse(raw: str | None) -> dict[str, CheckoutStep]:
-    """`ShopBot.checkout_config` ⇒ نگاشتِ کاملِ پنج گام. مقدارِ نامعتبر ⇒ پیش‌فرض، بدونِ استثناء."""
-    steps = {key: CheckoutStep(key, True, DEFAULT_QUESTIONS[key]) for key in STEP_KEYS}
+    """`ShopBot.checkout_config` ⇒ نگاشتِ کاملِ هفت گام. مقدارِ نامعتبر ⇒ پیش‌فرض، بدونِ استثناء."""
+    steps = {key: CheckoutStep(key, DEFAULT_ENABLED[key], DEFAULT_QUESTIONS[key]) for key in STEP_KEYS}
     if not raw:
         return steps
     try:
@@ -53,13 +62,18 @@ def parse(raw: str | None) -> dict[str, CheckoutStep]:
         if not isinstance(entry, dict):
             continue
         question = str(entry.get("q") or "").strip()[:MAX_QUESTION_LENGTH]
-        steps[key] = CheckoutStep(key, bool(entry.get("on", True)), question or DEFAULT_QUESTIONS[key])
+        steps[key] = CheckoutStep(
+            key, bool(entry.get("on", DEFAULT_ENABLED[key])), question or DEFAULT_QUESTIONS[key]
+        )
     return steps
 
 
 def dump(steps: dict[str, CheckoutStep]) -> str | None:
     """همه‌چیز پیش‌فرض ⇒ None (ستونِ خالی). وگرنه JSONِ فشرده با کلیدهایِ کوتاه."""
-    if all(step.enabled and step.question == DEFAULT_QUESTIONS[step.key] for step in steps.values()):
+    if all(
+        step.enabled == DEFAULT_ENABLED[step.key] and step.question == DEFAULT_QUESTIONS[step.key]
+        for step in steps.values()
+    ):
         return None
     return json.dumps(
         {key: {"on": step.enabled, "q": step.question} for key, step in steps.items()},

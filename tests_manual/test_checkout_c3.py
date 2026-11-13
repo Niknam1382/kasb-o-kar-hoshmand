@@ -25,7 +25,7 @@ from checkout_helpers import run_checkout  # noqa: E402
 
 from app.bots.common import wizard_nav  # noqa: E402
 from app.bots.main_bot import texts  # noqa: E402
-from app.database.models import CartAiProposal, Customer, OrderConsultation  # noqa: E402
+from app.database.models import CartAiProposal, Customer, OrderConsultation, ShopBot  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services import (  # noqa: E402
     address_book_service,
@@ -95,6 +95,13 @@ async def _seed(*, shipping: list[tuple[str, int, int | None]] | None = None) ->
         for name, fee, free_over in shipping or []:
             await shipping_service.create_method(session, shop_bot_id, name, fee, free_over, "۲ تا ۳ روز")
     return shop_bot_id, rice.id, tea.id
+
+
+async def _region_on(shop_bot_id: int) -> None:
+    """پ۶۸: این تست‌ها زنجیره‌یِ کاملِ استان←شهر را می‌سنجند ⇒ زیرگام‌ها را روشن می‌کنیم."""
+    async with session_scope() as session:
+        row = (await session.execute(select(ShopBot).where(ShopBot.id == shop_bot_id))).scalar_one()
+        row.checkout_config = '{"province": {"on": true}, "city": {"on": true}}'
 
 
 async def _orders(shop_bot_id: int) -> list[OrderConsultation]:
@@ -200,10 +207,11 @@ async def test_address_book_rules() -> None:
 # =============================================================================
 async def test_full_physical_flow_saves_everything(shop_dp, main_bot) -> None:
     shop_bot_id, rice, tea = await _seed()
+    await _region_on(shop_bot_id)
     main_bot.session.sent_messages.clear()
     s = _Shopper(shop_dp)
     await s.add(rice, tea)
-    await run_checkout(s.tap, s.say, postal="1234567890", note="لطفاً زنگ نزنید")
+    await run_checkout(s.tap, s.say, postal="1234567890", note="لطفاً زنگ نزنید", region_steps=True)
     preview = s.last_text
     assert "علی رضایی" in preview and "+989120000000" in preview and "تهران" in preview and "1234567890" in preview
     assert "لطفاً زنگ نزنید" in preview and "۲۵۰٬۰۰۰" in preview
@@ -233,9 +241,10 @@ async def test_full_physical_flow_saves_everything(shop_dp, main_bot) -> None:
 
 async def test_saved_address_chooser_manage_and_cap(shop_dp) -> None:
     shop_bot_id, rice, _tea = await _seed()
+    await _region_on(shop_bot_id)
     s = _Shopper(shop_dp)
     await s.add(rice)
-    await run_checkout(s.tap, s.say)  # آدرسِ اول ذخیره می‌شه
+    await run_checkout(s.tap, s.say, region_steps=True)  # آدرسِ اول ذخیره می‌شه (با استان/شهرِ جدا)
     await s.tap("cart_checkout_cancel")
 
     await s.tap("cart_checkout_start")
@@ -284,8 +293,6 @@ async def test_shipping_choice_fee_free_over_and_confirm(shop_dp, main_bot) -> N
     await s.tap("cart_checkout_start")
     await s.say("علی رضایی")
     await s.say("09120000000")
-    await s.say("تهران")
-    await s.say("تهران")
     await s.say("خیابانِ آزادی، پلاکِ ده")
     await s.tap("ck_skip")
     assert any(c.startswith("ck_ship:") for c in s.last_callbacks()), "با ≥۲ روش باید انتخاب بپرسه"
@@ -325,8 +332,6 @@ async def test_single_method_still_requires_explicit_choice(shop_dp) -> None:
     await s.tap("cart_checkout_start")
     await s.say("علی رضایی")
     await s.say("09120000000")
-    await s.say("تهران")
-    await s.say("تهران")
     await s.say("خیابانِ آزادی، پلاکِ ده")
     await s.tap("ck_skip")  # کدپستی
     assert any(c.startswith("ck_ship:") for c in s.last_callbacks()), "با یک روشِ فعال هم باید انتخاب پرسیده شود"
@@ -380,6 +385,7 @@ async def test_digital_only_cart_skips_address_and_shipping(shop_dp) -> None:
 
 async def test_invalid_inputs_back_edit_and_stale_buttons(shop_dp) -> None:
     shop_bot_id, rice, _tea = await _seed()
+    await _region_on(shop_bot_id)
     s = _Shopper(shop_dp)
     await s.add(rice)
     await s.tap("cart_checkout_start")
@@ -452,9 +458,7 @@ async def test_double_confirm_creates_one_order_and_contact_share(shop_dp) -> No
     assert "فقط شماره‌یِ خودت" in s.last_text
     s._n += 1
     await s.dp.feed_update(s.bot, make_message_update(s._n, text=None, user_id=s.user_id, contact_phone="+989127778899", contact_user_id=s.user_id))
-    assert "استان" in s.last_text
-    await s.say("تهران")
-    await s.say("تهران")
+    assert "آدرسِ کامل" in s.last_text, s.last_text  # پ۶۸: استان و شهر جدا پرسیده نمی‌شوند
     await s.say("خیابانِ آزادی، پلاکِ ده")
     await s.tap("ck_skip")
     for callback in s.last_callbacks():

@@ -65,10 +65,11 @@ async def _config_of(shop_bot_id: int) -> str | None:
 # ============================================================================= ۱ — خالصِ پیکربندی
 def test_config_parsing_dumping_and_guards() -> None:
     steps = _defaults()
-    assert [steps[k].enabled for k in cfg.STEP_KEYS] == [True] * 5
+    assert [steps[k].enabled for k in cfg.STEP_KEYS] == [True, True, True, False, False, True, True]
+    assert cfg.DEFAULT_ENABLED["province"] is False and cfg.DEFAULT_ENABLED["city"] is False
     assert steps["phone"].question == checkout_ui.ASK_PHONE
     assert cfg.dump(steps) is None, "همه‌چیز پیش‌فرض ⇒ ستونِ خالی ⇒ رفتارِ امروز"
-    assert cfg.disabled_positions(steps) == frozenset()
+    assert cfg.disabled_positions(steps) == frozenset({"prov", "city"}), "پ۶۸: پیش‌فرضِ نپرس ⇒ دو موقعیت خاموش"
 
     steps = cfg.set_enabled(steps, "note", False)
     stored = cfg.dump(steps)
@@ -207,6 +208,8 @@ async def test_customer_flow_uses_the_shops_config(shop_dp, main_dp, bot_manager
                 "name": {"on": False, "q": checkout_ui.ASK_NAME_PLAIN},
                 "phone": {"on": True, "q": "شماره‌ای بفرست که جوابگو باشی"},
                 "address": {"on": True, "q": checkout_ui.ASK_ADDRESS_TEXT},
+                "province": {"on": True, "q": checkout_ui.ASK_PROVINCE},
+                "city": {"on": True, "q": checkout_ui.ASK_CITY},
                 "shipping": {"on": True, "q": checkout_ui.ASK_SHIPPING},
                 "note": {"on": False, "q": checkout_ui.ASK_NOTE},
             },
@@ -254,6 +257,8 @@ async def test_customer_flow_uses_the_shops_config(shop_dp, main_dp, bot_manager
                 "name": {"on": True, "q": checkout_ui.ASK_NAME_PLAIN},
                 "phone": {"on": False, "q": checkout_ui.ASK_PHONE},
                 "address": {"on": True, "q": "آدرس و پلاکت رو کامل بنویس"},
+                "province": {"on": True, "q": checkout_ui.ASK_PROVINCE},
+                "city": {"on": True, "q": checkout_ui.ASK_CITY},
                 "shipping": {"on": True, "q": checkout_ui.ASK_SHIPPING},
                 "note": {"on": True, "q": checkout_ui.ASK_NOTE},
             },

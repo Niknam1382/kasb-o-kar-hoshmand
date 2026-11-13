@@ -33,8 +33,8 @@ async def add_address(
     session: AsyncSession,
     customer_id: int,
     *,
-    province: str,
-    city: str,
+    province: str | None,
+    city: str | None,
     address: str,
     postal_code: str | None,
     label: str | None = None,
@@ -45,9 +45,9 @@ async def add_address(
         return None
     row = CustomerAddress(
         customer_id=customer_id,
-        label=(label or city)[:64] or None,
-        province=province[:64],
-        city=city[:64],
+        label=(label or city or "")[:64] or None,
+        province=province[:64] if province else None,
+        city=city[:64] if city else None,
         address=address,
         postal_code=postal_code,
         is_default=not existing,

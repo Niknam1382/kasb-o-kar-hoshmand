@@ -36,7 +36,7 @@ import sys
 sys.path.insert(0, ".")
 sys.path.insert(0, "tests_manual")
 
-from sqlalchemy import event, func, select  # noqa: E402
+from sqlalchemy import event, select  # noqa: E402
 from harness import build_test_dispatchers, reset_database  # noqa: E402
 from phase4_helpers import Chat, add_customer, add_order, callbacks  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
@@ -116,7 +116,6 @@ async def _seed_rich_shop() -> tuple[int, int]:
         bot.bale_bot_enabled = True
         bot.bale_provider_token = "provider-token"
         bot.knowledge_channel_id = "-100123"
-        other_bot = await session.get(ShopBot, other_shop_bot_id)
         session.add(
             InstagramAccount(
                 shop_bot_id=shop_bot_id, ig_account_id="1784140900", ig_username="sara.shop",
