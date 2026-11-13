@@ -1430,10 +1430,20 @@ def assistant_keyboard() -> ReplyKeyboardMarkup:
 # فازِ ۶-الف — تنظیماتِ رباتِ فروشگاه
 # =============================================================================
 def consult_contacts_keyboard(members, page: int, total_pages: int) -> InlineKeyboardMarkup:
-    """C2: فهرستِ مخاطبانِ رباتِ مشاوره‌ای + صفحه‌بندی."""
+    """C2: فهرستِ مخاطبانِ رباتِ مشاوره‌ای + صفحه‌بندی.
+
+    پ۶۶ · موردِ ۲۴-ب: ردیفِ *اول* دو فعلِ تازهٔ مودِ مشاوره را می‌آورد (گزارشِ جلسات و بازگشتِ
+    مخاطب). جایِ آن عمداً بالایِ فهرست است که در صفحه‌هایِ دوم و سوم گم نشوند، و بدونِ مودِ
+    فروشگاهی معنا دارند ⇒ صفحهٔ دیگری در منو لازم نشد (چینشِ دونفرهٔ منو هم دست‌نخورده ماند).
+    """
     from app.bots.main_bot import texts
 
-    rows = []
+    rows = [
+        [
+            InlineKeyboardButton(text=texts.CONSULT_REPORTS_BUTTON, callback_data="cre_open"),
+            InlineKeyboardButton(text=texts.CONSULT_RETURN_BUTTON, callback_data="cret_open"),
+        ]
+    ]
     for index, customer in enumerate(members, start=1):
         badge = " 🚫" if customer.is_blocked else ""
         rows.append([InlineKeyboardButton(text=f"{fa_number(index)}. {texts.crm_customer_label(customer)}{badge}", callback_data=f"cc_card:{customer.id}:0")])
@@ -1441,6 +1451,30 @@ def consult_contacts_keyboard(members, page: int, total_pages: int) -> InlineKey
     if nav:
         rows.append(nav)
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def consult_reports_keyboard(current_key: str) -> InlineKeyboardMarkup:
+    """پ۶۶ · موردِ ۲۴-ب: بازه‌هایِ گزارشِ جلسات + اکسلِ همان بازه + بازگشت به فهرستِ مخاطبان."""
+    buttons = [
+        InlineKeyboardButton(text=("✅ " if key == current_key else "") + label, callback_data=f"crep:{key}")
+        for key, label in _ACCOUNTING_BUTTONS
+    ]
+    buttons.append(InlineKeyboardButton(text="📤 اکسلِ این بازه", callback_data=f"crep_xlsx:{current_key}"))
+    buttons.append(InlineKeyboardButton(text=texts.CONSULT_REPORTS_BACK, callback_data="cc_list:0"))
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=26))
+
+
+def consult_return_keyboard(counts: dict[str, int]) -> InlineKeyboardMarkup:
+    """پ۶۶: بخش‌هایِ مخاطب برایِ «بازگشتِ مخاطب»؛ بخشی که صفر نفر است دکمه ندارد تا بی‌عمل نماند."""
+    buttons = []
+    for key in texts.CONSULT_SEGMENT_ORDER:
+        count = int(counts.get(key, 0))
+        if not count:
+            continue
+        label = texts.CONSULT_SEGMENT_LABELS.get(key, key)
+        buttons.append(InlineKeyboardButton(text=f"{label} · {fa_number(count)} نفر", callback_data=f"cret_seg:{key}"))
+    buttons.append(InlineKeyboardButton(text=texts.CONSULT_REPORTS_BACK, callback_data="cc_list:0"))
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=30))
 
 
 def consult_contact_keyboard(customer_id: int, is_blocked: bool, page: int, total_pages: int) -> InlineKeyboardMarkup:

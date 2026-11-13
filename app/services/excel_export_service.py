@@ -260,12 +260,19 @@ def _jalali_dt(moment) -> str:
     return format_jalali_datetime(moment) if moment else ""
 
 
-def build_accounting_workbook(report) -> bytes:
+def build_accounting_workbook(report, *, consultation: bool = False) -> bytes:
     """اکسلِ چندبرگه‌یِ حسابداریِ یه بازه. هیچ دیتابیسی نمی‌خونه — فقط از خودِ report (که
     accounting_service.build_report ساخته) استفاده می‌کنه، پس بدونِ session تست‌پذیره.
-    هیچ نام/تلفنِ مشتری و هیچ متنِ آزادیِ سفارش توش نیست."""
+    هیچ نام/تلفنِ مشتری و هیچ متنِ آزادیِ سفارش توش نیست.
+
+    پ۶۶ · موردِ ۲۴-ب: `consultation=True` همان داده را با واژگانِ «جلسه» بیرون می‌دهد، دو برگهٔ
+    «محصولات/کمپین‌ها» را حذف می‌کند و در برگهٔ جزئیات هم ستون‌هایِ نوع/تخفیف/کمپین/پرداختِ آنلاین
+    نمی‌آید (در مودِ مشاوره سبدِ تخفیف و درگاهِ مشتری معنا ندارد). برگه‌ها، ترتیبِ ستون‌ها و
+    ارقامِ خامِ مسیرِ فروشگاهی عمداً دست‌نخورده ماندند تا خروجیِ تست‌هایِ پ۱۸/پ۵۹ عوض نشود.
+    """
     summary = report.summary
     period = summary.period
+    noun = "جلسه" if consultation else "سفارش"
     full = accounting_service.summarize_period(
         report.rows, period, report.product_names, report.campaign_names, top_products_limit=None, campaigns_limit=None
     )
@@ -275,87 +282,118 @@ def build_accounting_workbook(report) -> bytes:
         ["بازه", period.label],
         ["از تاریخ", format_jalali_date(period.start)],
         ["تا تاریخ", format_jalali_date(period.end - datetime.timedelta(days=1))],
-        ["فروشِ ناخالص (تومان)", summary.gross_toman],
+        [f"{'ارزشِ ناخالص' if consultation else 'فروشِ ناخالص'} (تومان)", summary.gross_toman],
         ["جمعِ تخفیف‌ها (تومان)", summary.discount_toman],
-        ["فروشِ خالص (تومان)", summary.net_toman],
-        ["تعدادِ سفارشِ تاییدشده", summary.successful_count],
-        ["میانگینِ هر سفارش (تومان)", summary.average_order_toman],
+        [f"{'ارزشِ خالص' if consultation else 'فروشِ خالص'} (تومان)", summary.net_toman],
+        [f"تعدادِ {noun}ِ تاییدشده", summary.successful_count],
+        [f"میانگینِ هر {noun} (تومان)", summary.average_order_toman],
         ["پرداختِ آنلاین — تعداد", summary.online_paid_count],
         ["پرداختِ آنلاین — مبلغ (تومان)", summary.online_paid_toman],
-        ["کلِ سفارش‌هایِ منتظرِ بررسی (فارغ از بازه)", report.pending_total],
+        [f"کلِ {noun}‌هایِ منتظرِ بررسی (فارغ از بازه)", report.pending_total],
     ]
     from app.bots.main_bot import texts
 
     for status, count in summary.status_counts.items():
-        summary_rows.append([f"تعدادِ سفارشِ ثبت‌شده در بازه — {texts.accounting_status_label(status)}", count])
+        label = texts.consult_status_label(status) if consultation else texts.accounting_status_label(status)
+        summary_rows.append([f"تعدادِ {noun}ِ ثبت‌شده در بازه — {label}", count])
     if report.truncated:
-        summary_rows.append(["⚠️ هشدار", "تعدادِ سفارش‌ها از سقفِ گزارش بیشتر بود؛ عددها ناقص‌ان."])
+        summary_rows.append(["⚠️ هشدار", f"تعدادِ {noun}‌ها از سقفِ گزارش بیشتر بود؛ عددها ناقص‌ان."])
     _plain_sheet(wb, "خلاصه", ["شاخص", "مقدار"], summary_rows, first=True, money_cols=(2,))
 
-    order_rows = []
-    for row in report.rows:
-        order_rows.append(
+    if consultation:
+        # پ۶۶: برگهٔ «جلسه‌ها» ستونِ نوع/تخفیف/کمپین/پرداختِ آنلاین ندارد — در مودِ مشاوره نه سبد
+        # تخفیف وجود دارد نه درگاهِ مشتری؛ نگه‌داشتنشان یعنی سرستونی که همیشه خالی است.
+        detail_rows = [
             [
                 row.id,
-                "سفارش" if row.type == "order" else "مشاوره",
-                texts.accounting_status_label(row.status),
+                texts.consult_status_label(row.status),
                 report.product_names.get(row.product_id, "") if row.product_id is not None else "",
                 row.quantity,
                 row.value_toman,
-                row.discount_toman,
-                report.campaign_names.get(row.campaign_id, "") if row.campaign_id is not None else "",
                 _jalali_dt(row.created_at),
                 _jalali_dt(row.confirmed_at),
-                _jalali_dt(row.bale_paid_at),
             ]
+            for row in report.rows
+        ]
+        _plain_sheet(
+            wb,
+            "جلسه‌ها",
+            ["شناسه", "وضعیت", "خدمت", "تعداد", "ارزش (تومان)", "تاریخِ ثبت", "تاریخِ تایید"],
+            detail_rows,
+            money_cols=(5,),
+            totals={5: summary.net_toman},
+            tab_index=1,
         )
-    _plain_sheet(
-        wb,
-        "سفارش‌ها",
-        [
-            "شناسه",
-            "نوع",
-            "وضعیت",
-            "محصول",
-            "تعداد",
-            "مبلغِ خالص (بعد از تخفیف)",
-            "تخفیف",
-            "کمپین",
-            "تاریخِ ثبت",
-            "تاریخِ تایید",
-            "پرداختِ آنلاین",
-        ],
-        order_rows,
-        money_cols=(6, 7),
-        totals={6: summary.net_toman, 7: summary.discount_toman},
-        tab_index=1,
-    )
-    _plain_sheet(
-        wb,
-        "محصولات",
-        ["محصول", "تعدادِ فروخته‌شده", "فروشِ خالص (تومان)"],
-        [[line.name, line.units, line.net_toman] for line in full.top_products],
-        money_cols=(3,),
-        totals={3: sum(line.net_toman for line in full.top_products)},
-        tab_index=2,
-    )
-    _plain_sheet(
-        wb,
-        "کمپین‌ها",
-        ["کمپین", "تعدادِ مصرف", "تخفیفِ داده‌شده (تومان)", "فروشِ خالصِ همان سفارش‌ها (تومان)"],
-        [[line.name, line.uses, line.discount_toman, line.net_toman] for line in full.campaigns],
-        money_cols=(3, 4),
-        totals={3: sum(line.discount_toman for line in full.campaigns), 4: sum(line.net_toman for line in full.campaigns)},
-        tab_index=3,
-    )
+    else:
+        order_rows = []
+        for row in report.rows:
+            order_rows.append(
+                [
+                    row.id,
+                    "سفارش" if row.type == "order" else "مشاوره",
+                    texts.accounting_status_label(row.status),
+                    report.product_names.get(row.product_id, "") if row.product_id is not None else "",
+                    row.quantity,
+                    row.value_toman,
+                    row.discount_toman,
+                    report.campaign_names.get(row.campaign_id, "") if row.campaign_id is not None else "",
+                    _jalali_dt(row.created_at),
+                    _jalali_dt(row.confirmed_at),
+                    _jalali_dt(row.bale_paid_at),
+                ]
+            )
+        _plain_sheet(
+            wb,
+            "سفارش‌ها",
+            [
+                "شناسه",
+                "نوع",
+                "وضعیت",
+                "محصول",
+                "تعداد",
+                "مبلغِ خالص (بعد از تخفیف)",
+                "تخفیف",
+                "کمپین",
+                "تاریخِ ثبت",
+                "تاریخِ تایید",
+                "پرداختِ آنلاین",
+            ],
+            order_rows,
+            money_cols=(6, 7),
+            totals={6: summary.net_toman, 7: summary.discount_toman},
+            tab_index=1,
+        )
+    next_tab = 2
+    if not consultation:
+        # پ۶۶: در مودِ مشاوره نه کاتالوگ هست نه تخفیفِ سبد ⇒ این دو برگه حذف می‌شوند (برگهٔ خالیِ
+        # بی‌سرِصفحه در Excel/LibreOffice آدرسِ اشتباه به‌نظر می‌رسد).
+        _plain_sheet(
+            wb,
+            "محصولات",
+            ["محصول", "تعدادِ فروخته‌شده", "فروشِ خالص (تومان)"],
+            [[line.name, line.units, line.net_toman] for line in full.top_products],
+            money_cols=(3,),
+            totals={3: sum(line.net_toman for line in full.top_products)},
+            tab_index=2,
+        )
+        _plain_sheet(
+            wb,
+            "کمپین‌ها",
+            ["کمپین", "تعدادِ مصرف", "تخفیفِ داده‌شده (تومان)", "فروشِ خالصِ همان سفارش‌ها (تومان)"],
+            [[line.name, line.uses, line.discount_toman, line.net_toman] for line in full.campaigns],
+            money_cols=(3, 4),
+            totals={3: sum(line.discount_toman for line in full.campaigns), 4: sum(line.net_toman for line in full.campaigns)},
+            tab_index=3,
+        )
+        next_tab = 4
     _plain_sheet(
         wb,
         "روزانه",
-        ["روز", "تعدادِ سفارشِ تاییدشده", "فروشِ خالص (تومان)"],
+        ["روز", f"تعدادِ {noun}ِ تاییدشده", "فروشِ خالص (تومان)" if not consultation else "ارزشِ خالص (تومان)"],
         [[line.day_label, line.orders, line.net_toman] for line in full.daily],
         money_cols=(3,),
         totals={3: sum(line.net_toman for line in full.daily)},
-        tab_index=4,
+        tab_index=next_tab,
     )
 
     return _workbook_bytes(wb)

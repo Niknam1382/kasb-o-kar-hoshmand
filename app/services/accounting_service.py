@@ -26,7 +26,7 @@ import datetime
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Campaign, OrderConsultation, OrderStatus, Product
+from app.database.models import Campaign, OrderConsultation, OrderStatus, OrderType, Product
 from app.services import order_state
 from app.utils.jalali import JALALI_MONTH_NAMES, TEHRAN_TZ, PERSIAN_DIGITS, format_jalali_date, gregorian_to_jalali, to_tehran
 
@@ -259,10 +259,22 @@ def summarize_period(
 # بخشِ دیتابیس (فقط SELECT)
 # =============================================================================
 async def fetch_rows(
-    session: AsyncSession, shop_bot_id: int, start: datetime.datetime, end: datetime.datetime, limit: int = MAX_ROWS
+    session: AsyncSession,
+    shop_bot_id: int,
+    start: datetime.datetime,
+    end: datetime.datetime,
+    limit: int = MAX_ROWS,
+    *,
+    consultation: bool = False,
 ) -> tuple[list[OrderRow], bool]:
     """سفارش‌هایِ *همین فروشگاه* که ساخته‌شدن/تایید شدن/پرداختِ آنلاین شدنشون توی [start, end) بوده.
-    خروجی: (ردیف‌ها به ترتیبِ شناسه، آیا به سقفِ limit خورد و ناقصه)."""
+    خروجی: (ردیف‌ها به ترتیبِ شناسه، آیا به سقفِ limit خورد و ناقصه).
+
+    پ۶۶ · موردِ ۲۴-ب: `consultation=True` همان کوئری را فقط به ردیف‌هایِ `type = consultation`
+    محدود می‌کند (همان «جلسه»هایی که `order_detection_service` در مودِ مشاوره می‌سازد). مسیرِ
+    فروشگاهی عمداً *بدونِ فیلترِ نوع* می‌ماند: ادعایِ تستِ پ۱۸ و تستِ حسابداری این است که گزارشِ
+    فروشگاهیِ یکِ فروشگاهِ تاریخچهٔ کامل (شاملِ جلسه‌هایِ قدیمیِ آن فروشگاه) را هم می‌شمارد.
+    """
     columns = (
         OrderConsultation.id,
         OrderConsultation.type,
@@ -278,18 +290,18 @@ async def fetch_rows(
         OrderConsultation.cart_checkout_group_id,
         OrderConsultation.bale_paid_at,
     )
+    conditions = [
+        OrderConsultation.shop_bot_id == shop_bot_id,
+        or_(
+            OrderConsultation.created_at.between(start, end - datetime.timedelta(microseconds=1)),
+            OrderConsultation.confirmed_at.between(start, end - datetime.timedelta(microseconds=1)),
+            OrderConsultation.bale_paid_at.between(start, end - datetime.timedelta(microseconds=1)),
+        ),
+    ]
+    if consultation:
+        conditions.append(OrderConsultation.type == OrderType.CONSULTATION)
     result = await session.execute(
-        select(*columns)
-        .where(
-            OrderConsultation.shop_bot_id == shop_bot_id,
-            or_(
-                OrderConsultation.created_at.between(start, end - datetime.timedelta(microseconds=1)),
-                OrderConsultation.confirmed_at.between(start, end - datetime.timedelta(microseconds=1)),
-                OrderConsultation.bale_paid_at.between(start, end - datetime.timedelta(microseconds=1)),
-            ),
-        )
-        .order_by(OrderConsultation.id)
-        .limit(limit + 1)
+        select(*columns).where(*conditions).order_by(OrderConsultation.id).limit(limit + 1)
     )
     fetched = result.all()
     truncated = len(fetched) > limit
@@ -314,12 +326,12 @@ async def fetch_rows(
     return rows, truncated
 
 
-async def count_pending_total(session: AsyncSession, shop_bot_id: int) -> int:
-    result = await session.execute(
-        select(func.count())
-        .select_from(OrderConsultation)
-        .where(OrderConsultation.shop_bot_id == shop_bot_id, OrderConsultation.status == OrderStatus.PENDING)
-    )
+async def count_pending_total(session: AsyncSession, shop_bot_id: int, *, consultation: bool = False) -> int:
+    conditions = [OrderConsultation.shop_bot_id == shop_bot_id, OrderConsultation.status == OrderStatus.PENDING]
+    if consultation:
+        # پ۶۶: در مودِ مشاوره «منتظرِ بررسی» یعنی «جلسهٔ تاییدنشده»، نه سفارش.
+        conditions.append(OrderConsultation.type == OrderType.CONSULTATION)
+    result = await session.execute(select(func.count()).select_from(OrderConsultation).where(*conditions))
     return int(result.scalar_one())
 
 
@@ -342,16 +354,24 @@ async def _load_names(session: AsyncSession, shop_bot_id: int, rows: list[OrderR
 
 
 async def build_report(
-    session: AsyncSession, shop_bot_id: int, period_key: str = "today", now: datetime.datetime | None = None
+    session: AsyncSession,
+    shop_bot_id: int,
+    period_key: str = "today",
+    now: datetime.datetime | None = None,
+    *,
+    consultation: bool = False,
 ) -> AccountingReport:
-    """گزارشِ یه بازه. period_key نامعتبر → امروز. now فقط برایِ تست قابلِ تزریقه."""
+    """گزارشِ یه بازه. period_key نامعتبر → امروز. now فقط برایِ تست قابلِ تزریقه.
+
+    `consultation=True` (پ۶۶) همان گزارش را فقط رویِ ردیف‌هایِ `type = consultation` می‌سازد؛
+    `product_names`/`campaign_names` در این حالت معمولاً خالی‌اند چون جلسه به محصول/کمپین بند نیست."""
     now = now or datetime.datetime.now(datetime.timezone.utc)
     periods = build_periods(now)
     period = periods.get(period_key) or periods["today"]
-    rows, truncated = await fetch_rows(session, shop_bot_id, period.start, period.end)
+    rows, truncated = await fetch_rows(session, shop_bot_id, period.start, period.end, consultation=consultation)
     product_names, campaign_names = await _load_names(session, shop_bot_id, rows)
     summary = summarize_period(rows, period, product_names, campaign_names)
-    pending_total = await count_pending_total(session, shop_bot_id)
+    pending_total = await count_pending_total(session, shop_bot_id, consultation=consultation)
     return AccountingReport(
         summary=summary,
         rows=rows,

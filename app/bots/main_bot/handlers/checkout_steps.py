@@ -12,7 +12,12 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
-from app.bots.main_bot.handlers.owner_common import require_shop_bot, require_shop_bot_cb, safe_edit
+from app.bots.main_bot.handlers.owner_common import (
+    require_sales_mode_cb,
+    require_shop_bot,
+    require_shop_bot_cb,
+    safe_edit,
+)
 from app.bots.main_bot.states import ShopSettingsStates
 from app.services import checkout_config_service
 
@@ -35,6 +40,8 @@ async def steps_open(callback: CallbackQuery, session: AsyncSession, state: FSMC
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
+    if not await require_sales_mode_cb(callback, shop_bot):
+        return
     await callback.answer()
     text, keyboard = _screen(shop_bot)
     await safe_edit(callback, text, keyboard)
@@ -45,6 +52,8 @@ async def steps_back(callback: CallbackQuery, session: AsyncSession, state: FSMC
     await state.clear()
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     await callback.answer()
     await safe_edit(
@@ -58,6 +67,8 @@ async def steps_back(callback: CallbackQuery, session: AsyncSession, state: FSMC
 async def step_toggle(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     key = (callback.data or "").split(":", 1)[1]
     steps = checkout_config_service.parse(shop_bot.checkout_config)
@@ -79,6 +90,8 @@ async def step_toggle(callback: CallbackQuery, session: AsyncSession, state: FSM
 async def step_question_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     key = (callback.data or "").split(":", 1)[1]
     steps = checkout_config_service.parse(shop_bot.checkout_config)

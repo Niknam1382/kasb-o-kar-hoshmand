@@ -220,7 +220,7 @@ def split_stored_tags(stored: str | None) -> list[str]:
 # =============================================================================
 # بخشِ دیتابیس (کوئریِ تجمیعی؛ فقط SELECT مگر set_notes/set_tags)
 # =============================================================================
-def _stats_query(shop_bot_id: int):
+def _stats_query(shop_bot_id: int, *, exclude_blocked: bool = False):
     orders_agg = (
         select(
             OrderConsultation.customer_id.label("customer_id"),
@@ -237,7 +237,7 @@ def _stats_query(shop_bot_id: int):
         .group_by(OrderConsultation.customer_id)
         .subquery()
     )
-    return (
+    query = (
         select(
             Customer.id,
             Customer.telegram_id,
@@ -252,14 +252,28 @@ def _stats_query(shop_bot_id: int):
         .outerjoin(orders_agg, orders_agg.c.customer_id == Customer.id)
         .where(Customer.shop_bot_id == shop_bot_id)
     )
+    if exclude_blocked:
+        # پ۶۶: «پیام به بخش» هرگز به مخاطبِ بلاک‌شده نمی‌رود؛ فهرستِ CRM و کارتِ مشتری برعکس،
+        # بلاک‌شده‌ها را هم نشان می‌دهند (وگرنه فروشگاه‌دار فراموش می‌کند بلاکش کرده است).
+        query = query.where(Customer.is_blocked.is_(False))
+    return query
 
 
 async def load_stats(
-    session: AsyncSession, shop_bot_id: int, now: datetime.datetime | None = None, customer_id: int | None = None
+    session: AsyncSession,
+    shop_bot_id: int,
+    now: datetime.datetime | None = None,
+    customer_id: int | None = None,
+    *,
+    exclude_blocked: bool = False,
 ) -> tuple[list[CustomerStat], bool]:
-    """آمارِ مشتری‌هایِ *همین فروشگاه* (یا فقط یه مشتری). خروجی: (آمارها، آیا به سقفِ اسکن خورد)."""
+    """آمارِ مشتری‌هایِ *همین فروشگاه* (یا فقط یه مشتری). خروجی: (آمارها، آیا به سقفِ اسکن خورد).
+
+    `exclude_blocked=True` (پ۶۶) مخاطبِ بلاک‌شده را از شمارش بیرون می‌گذارد؛ فقط برایِ «پیام به
+    بخش» استفاده می‌شود، نه فهرستِ CRM.
+    """
     now = now or datetime.datetime.now(datetime.timezone.utc)
-    query = _stats_query(shop_bot_id)
+    query = _stats_query(shop_bot_id, exclude_blocked=exclude_blocked)
     if customer_id is not None:
         query = query.where(Customer.id == customer_id)
     result = await session.execute(query.order_by(Customer.id).limit(MAX_CUSTOMERS_SCANNED + 1))

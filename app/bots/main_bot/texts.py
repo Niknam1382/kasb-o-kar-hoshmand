@@ -4697,3 +4697,104 @@ def account_delete_preview_text(
         lines += ["", f"⚠️ {fa_number(open_orders)} سفارشِ باز داری؛ با حذفِ حساب هیچ‌کس آنها را پردازش نمی‌کند."]
     lines += ["", "اگر مطمئنی «بله، حسابم را ببند» را بزن؛ بعدش همان عبارتِ «حذفِ حساب» را باید بنویسی."]
     return "\n".join(lines)
+
+# =============================================================================
+# پ۶۶ · موردِ ۲۴-ب — دو صفحهٔ اختصاصیِ مودِ مشاوره‌ای + دروازهٔ معکوس
+# =============================================================================
+MODE_CONSULTATION_ONLY = (
+    "🧮 این بخش فقط در مودِ «مشاوره‌ای» کار می‌کند (گزارشِ جلسات و بازگشتِ مخاطب).\n"
+    "در مودِ فروشگاهی همان اطلاعات در «🧮 حسابداری» و «👥 مشتری‌ها» هست.\n"
+    "اگر می‌خوای مودِ فروشگاهت عوض بشه، به «👤 پروفایل من» برو."
+)
+CONSULT_REPORTS_BUTTON = "🧮 گزارشِ جلسات"
+CONSULT_RETURN_BUTTON = "🎯 بازگشتِ مخاطب"
+CONSULT_REPORTS_BACK = "⬅️ برگشت به گفتگوها"
+CONSULT_REPORTS_TRUNCATED = "⚠️ جلسه‌هایِ این بازه از سقفِ گزارش بیشتر است؛ عددها ناقص‌ان."
+CONSULT_REPORTS_NOTE = (
+    "ℹ️ فقط «جلسه»هایِ همین فروشگاه و فقط بازهٔ انتخابی شمرده می‌شوند؛ «تاییدشده» یعنی خودِ مخاطب "
+    "جلسه را تایید کرده است. این گزارش فقط‌خواندنیه و چیزی را تغییر نمی‌دهد."
+)
+CONSULT_RETURN_EMPTY = "🎯 فعلاً مخاطبی برایِ بازگشت نداریم؛ وقتی گفتگوها بیشتر شد، بخش‌بندی پر می‌شود."
+CONSULT_RETURN_STALE = "این بخش عوض شده است؛ «🎯 بازگشتِ مخاطب» را دوباره بزن."
+CONSULT_RETURN_TRUNCATED = "⚠️ برایِ بخش‌بندی فقط ۵۰٬۰۰۰ مخاطبِ آخر بررسی شد؛ عددها ممکن است ناقص باشد."
+CONSULT_RETURN_NOTE = "ℹ️ ارسالِ پیام هزینه‌ای برایِ تو ندارد، ولی برایِ آن مخاطبان واقعاً می‌رود؛ متن را دقیق بنویس."
+# واژه‌هایِ این فهرست عمداً «خرید/سفارش» ندارند (قانونِ واژگانِ مودِ مشاورهٔ پ۱۸).
+CONSULT_SEGMENT_LABELS = {
+    "new": "🌱 تازه‌آمده",
+    "active": "💬 فعال",
+    "loyal": "⭐ پیگیرِ جلسه",
+    "churning": "⚠️ در حالِ ریزش",
+    "no_purchase": "👀 بدونِ جلسهٔ تاییدشده",
+}
+CONSULT_SEGMENT_ORDER = ("churning", "new", "active", "loyal", "no_purchase")
+# «منتظرِ تاییدِ مخاطب» در مشاوره معنیِ «سفارش» نمی‌دهد؛ سه وضعیتِ فروشِ صریح جایِ خودشان را عوض می‌کنند.
+CONSULT_STATUS_OVERRIDES = {
+    "awaiting_customer_confirmation": "⏳ منتظرِ تاییدِ تو",
+    "pending": "🕓 در انتظارِ بررسی",
+    "awaiting_payment": "🕓 در انتظارِ بررسی",
+    "receipt_submitted": "🧾 رسیدِ تو ثبت شد",
+    "paid": "✅ تاییدشده",
+}
+
+
+def consult_status_label(status) -> str:
+    key = status.value if hasattr(status, "value") else str(status or "")
+    return CONSULT_STATUS_OVERRIDES.get(key) or order_status_label(key)
+
+
+def consult_reports_text(report) -> str:
+    """نسخهٔ مشاوره‌ایِ گزارشِ حسابداری: همان شمارش‌هایِ `accounting_service` با واژگانِ «جلسه».
+
+    سه تفاوتِ عمدی با نسخهٔ فروشگاهی: واژهٔ «سفارش» هیچ‌جا نمی‌آید، «پرفروش‌ترین‌ها» و
+    «عملکردِ کمپین‌ها» حذف‌اند (کاتالوگ و تخفیف در این مود معنا ندارد) و به‌جایشان شمارشِ
+    روزبه‌روزِ جلسه‌ها می‌آید.
+    """
+    import datetime as _dt
+
+    from app.utils.jalali import format_jalali_date
+
+    summary = report.summary
+    period = summary.period
+    first_day = format_jalali_date(period.start)
+    last_day = format_jalali_date(period.end - _dt.timedelta(days=1))
+    date_line = first_day if first_day == last_day else f"{first_day} تا {last_day}"
+
+    lines = [
+        f"🧮 گزارشِ جلسات — {period.label}",
+        f"📅 {date_line}",
+        "",
+        f"✅ جلسهٔ تاییدشده: {fa_number(summary.successful_count)} — میانگینِ ارزشِ هر جلسه: {format_toman(summary.average_order_toman)}",
+        f"💰 ارزشِ جلسه‌هایِ تاییدشده: {format_toman(summary.net_toman)}",
+    ]
+    if summary.status_counts:
+        lines.append("\n📋 وضعیتِ جلسه‌هایِ ثبت‌شده در این بازه:")
+        lines.extend(f"  {consult_status_label(status)}: {fa_number(count)}" for status, count in summary.status_counts.items())
+    if report.pending_total > 0:
+        lines.append(f"\n⏳ همین حالا {fa_number(report.pending_total)} جلسه منتظرِ بررسیِ توست.")
+    if summary.daily:
+        lines.append("\n🗓 روزبه‌روز:")
+        for day in summary.daily[-7:]:
+            lines.append(f"  {day.day_label}: {fa_number(day.orders)} جلسه — {format_toman(day.net_toman)}")
+    if report.truncated:
+        lines.append(f"\n{CONSULT_REPORTS_TRUNCATED}")
+    lines.append(f"\n{CONSULT_REPORTS_NOTE}")
+    return "\n".join(lines)
+
+
+def consult_return_text(counts: dict[str, int], total: int, truncated: bool) -> str:
+    """صفحهٔ «بازگشتِ مخاطب»: هر بخش چند نفر است — جایِ «🎯 کمپین‌ها» در مودِ مشاوره."""
+    lines = ["🎯 بازگشتِ مخاطب", "", "هر بخش را انتخاب کنی، پیامِ تو فقط به همان نفرها می‌رود:", ""]
+    for key in CONSULT_SEGMENT_ORDER:
+        lines.append(f"• {CONSULT_SEGMENT_LABELS.get(key, key)}: {fa_number(int(counts.get(key, 0)))} نفر")
+    lines += ["", f"👤 مجموعِ مخاطبانِ این فروشگاه: {fa_number(total)}"]
+    if truncated:
+        lines.append(f"⚠️ {CONSULT_RETURN_TRUNCATED}")
+    lines += ["", CONSULT_RETURN_NOTE]
+    return "\n".join(lines)
+
+
+def consult_return_ask(segment: str, count: int) -> str:
+    return (
+        f"🎯 بخشِ «{CONSULT_SEGMENT_LABELS.get(segment, segment)}» — {fa_number(count)} نفر\n\n"
+        "متنِ پیام را بنویس. با «❌ لغو» بیرون می‌آیی و هیچ پیامی نمی‌رود."
+    )

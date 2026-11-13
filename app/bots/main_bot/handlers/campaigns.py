@@ -121,6 +121,8 @@ async def campaign_back_to_list(callback: CallbackQuery, session: AsyncSession) 
     shop_bot = await _require_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
+    if not await require_sales_mode_cb(callback, shop_bot):
+        return
     text, keyboard = await _list_payload(session, shop_bot)
     await callback.answer()
     await _safe_edit(callback, text, keyboard)
@@ -130,6 +132,8 @@ async def campaign_back_to_list(callback: CallbackQuery, session: AsyncSession) 
 async def campaign_view(callback: CallbackQuery, session: AsyncSession) -> None:
     shop_bot = await _require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     campaign = await _owned_campaign_or_alert(callback, session, shop_bot, "campaign_view:")
     if campaign is None:
@@ -143,6 +147,8 @@ async def campaign_view(callback: CallbackQuery, session: AsyncSession) -> None:
 async def campaign_toggle(callback: CallbackQuery, session: AsyncSession) -> None:
     shop_bot = await _require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     campaign = await _owned_campaign_or_alert(callback, session, shop_bot, "campaign_toggle:")
     if campaign is None:
@@ -162,6 +168,8 @@ async def campaign_delete(callback: CallbackQuery, session: AsyncSession) -> Non
     shop_bot = await _require_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
+    if not await require_sales_mode_cb(callback, shop_bot):
+        return
     campaign = await _owned_campaign_or_alert(callback, session, shop_bot, "campaign_delete:")
     if campaign is None:
         return
@@ -178,6 +186,8 @@ async def campaign_delete(callback: CallbackQuery, session: AsyncSession) -> Non
 async def campaign_announce(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     shop_bot = await _require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     campaign = await _owned_campaign_or_alert(callback, session, shop_bot, "campaign_announce:")
     if campaign is None:

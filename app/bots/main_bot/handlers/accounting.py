@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.handlers.owner_common import (
     require_sales_mode,
+    require_sales_mode_cb,
     require_shop_bot,
     require_shop_bot_cb,
     safe_edit,
@@ -43,6 +44,11 @@ async def accounting_period(callback: CallbackQuery, session: AsyncSession) -> N
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
+    # پ۶۶: دروازهٔ مود رویِ *ناوبریِ داخلی* هم هست، نه فقط ورودی. کیبوردِ inlineِ کهنه رویِ پیامِ
+    # قبلی می‌ماند و متنِ کال‌بک را می‌شود دست‌کاری کرد؛ بی‌این، فروشگاهِ مشاوره‌ای گزارشِ
+    # فروشگاهیِ پُر از «سفارش» می‌دید (جایش «🧮 گزارشِ جلسات» است).
+    if not await require_sales_mode_cb(callback, shop_bot):
+        return
     key = _period_key(callback.data, "acct:")
     report = await accounting_service.build_report(session, shop_bot.id, key)
     await callback.answer()
@@ -53,6 +59,8 @@ async def accounting_period(callback: CallbackQuery, session: AsyncSession) -> N
 async def accounting_excel(callback: CallbackQuery, session: AsyncSession) -> None:
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
+        return
+    if not await require_sales_mode_cb(callback, shop_bot):
         return
     key = _period_key(callback.data, "acct_xlsx:")
     report = await accounting_service.build_report(session, shop_bot.id, key)

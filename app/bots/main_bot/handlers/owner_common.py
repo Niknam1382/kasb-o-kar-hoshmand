@@ -39,6 +39,26 @@ async def require_sales_mode_cb(callback: CallbackQuery, shop_bot: ShopBot) -> b
     return False
 
 
+async def require_consultation_mode(message: Message, shop_bot: ShopBot) -> bool:
+    """دروازهٔ معکوسِ صفحه‌هایِ پ۶۶ (گزارشِ جلسات و بازگشتِ مخاطب): True ⇒ ادامه بده.
+
+    این دو صفحه در منویِ *فقطِ مشاوره‌ای* می‌آیند، ولی کیبوردِ inlineِ کهنه رویِ پیام‌هایِ قبلی
+    می‌ماند و `callback_data` را می‌شود دست‌کاری کرد ⇒ دروازه لازم است (همان دلیلی که پ۵۸ برایِ
+    سمتِ فروشگاهی نوشت). پیامش هم عمداً جداست: «به «💬 گفتگوها و کاربران» برو» نه «فقط فروشگاهی».
+    """
+    if not sales_mode(shop_bot):
+        return True
+    await message.answer(texts.MODE_CONSULTATION_ONLY)
+    return False
+
+
+async def require_consultation_mode_cb(callback: CallbackQuery, shop_bot: ShopBot) -> bool:
+    if not sales_mode(shop_bot):
+        return True
+    await callback.answer(texts.MODE_CONSULTATION_ONLY, show_alert=True)
+    return False
+
+
 async def require_shop_bot(message: Message, session: AsyncSession) -> ShopBot | None:
     owner = await shop_owner_service.get_by_telegram_id(session, message.from_user.id)
     shop_bot = await shop_bot_service.get_by_owner(session, owner) if owner else None

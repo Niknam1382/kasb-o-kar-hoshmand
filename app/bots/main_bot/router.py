@@ -27,6 +27,7 @@ from app.bots.main_bot.handlers import (
     profile,
     checkout_steps,
     consult_contacts,
+    consult_screens,
     shop_prefs,
     shop_settings,
     start,
@@ -142,6 +143,8 @@ def build_main_router() -> Router:
     checkout_steps.router.callback_query.middleware(gate)
     consult_contacts.router.message.middleware(gate)
     consult_contacts.router.callback_query.middleware(gate)
+    consult_screens.router.message.middleware(gate)
+    consult_screens.router.callback_query.middleware(gate)
     profile.router.message.middleware(gate)
     profile.router.callback_query.middleware(gate)
 
@@ -171,6 +174,7 @@ def build_main_router() -> Router:
     router.include_router(shop_prefs.router)  # P18 · A5: مهلت‌ها و حافظه‌یِ per-shop
     router.include_router(checkout_steps.router)  # P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت
     router.include_router(consult_contacts.router)  # P18 · C2: گفتگوها و کاربرانِ مشاوره
+    router.include_router(consult_screens.router)  # پ۶۶ · موردِ ۲۴-ب: گزارشِ جلسات و بازگشتِ مخاطب
     router.include_router(moderation_reports.router)  # P43 · مواردِ ۱۰/۳۰/۳۱: گزارشِ نگهبانِ محتوا
     router.include_router(instagram.router)  # P49-الف: صفحهٔ «🟣 اینستاگرامِ» فروشگاه‌دار
     router.include_router(start.router)
