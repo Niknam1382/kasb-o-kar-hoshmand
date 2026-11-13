@@ -949,6 +949,8 @@ def admin_owners_list_keyboard(
 
 def admin_owner_detail_keyboard(owner_id: int, shop_bot) -> InlineKeyboardMarkup:
     rows = []
+    # پ۶۷ · موردِ ۲۷/۴۱-پ: درِ «پروندهٔ کاملِ کاربر» — همان اطلاعاتِ پخش‌شده در چهار صفحه، یک‌جا.
+    rows.append([InlineKeyboardButton(text=texts.OWNER_DOSSIER_BUTTON, callback_data=f"owner_dossier:{owner_id}")])
     if shop_bot is not None:
         if shop_bot.is_active:
             rows.append([InlineKeyboardButton(text="⛔️ معلق کردن ربات", callback_data=f"admin_owner_suspend:{owner_id}")])
@@ -958,6 +960,37 @@ def admin_owner_detail_keyboard(owner_id: int, shop_bot) -> InlineKeyboardMarkup
     rows.append([InlineKeyboardButton(text="🧾 استرداد/اصلاحِ کیف‌پول", callback_data=f"admin_owner_wallet_correction:{owner_id}")])
     rows.append([InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="admin_owners_list")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def owner_dossier_keyboard(owner_id: int, data: dict, *, is_super: bool) -> InlineKeyboardMarkup:
+    """پ۶۷ · موردِ ۲۷/۴۱-پ: فعل‌هایِ پروندهٔ کاملِ کاربر.
+
+    همه به کال‌بک‌هایِ موجود می‌روند (تعلیق/هدیه/اصلاحِ کیف‌پول از `admin.py`، غیرفعال‌کردن/
+    بازگرداندن/حذفِ قطعی از `admin_inactive.py`) ⇒ این کیبورد هیچ مسیرِ پولیِ تازه‌ای نمی‌سازد.
+    سه ردیفِ خطرناک (`inact_*`) فقط برایِ سوپرادمین ساخته می‌شود — همان الگویِ
+    `inactive_detail_keyboard`؛ خودِ آن هندلرها هم `INACTIVE_SUPER_ONLY` را می‌دهند، پس این
+    فقط حذفِ شلوغی است، نه تنها نگهبان.
+    """
+    bot = data.get("shop_bot")
+    buttons = [
+        InlineKeyboardButton(text="🔄 تازه‌سازیِ پرونده", callback_data=f"owner_dossier_refresh:{owner_id}"),
+        InlineKeyboardButton(text="➕ تمدیدِ روزِ اشتراک", callback_data=f"owner_dossier_extend:{owner_id}"),
+    ]
+    buttons.append(InlineKeyboardButton(text="🎁 اعطای اعتبارِ هدیه", callback_data=f"admin_owner_gift:{owner_id}"))
+    buttons.append(InlineKeyboardButton(text="🧾 استرداد/اصلاحِ کیف‌پول", callback_data=f"admin_owner_wallet_correction:{owner_id}"))
+    if bot is not None:
+        # تعلیق فقط وقتی معنا دارد که رباتی وجود داشته باشد (همان دو دکمهٔ کارتِ قدیمی).
+        label = "⛔️ معلق کردن ربات" if bot["is_active"] else "✅ فعال‌سازی دوباره"
+        action = "admin_owner_suspend" if bot["is_active"] else "admin_owner_unsuspend"
+        buttons.append(InlineKeyboardButton(text=label, callback_data=f"{action}:{owner_id}"))
+    if is_super:
+        if data["is_deleted"]:
+            buttons.append(InlineKeyboardButton(text="♻️ بازگرداندنِ حساب", callback_data=f"inact_restore:{owner_id}"))
+            buttons.append(InlineKeyboardButton(text="🔥 حذفِ قطعیِ داده", callback_data=f"inact_purge:{owner_id}"))
+        elif bot is not None:
+            buttons.append(InlineKeyboardButton(text="🧊 غیرفعال‌کردنِ حساب", callback_data=f"inact_deactivate:{owner_id}"))
+    buttons.append(InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="admin_owners_list"))
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=28))
 
 
 def order_notification_keyboard(order_id: int) -> InlineKeyboardMarkup:

@@ -170,6 +170,7 @@ TEST_FILES = [
     "test_p64_navigation_guards.py",
     "test_p65_account_deletion.py",
     "test_p66_consultation_screens.py",
+    "test_p67_user_dossier.py",
 ]
 
 

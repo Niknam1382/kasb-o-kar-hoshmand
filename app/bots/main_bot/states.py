@@ -313,6 +313,17 @@ class AccountDeletionStates(StatesGroup):
     waiting_word = State()
 
 
+class OwnerDossierStates(StatesGroup):
+    """پ۶۷ · موردِ ۲۷/۴۱-پ: پرسشِ «چند روز تمدید؟» در پروندهٔ کاملِ کاربر.
+
+    عمداً یکِ گروهِ جدا از `AdminTimeStates` (آن مسیرِ *گروهی* است و فیلترِ دسته هم دارد)؛ شناسهٔ
+    حساب در `dossier_owner` می‌ماند تا عددِ تاییدِ دوم رویِ همان حساب بنشیند، نه رویِ آخرین
+    حسابی که ادمین باز کرده است.
+    """
+
+    waiting_days = State()
+
+
 class AdminTimeStates(StatesGroup):
     """W5 · K1–K4: هدیه/تمدیدِ گروهی، توقفِ زمان."""
 

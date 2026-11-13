@@ -230,6 +230,8 @@ class AuditEventType(str, enum.Enum):
     # پ۶۵ · موردِ ۲۷/۴۱: حذفِ حساب *از خودِ پنلِ فروشگاه‌دار* (بستنِ حساب + بی‌نام‌سازیِ هویت؛
     # اسنادِ مالی و ممیزی می‌مانند). نوعِ ستون String(32) است ⇒ افزودنِ عضوِ تازه مایگریشن نمی‌خواهد.
     OWNER_SELF_DELETED = "owner_self_deleted"
+    # پ۶۷: تمدیدِ روزِ اشتراک برایِ یکِ حساب (تا پیشِ این تمدید فقط گروهی بود و در ADMIN_BATCH_EXECUTED ثبت می‌شد).
+    SUBSCRIPTION_EXTENDED = "subscription_extended"
     # P49-الف: کانالِ اینستاگرام (فقط APIِ رسمیِ متا). سوییچِ سراسری + اتصال/قطعِ اتصالِ فروشگاه.
     INSTAGRAM_TOGGLED = "instagram_toggled"
     INSTAGRAM_CONNECTED = "instagram_connected"

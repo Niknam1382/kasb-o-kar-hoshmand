@@ -3289,6 +3289,7 @@ _AUDIT_EVENT_LABELS = {
     "owner_purged": "🔥 حذفِ قطعیِ دادهٔ فروشگاه‌دار",
     # پ۶۵ · موردِ ۲۷/۴۱-ب: حذفِ حساب *از پنلِ خودِ فروشگاه‌دار* (بی‌نام‌سازیِ هویت، اسنادِ مالی می‌ماند).
     "owner_self_deleted": "🧊 حذفِ حسابِ خودِ فروشگاه‌دار",
+    "subscription_extended": "➕ تمدیدِ روزِ اشتراک توسطِ ادمین",
     # P49-الف: کانالِ اینستاگرام (سوییچِ سراسری + اتصال/قطعِ اتصالِ فروشگاه).
     "instagram_toggled": "🟣 تغییرِ سوییچِ اینستاگرام",
     "instagram_connected": "🟣 اتصالِ اکانت اینستاگرام",
@@ -4798,3 +4799,142 @@ def consult_return_ask(segment: str, count: int) -> str:
         f"🎯 بخشِ «{CONSULT_SEGMENT_LABELS.get(segment, segment)}» — {fa_number(count)} نفر\n\n"
         "متنِ پیام را بنویس. با «❌ لغو» بیرون می‌آیی و هیچ پیامی نمی‌رود."
     )
+
+
+# =============================================================================
+# پ۶۷ · موردِ ۲۷/۴۱-پ — «🧾 پروندهٔ کاملِ کاربر» در پنلِ ادمین
+# =============================================================================
+OWNER_DOSSIER_BUTTON = "🧾 پروندهٔ کاملِ کاربر"
+OWNER_DOSSIER_REFRESH = "🔄 تازه‌سازیِ پرونده"
+OWNER_DOSSIER_STALE = "این حساب در دامنهٔ تو نیست یا پیدا نشد؛ فهرست را تازه کن."
+OWNER_DOSSIER_NOT_FOUND = "🧾 این حساب دیگر وجود ندارد."
+OWNER_DOSSIER_NOTE = (
+    "ℹ️ این نما فقط‌خواندنی است؛ هر دکمه همان کاری را می‌کند که در صفحهٔ اختصاصیِ خودش می‌کرد "
+    "(با همان ممیزی و همان چکِ دسترسی). اعدادِ مصرف، ۳۰ روزِ آخر است."
+)
+OWNER_DOSSIER_DELETED_BADGE = "🧊 حساب بسته شده"
+OWNER_DOSSIER_ACTIVE_BADGE = "✅ حساب فعال"
+OWNER_DOSSIER_NO_SUBSCRIPTION = "بدونِ اشتراکِ ثبت‌شده"
+OWNER_DOSSIER_SUBSCRIPTION_LABELS = {
+    "trial": "آزمایشی",
+    "active": "فعال",
+    "grace": "در مهلت",
+    "expired": "منقضی",
+}
+OWNER_DOSSIER_NO_BOT = "رباتِ فروشگاهی تنظیم نشده"
+OWNER_DOSSIER_NO_SEEN = "بدونِ سابقهٔ دیدار"
+OWNER_DOSSIER_DAYS_AGO = "{days} روزِ پیش"
+OWNER_DOSSIER_DAYS_LEFT = "{days} روز مانده"
+OWNER_DOSSIER_DAYS_PAST = "{days} روز گذشته"
+OWNER_DOSSIER_EXTENDED = "🧾 اشتراکِ «{name}» {days} روز تمدید شد."
+OWNER_DOSSIER_EXTEND_DONE = "✅ اشتراک {days} روز تمدید شد و در ممیزی ثبت شد."
+OWNER_DOSSIER_EXTEND_CANCELLED = "تمدید انجام نشد."
+OWNER_DOSSIER_EXTEND_BAD_DAYS = "عددِ روز را درست بنویس (مثلاً ۷). برایِ بیرون‌آمدن /cancel را بزن."
+OWNER_DOSSIER_EXTEND_ASK = (
+    "➕ چند روز به اشتراکِ «{name}» اضافه شود؟ عددِ روز را بنویس (مثلاً ۷). برایِ بیرون‌آمدن /cancel را بزن."
+)
+OWNER_DOSSIER_EXTEND_DELETED = "🧊 حسابِ بسته‌شده تمدید نمی‌شود؛ اول آن را بازگرداندن لازم است."
+OWNER_DOSSIER_AUDIT_NONE = "بدونِ ردیفِ ممیزی"
+
+
+def _dossier_yes_no(value) -> str:
+    """«بله/خیر»ِ فارسی برایِ خطِ وضعیتِ فروشگاه (پ۶۷)."""
+    return "بله" if value else "خیر"
+
+
+def owner_dossier_text(data: dict, audit_rows: list[tuple[str, int]]) -> str:
+    """کارتِ تجمیعیِ یکِ فروشگاه‌دار: هویت، اتصال‌ها، اشتراک/کیف‌پول، مصرف و فعالیت."""
+    from app.utils.jalali import format_jalali_date, format_jalali_datetime
+    from app.utils.validators import fa_number, format_toman
+
+    name = data.get("name") or (f"@{data['username']}" if data.get("username") else "کاربرِ بی‌نام")
+    lines = [f"🧾 پروندهٔ کاملِ کاربر — {name}", ""]
+
+    lines.append("👤 هویت و ورود")
+    lines.append(f"• شناسهٔ داخلیِ حساب: {fa_number(data['owner_id'])} (برایِ پیوندِ ممیزی و بلیطِ پشتیبانی)")
+    lines.append(f"• یوزرنیم: {'@' + data['username'].lstrip('@') if data.get('username') else '—'}")
+    lines.append(f"• موبایل: {data.get('phone_masked') or '—'} · ایمیل: {data.get('email') or '—'}")
+    mode = "فروشگاهی" if data.get("business_mode") == "sales" else "مشاوره‌ای"
+    lines.append(f"• نوعِ کسب‌وکار: {mode} · ثبت‌نام: {'کامل' if data['registration_completed'] else 'ناتمام'}")
+    if data["last_seen_at"] is None:
+        lines.append(f"• آخرین دیدار: {OWNER_DOSSIER_NO_SEEN}")
+    else:
+        when = format_jalali_datetime(data["last_seen_at"])
+        ago = OWNER_DOSSIER_DAYS_AGO.format(days=fa_number(data["last_seen_days"])) if data["last_seen_days"] is not None else "—"
+        lines.append(f"• آخرین دیدار: {when} ({ago})")
+    badge = OWNER_DOSSIER_DELETED_BADGE if data["is_deleted"] else OWNER_DOSSIER_ACTIVE_BADGE
+    if data["is_deleted"] and data["deleted_at"] is not None:
+        badge += f" · {format_jalali_datetime(data['deleted_at'])}"
+    lines.append(f"• وضعیتِ حساب: {badge}")
+
+    lines += ["", "🤖 اتصال‌ها"]
+    bot = data.get("shop_bot")
+    if bot is None:
+        lines.append(f"• {OWNER_DOSSIER_NO_BOT}")
+    else:
+        status = "فعال ✅" if bot["is_active"] else f"غیرفعال ❌ ({bot['disabled_reason'] or '—'})"
+        lines.append(f"• رباتِ تلگرام: @{str(bot['bot_username']).lstrip('@')} — {status}")
+        lines.append(f"• توکنِ ربات: {'ثبت شده' if bot['has_token'] else 'پاک شده'}")
+        conn = data["connections"]
+        if conn["bale"]:
+            bale_state = "روشن" if conn["bale_enabled"] else "خاموش"
+            handle = f" (@{str(conn['bale_username']).lstrip('@')})" if conn["bale_username"] else ""
+            lines.append(f"• رباتِ بله: متصل{handle} — {bale_state}")
+        else:
+            lines.append("• رباتِ بله: تنظیم نشده")
+        ig = conn["instagram"]
+        if ig is None:
+            lines.append("• اینستاگرام: متصل نیست")
+        elif ig["muted"]:
+            until = format_jalali_datetime(ig["muted_until"]) if ig["muted_until"] else "—"
+            lines.append(f"• اینستاگرام: @{str(ig['ig_username'] or '—').lstrip('@')} — ⏸ خاموش تا {until}")
+        else:
+            lines.append(f"• اینستاگرام: @{str(ig['ig_username'] or '—').lstrip('@')} — {'روشن ✅' if ig['is_active'] else 'غیرفعال ❌'}")
+        doors = [
+            ("درگاهِ بله", bot["bale_provider"]),
+            ("زرین‌پال", bot["zarinpal"]),
+            ("کانالِ دانش", bot["knowledge_channel"]),
+            ("پشتیبانیِ انسانی", bot["support_enabled"]),
+        ]
+        lines.append("• " + " · ".join(f"{label}: {'✅' if on else '—'}" for label, on in doors))
+
+    lines += ["", "💳 اشتراک، کیف‌پول و مصرف"]
+    sub = data.get("subscription")
+    if sub is None:
+        lines.append(f"• اشتراک: {OWNER_DOSSIER_NO_SUBSCRIPTION}")
+        lines.append(f"• قابلِ استفاده بودنِ فروشگاه (با مهلت): {_dossier_yes_no(data.get('shop_usable'))}")
+    else:
+        left = sub["days_left"]
+        tail = OWNER_DOSSIER_DAYS_LEFT.format(days=fa_number(left)) if left >= 0 else OWNER_DOSSIER_DAYS_PAST.format(days=fa_number(-left))
+        trial = " (آزمایشی)" if sub["is_trial"] else ""
+        status_label = OWNER_DOSSIER_SUBSCRIPTION_LABELS.get(sub["status"], sub["status"])
+        lines.append(f"• اشتراک: {status_label}{trial} تا {format_jalali_date(sub['end_date'])} — {tail}")
+        lines.append(f"• قابلِ استفاده بودنِ فروشگاه (با مهلت): {_dossier_yes_no(sub.get('usable'))}")
+    lines.append(f"• موجودیِ کیف‌پول: {format_toman(data['wallet_toman'])} · قابلِ مصرف: {format_toman(data['usable_toman'])}")
+    lines.append(f"• کمیسیونِ قفل‌شده: {format_toman(data['reserved_toman'])} · بدهیِ بازِ مصرف: {format_toman(data['debt_toman'])}")
+    usage = data["usage"]
+    lines.append(
+        f"• مصرفِ هوشِ مصنوعیِ {fa_number(usage['days'])} روز: {format_toman(usage['toman'])} در {fa_number(usage['calls'])} فراخوان"
+    )
+    payments = data["payments"]
+    lines.append(
+        f"• پرداخت‌هایِ تاییدشده: {fa_number(payments['count'])} مورد — {format_toman(payments['total_toman'])}"
+    )
+
+    activity = data.get("activity") or {}
+    lines += ["", "📊 فعالیتِ فروشگاه"]
+    lines.append(
+        f"• مشتری‌ها: {fa_number(activity.get('customers', 0))} · سفارش‌ها: {fa_number(activity.get('orders', 0))} "
+        f"(باز: {fa_number(activity.get('open_orders', 0))}) · کمپینِ فعال: {fa_number(activity.get('campaigns', 0))}"
+    )
+    lines.append(
+        f"• گزارشِ بازِ نگهبانِ محتوا: {fa_number(activity.get('moderation_open', 0))} · ردیفِ ممیزی: {fa_number(activity.get('audit_rows', 0))}"
+    )
+    if audit_rows:
+        lines.append("• آخرینِ رویدادهایِ ممیزی:")
+        for label, when in audit_rows:
+            lines.append(f"  ◂ {label}: {format_jalali_datetime(when)}")
+    else:
+        lines.append(f"• {OWNER_DOSSIER_AUDIT_NONE}")
+    lines += ["", OWNER_DOSSIER_NOTE]
+    return "\n".join(lines)
