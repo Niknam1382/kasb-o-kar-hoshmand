@@ -286,6 +286,11 @@ async def test_doctor_screen(main_dp) -> None:
     flat = callbacks(admin.last_markup)
     assert "doctor_refresh" in flat and "capacity_refresh" in flat and "main_menu" in flat, flat
     assert all(len(value.encode("utf-8")) <= 64 for value in flat), flat
+    labels = [b.text for row in admin.last_markup.inline_keyboard for b in row]
+    assert main_texts.CAPACITY_REFRESH not in labels, labels
+    assert labels.count(main_texts.DOCTOR_REFRESH) == 1 and main_texts.CAPACITY_BUTTON in labels, (
+        "پ۷۰: رویِ صفحهٔ عیب‌یاب فقط یکِ «تازه‌سازی» هست و آن هم بازرسی است؛ دکمهٔ دوم نامِ پنلِ ظرفیت را دارد"
+    )
 
     answers_before = len(admin.session.answered_callbacks)
     await admin.tap("doctor_refresh")

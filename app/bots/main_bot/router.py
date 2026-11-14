@@ -29,6 +29,7 @@ from app.bots.main_bot.handlers import (
     checkout_steps,
     consult_contacts,
     consult_screens,
+    owner_ai_usage,
     shop_prefs,
     shop_settings,
     start,
@@ -177,6 +178,7 @@ def build_main_router() -> Router:
     router.include_router(checkout_steps.router)  # P18 · B9: گام‌هایِ پیش‌فرضِ چک‌اوت
     router.include_router(consult_contacts.router)  # P18 · C2: گفتگوها و کاربرانِ مشاوره
     router.include_router(consult_screens.router)  # پ۶۶ · موردِ ۲۴-ب: گزارشِ جلسات و بازگشتِ مخاطب
+    router.include_router(owner_ai_usage.router)  # پ۷۰: پرمصرف‌هایِ AI در پنلِ خودِ فروشگاه‌دار
     router.include_router(moderation_reports.router)  # P43 · مواردِ ۱۰/۳۰/۳۱: گزارشِ نگهبانِ محتوا
     router.include_router(instagram.router)  # P49-الف: صفحهٔ «🟣 اینستاگرامِ» فروشگاه‌دار
     router.include_router(start.router)

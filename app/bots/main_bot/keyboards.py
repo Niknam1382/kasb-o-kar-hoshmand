@@ -531,7 +531,9 @@ def ai_usage_windows_keyboard(window: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[_ai_usage_window_row(window), [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")]])
 
 
-def ai_usage_keyboard(items, window: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
+def ai_usage_keyboard(
+    items, window: str, page: int, total_pages: int, shop_bot_id: int | None = None
+) -> InlineKeyboardMarkup:
     """items = [(customer_id, index, name)] — همان ترتیبِ خطوطِ متن، تا شماره‌ها جفت بمانند.
 
     ردیفِ پنجره‌ها همیشه می‌آید، ولی ردیفِ صفحه‌گردانی فقط وقتی بیش از یکِ صفحه هست.
@@ -544,12 +546,17 @@ def ai_usage_keyboard(items, window: str, page: int, total_pages: int) -> Inline
     pagination = _pagination_row(page, total_pages, f"ai_usage:{window}")
     if pagination:
         rows.append(pagination)
+    if shop_bot_id:
+        # پ۷۰: فهرستِ فیلترشده باید راهِ بیرون‌آمدن از فیلتر هم داشته باشد
+        rows.append([InlineKeyboardButton(text=texts.AI_USAGE_SHOP_ALL_BUTTON, callback_data="ai_usage_shop:0")])
     rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def ai_usage_detail_keyboard(customer_id: int, window: str, page: int, *, paused: bool, blocked: bool) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+def ai_usage_detail_keyboard(
+    customer_id: int, window: str, page: int, *, paused: bool, blocked: bool, shop_bot_id: int | None = None
+) -> InlineKeyboardMarkup:
+    keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="🔢 سقفِ ۲۴ ساعت", callback_data=f"ai_usage_limit:{customer_id}:{window}:{page}"),
@@ -561,12 +568,18 @@ def ai_usage_detail_keyboard(customer_id: int, window: str, page: int, *, paused
             [
                 InlineKeyboardButton(
                     text=("✅ رفعِ بلاک" if blocked else "🚫 بلاکِ کاربر"),
-                    callback_data=f"ai_usage_block:{customer_id}:{1 if blocked else 0}:{window}:{page}",
+                    callback_data=f"ai_usage_block:{customer_id}:{0 if blocked else 1}:{window}:{page}",
                 ),
                 InlineKeyboardButton(text="📊 بازگشت به فهرست", callback_data=f"ai_usage:{window}:{page}"),
             ],
         ]
     )
+    if shop_bot_id is not None:
+        # پ۷۰ · خواستهٔ مالک: دیدنِ مصرف «به تفکیکِ فروشگاه» از دلِ همان کارتِ کاربر.
+        keyboard.inline_keyboard.append(
+            [InlineKeyboardButton(text=texts.AI_USAGE_SHOP_FILTERED_BUTTON, callback_data=f"ai_usage_shop:{shop_bot_id}")]
+        )
+    return keyboard
 
 
 def excel_export_choice_keyboard(consultation: bool = False) -> InlineKeyboardMarkup:
@@ -739,7 +752,7 @@ def doctor_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=texts.DOCTOR_REFRESH, callback_data="doctor_refresh")],
-            [InlineKeyboardButton(text=texts.CAPACITY_REFRESH, callback_data="capacity_refresh")],
+            [InlineKeyboardButton(text=texts.DOCTOR_OPEN_CAPACITY, callback_data="capacity_refresh")],
             [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")],
         ]
     )
@@ -1365,6 +1378,8 @@ def crm_overview_keyboard(counts: dict) -> InlineKeyboardMarkup:
     ]
     # P56 · موردِ ۴۱: بخش‌ها «گروه» را نشان می‌دادند ولی «این مشتری کجاست؟» جواب نداشت.
     rows.append([InlineKeyboardButton(text=texts.CRM_SEARCH_BUTTON, callback_data="crm_search")])
+    # پ۷۰ · خواستهٔ مالک: پر‌مصرف‌ترین‌هایِ AI و مدیریتشان باید در پنلِ خودِ فروشگاه‌دار هم باشد.
+    rows.append([InlineKeyboardButton(text=texts.OWNER_AI_USAGE_BUTTON, callback_data="ouai_open")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1484,7 +1499,8 @@ def consult_contacts_keyboard(members, page: int, total_pages: int) -> InlineKey
         [
             InlineKeyboardButton(text=texts.CONSULT_REPORTS_BUTTON, callback_data="cre_open"),
             InlineKeyboardButton(text=texts.CONSULT_RETURN_BUTTON, callback_data="cret_open"),
-        ]
+        ],
+        [InlineKeyboardButton(text=texts.OWNER_AI_USAGE_BUTTON, callback_data="ouai_open")],
     ]
     for index, customer in enumerate(members, start=1):
         badge = " 🚫" if customer.is_blocked else ""
@@ -1980,3 +1996,56 @@ def inactive_deactivate_confirm_keyboard(owner_id: int) -> InlineKeyboardMarkup:
 
 def inactive_restore_confirm_keyboard(owner_id: int) -> InlineKeyboardMarkup:
     return yes_no_keyboard(f"inact_restore_yes:{owner_id}", f"inact_view:{owner_id}")
+
+
+# ------------------------------------------------------------------ پ۷۰ · مصرفِ AI: فیلترِ فروشگاه + پنلِ فروشگاه‌دار
+def ai_usage_shop_filter_keyboard(window: str, page: int, shop_username: str) -> InlineKeyboardMarkup:
+    """پ۷۰: وقتی فهرستِ ادمین رویِ یکِ فروشگاه فیلتر است، «پاک‌کردنِ فیلتر» هم همین‌جا باشد."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.AI_USAGE_SHOP_ALL_BUTTON, callback_data="ai_usage_shop:0")],
+            [InlineKeyboardButton(text="📊 فهرستِ بی‌فیلتر", callback_data=f"ai_usage:{window}:{page}")],
+        ]
+    )
+
+
+def owner_ai_usage_windows_row(window: str) -> list[InlineKeyboardButton]:
+    return [
+        InlineKeyboardButton(text=("✅ " if key == window else "") + label, callback_data=f"ouai:{key}:0")
+        for key, label in texts.AI_USAGE_WINDOWS
+    ]
+
+
+def owner_ai_usage_keyboard(items, window: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """فهرستِ صاحبِ فروشگاه: فقطِ مشتریانِ خودش، با همان پنجره‌ها و صفحه‌گردانی."""
+    rows = [owner_ai_usage_windows_row(window)]
+    rows += [
+        [InlineKeyboardButton(text=f"{fa_number(index)} · {clip(name, 26)}", callback_data=f"ouai_view:{window}:{page}:{customer_id}")]
+        for customer_id, index, name in items
+    ]
+    pagination = _pagination_row(page, total_pages, f"ouai:{window}")
+    if pagination:
+        rows.append(pagination)
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def owner_ai_usage_detail_keyboard(customer_id: int, window: str, page: int, *, paused: bool, blocked: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🔢 سقفِ ۲۴ ساعت", callback_data=f"ouai_limit:{customer_id}:{window}:{page}"),
+                InlineKeyboardButton(
+                    text=("▶️ آزادکردنِ پاسخ" if paused else "⏸ توقفِ ۲۴ ساعت"),
+                    callback_data=f"ouai_pause:{customer_id}:{0 if paused else 24}:{window}:{page}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=("✅ رفعِ بلاک" if blocked else "🚫 بلاکِ کاربر"),
+                    callback_data=f"ouai_block:{customer_id}:{0 if blocked else 1}:{window}:{page}",
+                ),
+                InlineKeyboardButton(text="📊 بازگشت به فهرست", callback_data=f"ouai:{window}:{page}"),
+            ],
+        ]
+    )

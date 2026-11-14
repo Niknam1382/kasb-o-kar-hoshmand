@@ -232,6 +232,8 @@ class AuditEventType(str, enum.Enum):
     OWNER_SELF_DELETED = "owner_self_deleted"
     # پ۶۷: تمدیدِ روزِ اشتراک برایِ یکِ حساب (تا پیشِ این تمدید فقط گروهی بود و در ADMIN_BATCH_EXECUTED ثبت می‌شد).
     SUBSCRIPTION_EXTENDED = "subscription_extended"
+    # پ۷۰: صاحبِ فروشگاه از پنلِ خودش سقف/توقفِ مصرفِ AI یکِ مشتری را عوض می‌کند.
+    AI_USAGE_CONTROL_CHANGED = "ai_usage_control_changed"
     # P49-الف: کانالِ اینستاگرام (فقط APIِ رسمیِ متا). سوییچِ سراسری + اتصال/قطعِ اتصالِ فروشگاه.
     INSTAGRAM_TOGGLED = "instagram_toggled"
     INSTAGRAM_CONNECTED = "instagram_connected"

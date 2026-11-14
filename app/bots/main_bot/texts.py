@@ -1741,6 +1741,9 @@ def capacity_text(snapshot: dict) -> str:
 
 # پ۶۲ · خواستهٔ مالکِ محصول: ایجنتی که لاگ و وضعیتِ سرور را بخواند و مشکل را بگوید.
 DOCTOR_BUTTON = "🩺 عیب‌یابِ سرور"
+# پ۷۰: این دکمه رویِ صفحهٔ عیب‌یاب «محل» می‌رود، نه «تازه‌سازی» ⇒ نامِ خودِ پنل را می‌گیرد
+# (برچسبِ «🔄 تازه‌سازی» رویِ این دکمه باعث شد مالکِ محصول فکر کند همان تازه‌سازیِ بازرسی است).
+DOCTOR_OPEN_CAPACITY = CAPACITY_BUTTON
 DOCTOR_REFRESH = "🔄 تازه‌سازیِ بازرسی"
 DOCTOR_CLEAN = "✅ هیچِ موردِ غیرعادی پیدا نشد: فشارِ سرور، استخرِ دیتابیس، استخرِ کلیدهایِ " \
                "هوشِ مصنوعی و لاگِ همین پروسه همه در محدوده‌اند."
@@ -1832,6 +1835,13 @@ def ai_usage_line(index: int, user_name: str, shop_username: str, spent_toman: i
     return (
         f"{fa_number(index)}) {user_name} · {shop} · "
         f"{format_toman(spent_toman)} · {fa_number(calls)} کسرِ اعتبار"
+    )
+
+
+def owner_ai_usage_line(index: int, user_name: str, spent_toman: int, calls: int) -> str:
+    """پ۷۰: خطِ فهرستِ صاحبِ فروشگاه — ستونِ فروشگاه حذف شده (همه یکِ فروشگاه‌اند)."""
+    return (
+        f"{fa_number(index)}) {user_name} · {format_toman(spent_toman)} · {fa_number(calls)} کسرِ اعتبار"
     )
 
 
@@ -3290,6 +3300,7 @@ _AUDIT_EVENT_LABELS = {
     # پ۶۵ · موردِ ۲۷/۴۱-ب: حذفِ حساب *از پنلِ خودِ فروشگاه‌دار* (بی‌نام‌سازیِ هویت، اسنادِ مالی می‌ماند).
     "owner_self_deleted": "🧊 حذفِ حسابِ خودِ فروشگاه‌دار",
     "subscription_extended": "➕ تمدیدِ روزِ اشتراک توسطِ ادمین",
+    "ai_usage_control_changed": "📊 سقف/توقفِ مصرفِ AIِ مشتری توسطِ فروشگاه‌دار",
     # P49-الف: کانالِ اینستاگرام (سوییچِ سراسری + اتصال/قطعِ اتصالِ فروشگاه).
     "instagram_toggled": "🟣 تغییرِ سوییچِ اینستاگرام",
     "instagram_connected": "🟣 اتصالِ اکانت اینستاگرام",
@@ -5025,3 +5036,25 @@ def ai_cost_text(view, days: int) -> str:
         AI_COST_ESTIMATED_NOTE,
     ]
     return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ پ۷۰ · مصرفِ AI به تفکیکِ فروشگاه + پنلِ فروشگاه‌دار
+AI_USAGE_SHOP_FILTER_LINE = "🏪 فیلتر: فقطِ مشتریانِ فروشگاهِ @{shop}"
+AI_USAGE_SHOP_ALL_BUTTON = "🌐 همهٔ فروشگاه‌ها"
+AI_USAGE_SHOP_FILTERED_BUTTON = "🏪 فقطِ این فروشگاه"
+AI_USAGE_SHOP_INVALID = "این فروشگاه در دسترس نیست. از کارتِ فروشگاه‌دار دوباره امتحان کن."
+OWNER_AI_USAGE_BUTTON = "📈 پرمصرف‌هایِ AI"
+OWNER_AI_USAGE_INTRO = (
+    "📈 پرمصرف‌ترینِ مشتریانِ هوش مصنوعیِ فروشگاهِ خودت — {window} · صفحهٔ {page} از {total_pages}"
+)
+OWNER_AI_USAGE_TITLE = "📈 پرمصرف‌هایِ AI — مشتریانِ همین فروشگاه"
+OWNER_AI_USAGE_EMPTY = "در این بازه هیچ مشتری‌ای از هوش مصنوعیِ فروشگاهِ تو هزینه نداشته است."
+OWNER_AI_USAGE_NOTE = (
+    "🧾 این فهرست فقطِ مشتریانِ همین فروشگاه است و ازِ پ۷۰ به بعد شمرده می‌شود؛ مصرفِ کامنتِ "
+    "اینستاگرام، خلاصهٔ CRM و دستیارِ مدیریتی به کاربری وصل نمی‌شود و در این فهرست نیست."
+)
+OWNER_AI_USAGE_INVALID = "این کاربر مشتریِ فروشگاهِ تو نیست یا دیگر وجود ندارد."
+
+
+def owner_ai_usage_intro(window_label: str, page: int, total_pages: int) -> str:
+    return OWNER_AI_USAGE_INTRO.format(window=window_label, page=fa_number(page + 1), total_pages=fa_number(total_pages))

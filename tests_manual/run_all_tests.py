@@ -173,6 +173,7 @@ TEST_FILES = [
     "test_p67_user_dossier.py",
     "test_p68_checkout_province_city.py",
     "test_p69_ai_cost_estimate.py",
+    "test_p70_ai_usage_per_shop.py",
 ]
 
 

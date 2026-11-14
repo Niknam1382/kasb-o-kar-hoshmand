@@ -24,7 +24,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -86,14 +86,37 @@ def _parts(data: str, count: int) -> list[str] | None:
     return parts if len(parts) == count else None
 
 
-async def _list_screen(session: AsyncSession, window: str, page: int) -> tuple[str, object]:
+async def _filter_of(state: FSMContext) -> int | None:
+    """پ۷۰: فیلترِ «فقطِ این فروشگاه» رویِ چتِ ادمین می‌ماند و هر ناوبری آن را نگه می‌دارد."""
+    value = (await state.get_data()).get("ai_usage_shop")
+    return int(value) if value else None
+
+
+async def _clear_state_keep_filter(state: FSMContext, shop_bot_id: int | None) -> None:
+    # پ۶۴ · قاعدهٔ پنل‌ها: هر ناوبری حالتِ «در انتظارِ ورودی» را پاک می‌کند؛ فیلترِ فروشگاه ورودی نیست.
+    await state.clear()
+    if shop_bot_id:
+        await state.update_data(ai_usage_shop=shop_bot_id)
+
+
+async def _list_screen(
+    session: AsyncSession, window: str, page: int, shop_bot_id: int | None = None
+) -> tuple[str, object]:
     since, until = _range(window)
-    ranked, total = await ai_usage_service.rank_page(session, since=since, until=until, page=page)
+    ranked, total = await ai_usage_service.rank_page(
+        session, since=since, until=until, page=page, shop_bot_id=shop_bot_id
+    )
     if not ranked and page > 0:
         page = max(0, (total + ai_usage_service.RANK_PAGE_SIZE - 1) // ai_usage_service.RANK_PAGE_SIZE - 1)
-        ranked, total = await ai_usage_service.rank_page(session, since=since, until=until, page=page)
+        ranked, total = await ai_usage_service.rank_page(
+            session, since=since, until=until, page=page, shop_bot_id=shop_bot_id
+        )
+    filter_line = await _shop_line(session, shop_bot_id)
     if not ranked:
-        return texts.AI_USAGE_EMPTY + "\n\n" + texts.AI_USAGE_HISTORY_NOTE, keyboards.ai_usage_windows_keyboard(window)
+        return (
+            "\n\n".join(part for part in (texts.AI_USAGE_EMPTY, texts.AI_USAGE_HISTORY_NOTE, filter_line) if part),
+            _windows_keyboard(window, shop_bot_id),
+        )
 
     customers = {
         customer.id: customer
@@ -121,18 +144,42 @@ async def _list_screen(session: AsyncSession, window: str, page: int) -> tuple[s
         lines.append(texts.ai_usage_line(index, name, shop, spent, calls))
         items.append((customer_id, index, name))
     if not lines:
-        return texts.AI_USAGE_EMPTY + "\n\n" + texts.AI_USAGE_HISTORY_NOTE, keyboards.ai_usage_windows_keyboard(window)
+        return (
+            "\n\n".join(part for part in (texts.AI_USAGE_EMPTY, texts.AI_USAGE_HISTORY_NOTE, filter_line) if part),
+            _windows_keyboard(window, shop_bot_id),
+        )
 
     total_pages = max(1, (total + ai_usage_service.RANK_PAGE_SIZE - 1) // ai_usage_service.RANK_PAGE_SIZE)
     body = "\n".join(
         [
             texts.ai_usage_intro(total, WINDOW_LABELS[_window(window)], page, total_pages),
             texts.AI_USAGE_HISTORY_NOTE,
+            *([filter_line] if filter_line else []),
             "",
             *lines,
         ]
     )
-    return body, keyboards.ai_usage_keyboard(items, _window(window), page, total_pages)
+    return body, keyboards.ai_usage_keyboard(items, _window(window), page, total_pages, shop_bot_id)
+
+
+async def _shop_line(session: AsyncSession, shop_bot_id: int | None) -> str:
+    if not shop_bot_id:
+        return ""
+    shop_bot = await session.get(ShopBot, shop_bot_id)
+    if shop_bot is None:
+        return ""
+    return texts.AI_USAGE_SHOP_FILTER_LINE.format(shop=str(shop_bot.bot_username or shop_bot_id))
+
+
+def _windows_keyboard(window: str, shop_bot_id: int | None):
+    """نمایِ خالی: اگر فیلتری هست، دکمهٔ «همهٔ فروشگاه‌ها» هم باید باشد تا ادمین گیر نکند."""
+    base = keyboards.ai_usage_windows_keyboard(window)
+    if shop_bot_id:
+        base.inline_keyboard.insert(
+            1,
+            [InlineKeyboardButton(text=texts.AI_USAGE_SHOP_ALL_BUTTON, callback_data="ai_usage_shop:0")],
+        )
+    return base
 
 
 async def _detail_screen(session: AsyncSession, customer_id: int, window: str, page: int) -> tuple[str, object] | None:
@@ -156,6 +203,7 @@ async def _detail_screen(session: AsyncSession, customer_id: int, window: str, p
         page,
         paused=_paused(customer, until),
         blocked=bool(customer.is_blocked),
+        shop_bot_id=customer.shop_bot_id,
     )
     return body, keyboard
 
@@ -165,7 +213,8 @@ async def _audit(session: AsyncSession, actor_id: int, details: str) -> None:
 
 
 @router.message(F.text == texts.AI_USAGE_BUTTON)
-async def open_ai_usage(message: Message, session: AsyncSession) -> None:
+async def open_ai_usage(message: Message, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
     body, keyboard = await _list_screen(session, "24h", 0)
     await session.commit()
     await message.answer(body, reply_markup=keyboard)
@@ -180,9 +229,28 @@ async def cb_ai_usage(callback: CallbackQuery, state: FSMContext, session: Async
         return
     # پ۶۴ · قاعدهٔ پنل‌ها: هرِ ناوبریِ داخلِ صفحه حالتِ «در انتظارِ ورودی» را پاک می‌کند، وگرنه
     # اگر ادمین وسطِ پرسشِ سقف این دکمه‌ها را بزند، متنِ بعدی‌اش ورودیِ قدیمی ذخیره می‌شود.
-    await state.clear()
+    shop_bot_id = await _filter_of(state)
+    await _clear_state_keep_filter(state, shop_bot_id)
     page = int(parts[2])
-    body, keyboard = await _list_screen(session, window, page)
+    body, keyboard = await _list_screen(session, window, page, shop_bot_id)
+    await session.commit()
+    await callback.answer()
+    await safe_edit(callback, body, keyboard)
+
+
+@router.callback_query(F.data.startswith("ai_usage_shop:"))
+async def cb_ai_usage_shop(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """پ۷۰: «فقطِ مشتریانِ این فروشگاه» (و `ai_usage_shop:0` ⇒ برداشتنِ فیلتر)."""
+    raw = (callback.data or "").split(":", 1)[1]
+    shop_bot_id = _decimal(raw, maximum=_MAX_ID)
+    if shop_bot_id is None:
+        await callback.answer(texts.AI_USAGE_INVALID, show_alert=True)
+        return
+    if shop_bot_id and await session.get(ShopBot, shop_bot_id) is None:
+        await callback.answer(texts.AI_USAGE_SHOP_INVALID, show_alert=True)
+        return
+    await _clear_state_keep_filter(state, shop_bot_id or None)
+    body, keyboard = await _list_screen(session, "24h", 0, shop_bot_id or None)
     await session.commit()
     await callback.answer()
     await safe_edit(callback, body, keyboard)

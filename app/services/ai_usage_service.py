@@ -45,11 +45,16 @@ async def rank_page(
     until: datetime.datetime,
     page: int = 0,
     page_size: int = RANK_PAGE_SIZE,
+    shop_bot_id: int | None = None,
 ) -> tuple[list[tuple[int, int, int]], int]:
     """ده ردیفِ پرمصرف‌ترینِ کاربر در بازه: `(customer_id, مصرف_به_تومان, تعداد_کسر)` + شمارِ کلِ کاربران.
 
     پنجره `[since, until)` است (همان قاعدهٔ پ۵۲). فقط ردیف‌هایِ کسرِ منفی و دارایِ مشتری
     شمرده می‌شوند ⇒ برگشتِ اعتبار و ردیف‌هایِ بی‌صاحبِ گذشته در رتبه نمی‌آیند.
+
+    `shop_bot_id` (پ۷۰ · خواستهٔ مالک): فقطِ مشتریانِ یکِ فروشگاه — همان `JOIN`ِ رویِ `customers`
+    بدونِ جملهٔ اضافه، پس صفحهٔ ادمین «به تفکیکِ فروشگاه» و پنلِ فروشگاه‌دار «مشتریانِ خودم» را
+    از یکِ مسیرِ واحد می‌خوانند.
     """
     if type(page) is not int or page < 0:
         raise ValueError("شمارهٔ صفحه معتبر نیست")
@@ -61,17 +66,25 @@ async def rank_page(
         WalletTransaction.created_at >= since,
         WalletTransaction.created_at < until,
     ]
+    def _scoped(stmt):
+        # JOIN رویِ همان جمله ⇒ هیچ اضافه‌باری وقتی فیلتری نیست (پ۵۵ دست‌نخورده)
+        if shop_bot_id is None:
+            return stmt
+        return stmt.join(Customer, Customer.id == WalletTransaction.customer_id).where(
+            Customer.shop_bot_id == shop_bot_id
+        )
+
     spent = func.coalesce(func.sum(-WalletTransaction.amount_toman), 0)
     total = int(
         (
             await session.execute(
-                select(func.count(func.distinct(WalletTransaction.customer_id))).where(*conditions)
+                _scoped(select(func.count(func.distinct(WalletTransaction.customer_id)))).where(*conditions)
             )
         ).scalar_one()
         or 0
     )
     rows = await session.execute(
-        select(WalletTransaction.customer_id, spent, func.count())
+        _scoped(select(WalletTransaction.customer_id, spent, func.count()))
         .where(*conditions)
         .group_by(WalletTransaction.customer_id)
         .order_by(spent.desc(), WalletTransaction.customer_id.asc())

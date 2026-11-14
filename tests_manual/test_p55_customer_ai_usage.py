@@ -432,7 +432,9 @@ async def test_keyboard_bounds_and_menu_registration(main_dp) -> None:
 
     detail = callbacks(keyboards.ai_usage_detail_keyboard(customer.id, "30d", 4, paused=True, blocked=True))
     assert f"ai_usage_pause:{customer.id}:0:30d:4" in detail, detail
-    assert f"ai_usage_block:{customer.id}:1:30d:4" in detail, detail
+    # پ۷۰ · رفعِ باگ: با `blocked=True` دکمه «رفعِ بلاک» است ⇒ هدفِ آن ۰ است، نه ۱
+    # (پیش ازِ این، برچسب و payload وارونه بودند و بلاک‌کردنِ واقعی از دکمه هرگز اتفاق نمی‌افتاد).
+    assert f"ai_usage_block:{customer.id}:0:30d:4" in detail, detail
     assert "ai_usage:30d:4" in detail, detail
     assert main_texts.AI_USAGE_BUTTON in main_router._KNOWN_MENU_BUTTONS
 

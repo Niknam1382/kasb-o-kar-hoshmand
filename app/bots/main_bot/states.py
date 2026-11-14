@@ -180,6 +180,12 @@ class AiUsageStates(StatesGroup):
     waiting_limit = State()
 
 
+class OwnerAiUsageStates(StatesGroup):
+    """پ۷۰: فقط نوشتنِ عددِ «سقفِ ۲۴ ساعت» برایِ یکِ مشتریِ خودِ فروشگاه (کلیدهایِ state جدا ازِ پنلِ ادمین)."""
+
+    waiting_limit = State()
+
+
 class StatsRangeStates(StatesGroup):
     """P51 · موردِ ۴۴: ویزاردِ «بازهٔ دلخواه» برایِ نمودارِ درآمد (همان شکلِ بازهٔ ممیزی)."""
 
