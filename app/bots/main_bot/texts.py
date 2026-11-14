@@ -2592,6 +2592,99 @@ def instagram_activity_text(summary: dict, account) -> str:
     return "\n".join(lines)
 
 
+# پ۷۳ · خواستهٔ مالک (حلقهٔ سومِ اینستاگرام): «چند کامنت آمد، به چندتا جواب دادیم، خرجش چقدر بود».
+INSTAGRAM_COMMENTS_BUTTON = "🗨 گزارشِ کامنت‌ها"
+INSTAGRAM_COMMENTS_INVALID = "آن بازه یا صفحه در فهرست نیست."
+INSTAGRAM_COMMENTS_TITLE = "🗨 گزارشِ کامنت‌ها — {when}"
+INSTAGRAM_COMMENTS_SUMMARY = (
+    "• {label}: {total} کامنت · ✅ {replied} جواب رفت · ⏸ {skipped} جواب نرفت · ⚠️ {failed} بی‌نتیجه"
+)
+INSTAGRAM_COMMENTS_SPEND = "• خرجِ هوشِ مصنوعیِ همین کامنت‌ها: {cost} · {tokens} توکن"
+INSTAGRAM_COMMENTS_SPEND_ZERO = "• کامنت‌هایِ جواب‌رفته هزینه‌ای در کیف‌پول نساخته‌اند (صفر تومان)."
+INSTAGRAM_COMMENTS_REASONS = "• دلیلِ جواب‌نرفتن: {text}"
+INSTAGRAM_COMMENTS_EMPTY = (
+    "در این بازه هیچِ کامنتی دیده نشد. اگر «💬 پاسخِ خودکار به کامنت‌ها» یا کانال خاموش باشد، "
+    "کامنت‌ها فقط خوانده و رد می‌شوند — و همان‌جا در این فهرست ثبت می‌شوند."
+)
+INSTAGRAM_COMMENTS_LIST = "آخرینِ کامنت‌ها (صفحهٔ {page} از {pages}):"
+INSTAGRAM_COMMENTS_NOTE = (
+    "• این شمارش از همین نسخه به این سو است: پیش ازِ این کامنت هیچ‌جا ذخیره نمی‌شد، پس بازه‌هایِ "
+    "قدیمی صفر می‌ماند (عددِ ساختگی نیست). مبلغِ «خرج» همان چیزی است که از کیف‌پولِ خودت کم شده، "
+    "نه تخمینِ جدا. کامنت‌ها مشتریِ CRM نمی‌شوند."
+)
+COMMENT_REASON_LABELS: dict[str, str] = {
+    "account_off": "اتصالِ اینستاگرام غیرفعال بود",
+    "comments_off": "پاسخِ خودکار به کامنت خاموش بود",
+    "muted": "کانال موقتاً خاموش بود",
+    "shop_inactive": "فروشگاه یا حالتِ نگهداری خاموش بود",
+    "no_owner": "صاحبِ فروشگاه پیدا نشد",
+    "moderation_block": "نگهبانِ محتوا کامنت را مسدود کرد",
+    "no_ai_key": "کلیدِ هوشِ مصنوعی تنظیم نشده است",
+    "no_ai_pool": "هیچِ کلیدِ فعالی در استخر نبود",
+    "no_access": "اعتبار یا دسترسیِ چت کافی نبود",
+    "empty_reply": "پاسخِ ساخته‌شده خالی بود",
+    "ai_error": "هوشِ مصنوعی جواب نداد",
+    "send_failed": "پاسخ به اینستاگرام نرسید",
+    "unknown": "بدونِ دلیلِ ثبت‌شده",
+}
+COMMENT_OUTCOME_ICONS = {"replied": "✅", "skipped": "⏸", "failed": "⚠️", "received": "⏳"}
+
+
+def comment_window_label(window: str) -> str:
+    from app.services.instagram_service import COMMENT_WINDOWS
+
+    return next((label for key, _days, label in COMMENT_WINDOWS if key == window), window)
+
+
+def comment_reason_label(reason: str | None) -> str:
+    return COMMENT_REASON_LABELS.get(reason or "unknown", reason or COMMENT_REASON_LABELS["unknown"])
+
+
+def instagram_comment_line(index: int, row) -> str:
+    """یکِ خطِ فهرست: نتیجه، متنِ کوتاه‌شده، چه‌کسی و کِی — بدونِ هیچ شناسهٔ فنی."""
+    from app.utils.jalali import format_jalali_datetime
+
+    icon = COMMENT_OUTCOME_ICONS.get(getattr(row, "outcome", "") or "", "•")
+    who = "@" + (row.username or "بی‌نام") if getattr(row, "username", "") else "بی‌نام"
+    body = clip((row.text or "").replace("\n", " ") or "—", 64)
+    when = format_jalali_datetime(row.created_at) if getattr(row, "created_at", None) else "—"
+    tail = "" if row.outcome == "replied" else f" · {comment_reason_label(row.reason)}"
+    return f"{fa_number(index)}. {icon} «{body}» — {who} · {when}{tail}"
+
+
+def instagram_comments_text(report: dict) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    lines = [INSTAGRAM_COMMENTS_TITLE.format(when=format_jalali_datetime(report["at"])), ""]
+    lines.append(
+        INSTAGRAM_COMMENTS_SUMMARY.format(
+            label=comment_window_label(report["window"]),
+            total=fa_number(report["total"]),
+            replied=fa_number(report["replied"]),
+            skipped=fa_number(report["skipped"]),
+            failed=fa_number(report["failed"]),
+        )
+    )
+    if report["replied"] or report["cost"]:
+        if report["cost"]:
+            lines.append(
+                INSTAGRAM_COMMENTS_SPEND.format(cost=format_toman(report["cost"]), tokens=fa_grouped(report["tokens"]))
+            )
+        else:
+            lines.append(INSTAGRAM_COMMENTS_SPEND_ZERO)
+    reasons = [f"{comment_reason_label(reason)} {fa_number(count)}" for reason, count in report["reasons"]]
+    if reasons:
+        lines.append(INSTAGRAM_COMMENTS_REASONS.format(text=" · ".join(reasons)))
+    if not report["items"]:
+        lines += ["", INSTAGRAM_COMMENTS_EMPTY]
+    else:
+        first = report["page"] * report["page_size"] + 1
+        lines += ["", INSTAGRAM_COMMENTS_LIST.format(page=fa_number(report["page"] + 1), pages=fa_number(report["pages"]))]
+        lines += [instagram_comment_line(first + offset, row) for offset, row in enumerate(report["items"])]
+    lines += ["", INSTAGRAM_COMMENTS_NOTE]
+    return "\n".join(lines)
+
+
 def instagram_status_text(account, admin_settings) -> str:
     """صفحهٔ فروشگاه‌دار: وضعیتِ اتصال + وضعیتِ سراسری + خطایِ آخر + قاعدهٔ ۲۴ ساعت."""
     lines = [INSTAGRAM_SCREEN_INTRO, ""]

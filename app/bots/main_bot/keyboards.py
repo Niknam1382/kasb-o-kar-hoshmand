@@ -1769,6 +1769,8 @@ def instagram_panel_keyboard(account) -> InlineKeyboardMarkup:
         # پ۶۳ · دو فعلِ مدیریتیِ تازه در پنلِ خودِ فروشگاه (فقط وقتی اتصال هست معنا دارند).
         actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_MUTE_BUTTON, callback_data="ig_mute"))
         actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_ACTIVITY_BUTTON, callback_data="ig_activity"))
+        # پ۷۳: گزارشِ کامنت‌ها هم فقط با اتصال معنا دارد (بدونِ اتصال، کامنتی نمی‌رسد).
+        actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_COMMENTS_BUTTON, callback_data="ig_cmt:7d:0"))
         actions.append(InlineKeyboardButton(text="🧪 تستِ ارسال", callback_data="ig_test"))
         actions.append(InlineKeyboardButton(text="🚫 لغوِ اتصال", callback_data="ig_unbind"))
     actions.append(InlineKeyboardButton(text="📖 راهنمایِ فعال‌سازی", callback_data="ig_guide"))
@@ -1800,6 +1802,28 @@ def instagram_mute_keyboard(account) -> InlineKeyboardMarkup:
         for pair in (MUTE_PRESETS[0:2], MUTE_PRESETS[2:4])
     ]
     rows.append([InlineKeyboardButton(text="▶️ آزاد کردنِ همین حالا", callback_data="ig_mute:0")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def instagram_comments_keyboard(report) -> InlineKeyboardMarkup:
+    """پ۷۳: پنجرهٔ بازه + صفحه‌گردانی + تازه‌سازی + بازگشت (هیچ فعلِ مالی رویِ این صفحه نیست)."""
+    from app.services.instagram_service import COMMENT_WINDOWS
+
+    window, page = report["window"], report["page"]
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=("✅ " if key == window else "") + label,
+                callback_data=f"ig_cmt:{key}:0",
+            )
+            for key, _days, label in COMMENT_WINDOWS
+        ]
+    ]
+    pagination = _pagination_row(page, report["pages"], f"ig_cmt:{window}")
+    if pagination:
+        rows.append(pagination)
+    rows.append([InlineKeyboardButton(text="🔄 تازه‌سازی", callback_data=f"ig_cmt:{window}:{page}")])
     rows.append([InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

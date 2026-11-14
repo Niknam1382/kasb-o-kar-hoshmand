@@ -37,6 +37,7 @@ from dataclasses import dataclass
 import aiohttp
 from aiogram.exceptions import TelegramAPIError
 from sqlalchemy import distinct, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import texts as main_texts
@@ -46,6 +47,7 @@ from app.database.models import (
     ConversationMessage,
     Customer,
     InstagramAccount,
+    InstagramCommentEvent,
     OrderConsultation,
     OrderStatus,
     ShopBot,
@@ -283,6 +285,128 @@ async def activity_summary(session: AsyncSession, shop_bot_id: int, *, now: date
         )
     ).scalar_one()
     return out
+
+
+# ------------------------------------------------------------------ پ۷۳ · رویدادِ کامنت و گزارشِ آن
+# خواستهٔ مالک (۲۰۲۶-۱۱-۱۲): «چند کامنت آمد، به چندتا جواب دادیم، خرجش چقدر بود». تا پیش ازِ این
+# کامنت هیچ‌جا ثبت نمی‌شد (پ۶۳ همان را صریح نوشت)، پس این سه تابع همان شکست را ببندند:
+# `record_comment` در مسیرِ وب‌هوک، `mark_comment` در پایانِ هرِ تصمیم، و `comment_report` برایِ پنل.
+COMMENT_RECEIVED = "received"
+COMMENT_REPLIED = "replied"
+COMMENT_SKIPPED = "skipped"
+COMMENT_FAILED = "failed"
+COMMENT_OUTCOMES: tuple[str, ...] = (COMMENT_RECEIVED, COMMENT_REPLIED, COMMENT_SKIPPED, COMMENT_FAILED)
+COMMENT_TEXT_LIMIT = 1200  # متنِ کامنت برایِ «چه پرسیده شد» می‌ماند، نه بایگانیِ کامل
+COMMENT_WINDOWS: tuple[tuple[str, int, str], ...] = (("24h", 1, "۲۴ ساعت"), ("7d", 7, "۷ روز"), ("30d", 30, "۳۰ روز"))
+COMMENT_WINDOW_KEYS = frozenset(key for key, _days, _label in COMMENT_WINDOWS)
+
+
+async def record_comment(session: AsyncSession, account, event) -> tuple[object | None, bool]:
+    """ردیفِ رویدادِ کامنت ⇒ (ردیف، رسیدگی‌شده‌بودنِ پیشین). نوشتن هرگز نباید وب‌هوک را بشکند.
+
+    `(None, False)` یعنی «ثبت نشد ولی کار را متوقف نکن» (خطایِ موقتِ دیتابیس ⇒ رفتارِ دیروز)؛
+    `(ردیف، True)` یعنی اینِ کامنت پیش‌تر دیده و تمام شده ⇒ پاسخِ دوباره نساز (dedupِ پایدار،
+    چون `claim_event` فقط درونِ یکِ پروسه یکتاست و دوباره‌ارسالِ متا بعد ازِ ری‌استارت ممکن است).
+    """
+    shop_bot_id = getattr(account, "shop_bot_id", None)
+    comment_id = (event.comment_id or "")[:64]
+    if not shop_bot_id or not comment_id:
+        return None, False
+    try:
+        async with session.begin_nested():
+            row = InstagramCommentEvent(
+                shop_bot_id=shop_bot_id,
+                comment_id=comment_id,
+                media_id=(event.media_id or "")[:64] or None,
+                username=(event.username or "")[:64] or None,
+                text=(event.text or "")[:COMMENT_TEXT_LIMIT] or None,
+                comment_created_at=event.created_at,
+                outcome=COMMENT_RECEIVED,
+            )
+            session.add(row)
+            await session.flush()
+        return row, False
+    except IntegrityError:
+        existing = (
+            await session.execute(
+                select(InstagramCommentEvent).where(
+                    InstagramCommentEvent.shop_bot_id == shop_bot_id,
+                    InstagramCommentEvent.comment_id == comment_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            return None, False
+        return existing, existing.outcome != COMMENT_RECEIVED
+    except Exception:  # noqa: BLE001 — ثبتِ مشاهده، بهایِ متوقف‌شدنِ پاسخگویی را ندارد
+        logger.warning("پ۷۳: ردیفِ رویدادِ کامنت ثبت نشد؛ پاسخگویی ادامه می‌یابد.", exc_info=True)
+        return None, False
+
+
+def mark_comment(row, outcome: str, *, reason: str | None = None, tokens: int | None = None, cost: int | None = None) -> None:
+    """نتیجهٔ همان رویداد رویِ خودِ ردیف (بدونِ پرس‌وجویِ تازه؛ commit با جریانِ موجود)."""
+    if row is None or outcome not in COMMENT_OUTCOMES:
+        return
+    row.outcome = outcome
+    if reason is not None:
+        row.reason = reason[:32]
+    if tokens is not None:
+        row.ai_tokens = int(tokens)
+    if cost is not None:
+        row.cost_toman = int(cost)
+
+
+async def comment_report(
+    session: AsyncSession, shop_bot_id: int, *, window: str = "7d", page: int = 0,
+    now: datetime.datetime | None = None, page_size: int = 10,
+) -> dict:
+    """سه پرس‌وجو برایِ یکِ صفحه: جمعِ پنجره، تفکیکِ دلیل‌ها، و آخرینِ کامنت‌هایِ همان پنجره."""
+    days = next((d for key, d, _label in COMMENT_WINDOWS if key == window), 7)
+    moment = now or datetime.datetime.now(datetime.timezone.utc)
+    since = moment - datetime.timedelta(days=days)
+    scope = (InstagramCommentEvent.shop_bot_id == shop_bot_id, InstagramCommentEvent.created_at >= since)
+    total, replied, skipped, failed, tokens, cost = (
+        await session.execute(
+            select(
+                func.count(),
+                func.count().filter(InstagramCommentEvent.outcome == COMMENT_REPLIED),
+                func.count().filter(InstagramCommentEvent.outcome == COMMENT_SKIPPED),
+                func.count().filter(InstagramCommentEvent.outcome == COMMENT_FAILED),
+                func.coalesce(func.sum(InstagramCommentEvent.ai_tokens), 0),
+                func.coalesce(func.sum(InstagramCommentEvent.cost_toman), 0),
+            ).where(*scope)
+        )
+    ).one()
+    reasons = [
+        ((reason or "unknown"), count)
+        for reason, count in (
+            await session.execute(
+                select(InstagramCommentEvent.reason, func.count())
+                .where(*scope, InstagramCommentEvent.outcome != COMMENT_REPLIED)
+                .group_by(InstagramCommentEvent.reason)
+                .order_by(func.count().desc(), InstagramCommentEvent.reason)
+            )
+        ).all()
+    ]
+    pages = max(1, (total + page_size - 1) // page_size)
+    page = max(0, min(page, pages - 1))
+    items = list(
+        (
+            await session.execute(
+                select(InstagramCommentEvent)
+                .where(*scope)
+                .order_by(InstagramCommentEvent.created_at.desc(), InstagramCommentEvent.id.desc())
+                .limit(page_size)
+                .offset(page * page_size)
+            )
+        ).scalars().all()
+    )
+    return {
+        "window": window, "days": days, "at": moment,
+        "total": int(total), "replied": int(replied), "skipped": int(skipped), "failed": int(failed),
+        "tokens": int(tokens), "cost": int(cost), "reasons": reasons,
+        "items": items, "page": page, "pages": pages, "page_size": page_size,
+    }
 
 
 # ============================================================================= ۲ — آدرس‌ها و توکنِ وضعیت
@@ -940,6 +1064,9 @@ async def handle_comment(session: AsyncSession, main_bot, event: CommentEvent) -
     تاریخچه‌ای خوانده/نوشته نمی‌شود و هویتِ Customer برایش ساخته نمی‌شود (ساختنِ مشتری از رویِ یکِ
     کامنت، CRMِ فروشگاه را با آدم‌هایِ غریبه پر می‌کرد). هزینهٔ AI مثلِ بقیهٔ کانال‌ها از کیف‌پولِ
     صاحبِ فروشگاه کم می‌شود. هیچ استثنایی به وب‌هوک بیرون نمی‌رود.
+
+
+    پ۷۳: هرِ کامنتِ *دیده‌شده* یکِ ردیفِ فقط‌مشاهده‌ای در `instagram_comment_events` می‌گیرد (با نتیجه، دلیلِ جواب‌نرفتن و همان توکن/مبلغِ کسرشده) — بدونِ مشتری، بدونِ گفتگو و بدونِ هیچ اثری رویِ تصمیمِ پول؛ اگر نوشتن خطا داد، پاسخگویی مثلِ دیروز ادامه می‌یابد.
     """
     try:
         await _handle_comment(session, main_bot, event)
@@ -956,13 +1083,34 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
     if not enabled(admin_settings):
         return
     account = await account_by_ig_id(session, event.ig_account_id)
-    if account is None or not account.is_active or not account.auto_reply_comments or is_muted(account):
+    if account is None:
+        return
+    # پ۷۳: ردیفِ رویداد پیش ازِ درهایِ حسابی نوشته می‌شود تا «چند کامنت آمد و چرا جواب نرفت» شمارش
+    # بماند؛ بی‌ثباتیِ نوشتن هیچ‌وقت پاسخگویی را متوقف نمی‌کند.
+    row, handled = await record_comment(session, account, event)
+    if handled:
+        return  # اینِ کامنت پیش‌تر دیده و تمام شده (دوباره‌ارسالِ متا بعد ازِ ری‌استارت)
+    if not account.is_active:
+        mark_comment(row, COMMENT_SKIPPED, reason="account_off")
+        await session.commit()
+        return
+    if not account.auto_reply_comments:
+        mark_comment(row, COMMENT_SKIPPED, reason="comments_off")
+        await session.commit()
+        return
+    if is_muted(account):
+        mark_comment(row, COMMENT_SKIPPED, reason="muted")
+        await session.commit()
         return
     shop_bot = await shop_bot_service.get_by_id(session, account.shop_bot_id)
     if shop_bot is None or not shop_bot.is_active or admin_settings.maintenance_mode:
+        mark_comment(row, COMMENT_SKIPPED, reason="shop_inactive")
+        await session.commit()
         return
     owner = await shop_owner_service.get_by_id(session, shop_bot.shop_owner_id)
     if owner is None:
+        mark_comment(row, COMMENT_SKIPPED, reason="no_owner")
+        await session.commit()
         return
 
     matched_rule = await moderation_service.check_text(session, event.text, shop_bot_id=shop_bot.id)
@@ -976,12 +1124,18 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
         )
         await session.commit()
         if action == "block":
+            mark_comment(row, COMMENT_SKIPPED, reason="moderation_block")
+            await session.commit()
             return  # جوابِ عمومیِ زیرِ کامنتِ تخلفی، برندِ فروشگاه را هم آلوده می‌کند
 
     if not admin_settings.ai_api_key:
+        mark_comment(row, COMMENT_SKIPPED, reason="no_ai_key")
+        await session.commit()
         return
     access_state = await order_access_service.evaluate(session, owner, admin_settings)
     if not order_access_service.chat_continues(access_state):
+        mark_comment(row, COMMENT_SKIPPED, reason="no_access")
+        await session.commit()
         return
 
     products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
@@ -1000,6 +1154,8 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
     )
     ai = await ai_pool_service.build_ai_service(session, admin_settings, "chat")
     if ai is None:
+        mark_comment(row, COMMENT_SKIPPED, reason="no_ai_pool")
+        await session.commit()
         return
     try:
         await session.commit()  # قاعدهٔ ۷: آزادکردنِ اتصال پیش ازِ انتظارِ شبکه
@@ -1007,20 +1163,25 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
     except ai_service.AiServiceError:
         logger.warning("پاسخِ AI به کامنتِ اینستاگرام برایِ فروشگاه %s ناموفق بود.", shop_bot.id)
         await bot_error_service.log_error(session, shop_bot.id)
+        mark_comment(row, COMMENT_FAILED, reason="ai_error")
         await session.commit()
         return
 
     reply = text_limits.strip_markdown(knowledge_service.strip_gap_marker(ai_result.text)[0])
     public = text_limits.clip(reply, COMMENT_PUBLIC_LIMIT)
     if not public:
+        mark_comment(row, COMMENT_SKIPPED, reason="empty_reply")
+        await session.commit()
         return
     if not await reply_to_comment(session, account, event, public):
+        mark_comment(row, COMMENT_FAILED, reason="send_failed")
         await session.commit()
         return  # پاسخِ نرسیده هزینهٔ صاحبِ فروشگاه نمی‌شود
 
     if account.private_reply_enabled:
         await send_private_reply(session, account, event, private_reply_text(reply, shop_bot))
     cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
+    mark_comment(row, COMMENT_REPLIED, tokens=ai_result.total_tokens, cost=cost)
     await chat_billing_service.deduct_and_notify(
         session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot,
         ai_total_tokens=ai_result.total_tokens,

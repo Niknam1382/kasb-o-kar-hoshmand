@@ -176,6 +176,7 @@ TEST_FILES = [
     "test_p70_ai_usage_per_shop.py",
     "test_p71_invoice_paging.py",
     "test_p72_doctor_thresholds.py",
+    "test_p73_instagram_comment_report.py",
 ]
 
 

@@ -175,6 +175,32 @@ async def cb_activity(callback: CallbackQuery, session: AsyncSession) -> None:
     )
 
 
+@router.callback_query(F.data.startswith("ig_cmt:"))
+async def cb_comments_report(callback: CallbackQuery, session: AsyncSession) -> None:
+    """پ۷۳ · «🗨 گزارشِ کامنت‌ها»: فقط‌خواندنی از ردیف‌هایِ رویدادِ کامنتِ همین فروشگاه.
+
+    شکلِ `callback_data` = `ig_cmt:{window}:{page}`؛ بازهٔ ناشناخته و صفحهٔ غیرعدد رد می‌شوند
+    (صفحه از سمتِ سرویس کراندار است، پس شمارهٔ بزرگ‌تر از فهرست هم بی‌خطر است).
+    """
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    account = await instagram_service.account_for_shop(session, shop_bot.id)
+    if account is None:
+        await callback.answer(texts.INSTAGRAM_NOT_CONNECTED, show_alert=True)
+        return
+    parts = (callback.data or "").split(":")
+    window = parts[1] if len(parts) > 1 else ""
+    raw_page = parts[2] if len(parts) > 2 else "0"
+    if window not in instagram_service.COMMENT_WINDOW_KEYS or not raw_page.isascii() or not raw_page.isdigit():
+        await callback.answer(texts.INSTAGRAM_COMMENTS_INVALID, show_alert=True)
+        return
+    report = await instagram_service.comment_report(session, shop_bot.id, window=window, page=int(raw_page))
+    await session.commit()
+    await callback.answer()
+    await safe_edit(callback, texts.instagram_comments_text(report), keyboards.instagram_comments_keyboard(report))
+
+
 @router.callback_query(F.data == "ig_back")
 async def cb_back(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     await state.clear()

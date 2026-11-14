@@ -789,6 +789,38 @@ class InstagramAccount(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class InstagramCommentEvent(Base):
+    """پ۷۳ · رویدادِ کامنتِ اینستاگرام (خواستهٔ مالک ۱۱-۱۲: «چند کامنت آمد، به چندتا جواب دادیم»).
+
+    چرا ردیفِ تازه: متا فقط رویداد می‌دهد و پاسخ زیرِ همان کامنت می‌نشیند؛ تا پیش ازِ این هیچ‌جا
+    ذخیره نمی‌شد، پس «گزارشِ کامنت» و «خرجِ AIِ کامنت‌ها» ساخته‌شدنی نبود (پ۶۳ صریح گفت فقط
+    دایرکت شمرده می‌شود). این جدول فقط *مشاهده* را ثبت می‌کند: نه مشتری‌ای می‌سازد (کامنت‌کننده
+    غریبه است) و نه مبلغی را عوض می‌کند.
+
+    `cost_toman` همان عددی است که در همان لحظه از کیف‌پولِ صاحبِ فروشگاه کم شده (نه تخمینِ جدا)،
+    پس جمعِ آن با دفترِ کیف‌پول می‌خواند. `ai_tokens` هم همان توکنِ اعلام‌شده توسطِ سرویس‌دهنده است.
+    """
+
+    __tablename__ = "instagram_comment_events"
+    __table_args__ = (
+        UniqueConstraint("shop_bot_id", "comment_id", name="uq_ig_comment_shop_comment"),
+        Index("ix_ig_comment_events_shop_created", "shop_bot_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), nullable=False)
+    comment_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    media_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comment_created_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(32), default="received", server_default="received", nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    ai_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_toman: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 
