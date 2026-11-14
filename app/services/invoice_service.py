@@ -240,7 +240,12 @@ _PDF_USABLE = 210.0 - 2 * _PDF_MARGIN  # A4 portrait، بدونِ حاشیه
 _COL_NAME = _PDF_USABLE - 18.0 - 56.0  # کالا | تعداد | مبلغ
 _COL_QTY = 18.0
 _COL_PRICE = 56.0
-_PDF_MAX_ITEMS = 40  # سقفِ دفاعی: فاکتورِ خیلی بزرگ به HTML/متنِ خلاصه برگردانده می‌شود
+# پ۷۱ (موردِ ۳۴-پ): اقلام دیگر در ۴۰ قلم بریده نمی‌شوند؛ جدول بینِ صفحه‌ها جاری می‌شود و
+# این عدد فقط محافظِ نهایی است (فاکتورِ ۳۰۰ قلمی = ~۷ صفحه، نه گم‌شدنِ اقلام).
+_PDF_MAX_ITEMS = 300
+_PDF_FOOTER_BAND = 16.0  # ارتفاعی که پاورقیِ هر صفحه (خط + «صفحهٔ X از Y») نگه می‌دارد
+_PDF_ROW_H = 7.4
+_PDF_TOTALS_BLOCK_H = 46.0  # جمعِ اقلام + تخفیف + ارسال + جمعِ کل + وضعیتِ پرداخت
 
 
 def _clip(pdf, text: str, max_width: float) -> str:
@@ -253,7 +258,25 @@ def _clip(pdf, text: str, max_width: float) -> str:
 
 
 def build_invoice_pdf(data: dict) -> bytes | None:
-    """فاکتورِ A4ِ راست‌به‌چپ. هر مانعی (کتابخانه، فونت، خطایِ رندر) ⇒ None + لاگ؛ فراخواننده HTML می‌فرستد."""
+    """فاکتورِ A4ِ راست‌به‌چپ. هر مانعی (کتابخانه، فونت، خطایِ رندر) ⇒ None + لاگ؛ فراخواننده HTML می‌فرستد.
+
+    پ۷۱ (موردِ ۳۴-پ): دو گذر. گذرِ اول فقط می‌شمارد چند صفحه شد؛ گذرِ دوم همان چیدمان را با
+    «صفحهٔ X از Y» می‌سازد. دلیلِ دو گذر: در fpdf2 این نسخه پایگاهِ دادهٔ صفحه‌ها بعد ازِ بسته‌شدنِ
+    هر صفحه قابلِ ویرایش نیست (`set_page` ندارد)، پس «از Y» باید از پیش دانسته شود. چیدمان به
+    پاورقی وابسته نیست (در نوارِ ثابتِ پایین می‌نشیند)، پس تعدادِ صفحه در دو گذر یکسان است.
+    """
+    counting = _render_pdf(data, 0)
+    if counting is None:
+        return None
+    body, pages = counting
+    if pages < 1:
+        return body
+    stamped = _render_pdf(data, pages)
+    return stamped[0] if stamped is not None else body
+
+
+def _render_pdf(data: dict, known_total: int) -> tuple[bytes, int] | None:
+    """یکِ گذرِ رندر؛ با `known_total=0` پاورقی مهر نمی‌شود (فقط شمارشِ صفحه)."""
     font = font_path()
     if font is None:
         logger.warning("B6: هیچ فونتِ فارسیِ قابلِ استفاده پیدا نشد ⇒ فاکتور به‌صورتِ HTML.")
@@ -273,7 +296,7 @@ def build_invoice_pdf(data: dict) -> bytes | None:
     try:
         pdf = FPDF(format="A4")
         pdf.set_margins(_PDF_MARGIN, _PDF_MARGIN, _PDF_MARGIN)
-        pdf.set_auto_page_break(True, margin=_PDF_MARGIN + 6)
+        pdf.set_auto_page_break(False)  # پ۷۱: شکستنِ صفحه فقط با `stamp_footer` ⇒ هیچ صفحه‌ای بی‌پاورقی نمی‌ماند
         pdf.add_font("fa", "", font)
         pdf.add_page()
         right = _PDF_MARGIN + _PDF_USABLE
@@ -432,9 +455,42 @@ def build_invoice_pdf(data: dict) -> bytes | None:
                     pdf.set_text_color(*ink)
             pdf.set_xy(_PDF_MARGIN, y + height)
 
-        row([(_COL_NAME, "کالا"), (_COL_QTY, "تعداد"), (_COL_PRICE, "مبلغ — تومان")], header=True)
+        def stamp_footer(page_no: int) -> None:
+            """خطِ نازک + «صفحهٔ X از Y» در نوارِ ثابتِ پایینِ همین صفحه (رقمِ جلالی)."""
+            if not known_total:
+                return
+            footer_y = a4_height - _PDF_MARGIN - _PDF_FOOTER_BAND
+            pdf.set_draw_color(*rule_grey)
+            pdf.set_line_width(0.4)
+            pdf.line(_PDF_MARGIN, footer_y, right, footer_y)
+            pdf.set_font("fa", "", 8.5)
+            pdf.set_text_color(*ink_soft)
+            if page_no == known_total:
+                pdf.set_xy(_PDF_MARGIN, footer_y + 2.0)
+                pdf.cell(_PDF_USABLE, 5.2, fa("این فاکتور رایانه‌ای تولید شده و بدونِ امضا معتبر است."), align="R")
+                if data.get("signature"):
+                    pdf.set_xy(_PDF_MARGIN, footer_y + 7.0)
+                    pdf.cell(_PDF_USABLE, 5.2, fa("صادرشده با «کسب‌وکار هوشمند»"), align="R")
+            pdf.set_xy(_PDF_MARGIN + 1.0, footer_y + 10.2)
+            pdf.cell(_PDF_USABLE - 2.0, 5.0, fa(f"صفحهٔ {fa_number(page_no)} از {fa_number(known_total)}"), align="L")
+            pdf.set_text_color(*ink)
+
+        def new_page() -> None:
+            """پاورقیِ صفحه‌ای که ترک می‌شود و رفتن به صفحهٔ بعد."""
+            stamp_footer(pdf.page_no())
+            pdf.add_page()
+
+        def table_header() -> None:
+            row([(_COL_NAME, "کالا"), (_COL_QTY, "تعداد"), (_COL_PRICE, "مبلغ — تومان")], header=True)
+
+        # پ۷۱: کفِ قابلِ استفاده رویِ هر صفحه (بالایِ نوارِ پاورقی)
+        page_floor = a4_height - _PDF_MARGIN - _PDF_FOOTER_BAND
         items = data.get("items") or []
+        table_header()
         for index, item in enumerate(items[:_PDF_MAX_ITEMS]):
+            if pdf.get_y() + _PDF_ROW_H > page_floor:
+                new_page()
+                table_header()
             kind = " «دیجیتال»" if item.get("kind") == "digital" else ""
             row(
                 [
@@ -445,10 +501,14 @@ def build_invoice_pdf(data: dict) -> bytes | None:
                 shade=index % 2 == 1,
             )
         if len(items) > _PDF_MAX_ITEMS:
+            if pdf.get_y() + 6.0 > page_floor:  # پ۷۱
+                new_page()
             line_text(f"… و {fa_number(len(items) - _PDF_MAX_ITEMS)} قلمِ دیگر", 9, 6.0, ink_soft)
 
         pdf.ln(1.5)
         # --- جمع‌ها (هم‌ترازِ ستون‌هایِ جدول؛ تخفیف بی‌علامتِ لاتین، فقط با رنگِ متمایز)
+        if pdf.get_y() + _PDF_TOTALS_BLOCK_H > page_floor:  # پ۷۱: کادرِ جمع در انتهایِ صفحه نمی‌شکند
+            new_page()
         row([(_COL_NAME + _COL_QTY, "جمعِ اقلام"), (_COL_PRICE, fa_grouped(int(data.get("list_total") or 0)))])
         if data.get("discount"):
             row(
@@ -477,18 +537,10 @@ def build_invoice_pdf(data: dict) -> bytes | None:
         else:
             chip(f"منتظرِ پرداخت — {method_label}", (176, 106, 10))
 
-        # --- پاورقیِ چسبان: خطِ نازک، توضیح، و شماره در سلولِ جدا از متنِ فارسی
-        footer_y = max(pdf.get_y() + 8.0, a4_height - _PDF_MARGIN - 16.0)
-        pdf.set_xy(_PDF_MARGIN, footer_y)
-        pdf.set_draw_color(*rule_grey)
-        pdf.set_line_width(0.4)
-        pdf.line(_PDF_MARGIN, footer_y, right, footer_y)
-        pdf.ln(2.2)
-        if data.get("signature"):
-            line_text("صادرشده با «کسب‌وکار هوشمند»", 9, 5.4, ink_soft)
-        line_text("این فاکتور رایانه‌ای تولید شده و بدونِ امضا معتبر است.", 8.5, 5.4, ink_soft)
+        # --- پاورقیِ صفحهٔ آخر (صفحه‌هایِ میانی در `new_page()` مهر شدند)
+        stamp_footer(pdf.page_no())
 
-        return bytes(pdf.output())
+        return bytes(pdf.output()), pdf.pages_count
     except Exception:
         logger.exception("B6: ساختِ PDFِ فاکتور ناموفق بود ⇒ فاکتور HTML فرستاده می‌شود.")
         return None
