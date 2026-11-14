@@ -199,7 +199,7 @@ async def _check_access(message: Message, session: AsyncSession, shop_bot, main_
 
 async def _deduct_and_notify(
     session: AsyncSession, owner, admin_settings, amount_toman: int, reason: WalletTransactionReason, main_bot: Bot,
-    customer_id: int | None = None,
+    customer_id: int | None = None, ai_total_tokens: int | None = None,
 ) -> None:
     """P49-الف: بدنه به `chat_billing_service.deduct_and_notify` رفت تا کانالِ سوم (اینستاگرام)
     همان ریاضیِ پول را صدا بزند، نه یکِ نسخهٔ دوم از آن. این نام فقط wrapper مانده تا چهار
@@ -208,7 +208,8 @@ async def _deduct_and_notify(
     P55 · موردِ ۲۳: `customer_id` رویِ همان ردیفِ کسر نوشته می‌شود (بدونِ هیچ جملهٔ اضافه) تا
     مصرفِ هوشِ مصنوعی به‌ازایِ هر کاربر رتبه‌بندی شود."""
     await chat_billing_service.deduct_and_notify(
-        session, owner, admin_settings, amount_toman, reason, main_bot, customer_id=customer_id
+        session, owner, admin_settings, amount_toman, reason, main_bot,
+        customer_id=customer_id, ai_total_tokens=ai_total_tokens,
     )
 
 
@@ -763,7 +764,8 @@ async def _generate_and_send_reply(
 
     cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
     await _deduct_and_notify(
-        session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot, customer_id=customer.id
+        session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot,
+        customer_id=customer.id, ai_total_tokens=ai_result.total_tokens,
     )
 
     full_history = history + [{"role": "user", "content": combined_text}, {"role": "assistant", "content": reply}]
@@ -822,7 +824,8 @@ async def _maybe_handle_cart_edit(
         if tokens_used is not None:
             cost = wallet_service.estimate_cart_edit_cost(admin_settings, tokens_used)
             await _deduct_and_notify(
-                session, owner, admin_settings, cost, WalletTransactionReason.CART_EDIT, main_bot, customer_id=customer.id
+                session, owner, admin_settings, cost, WalletTransactionReason.CART_EDIT, main_bot,
+                customer_id=customer.id, ai_total_tokens=tokens_used,
             )
 
         if result is None:

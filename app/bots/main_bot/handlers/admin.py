@@ -42,6 +42,7 @@ from app.database.models import AiKeyCapability, AuditEventType, DiscountType, P
 from app.services import (
     admin_role_service,
     admin_settings_service,
+    ai_cost_service,
     ai_debt_service,
     ai_pool_service,
     ai_service,
@@ -745,6 +746,51 @@ async def cb_pricing_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.answer()
     await callback.message.edit_text(texts.ADMIN_PRICING_MENU_INTRO, reply_markup=keyboards.admin_pricing_menu_keyboard())
+
+
+# ------------------------------------------------------------------ پ۶۹ · موردِ ۳۶: برآوردِ هزینهٔ واقعیِ AI
+AI_COST_DEFAULT_DAYS = 30
+_AI_COST_DAYS = {value for value, _label in texts.AI_COST_RANGES}
+
+
+async def _ai_cost_view(session: AsyncSession, days: int):
+    """یکِ GROUP BY رویِ دفترِ کیف‌پول در پنجرهٔ [اکنون - days, اکنون)."""
+    until = datetime.datetime.now(datetime.timezone.utc)
+    return await ai_cost_service.observe(
+        session, since=until - datetime.timedelta(days=days), until=until, admin_settings=await get_admin_settings(session)
+    )
+
+
+async def _render_ai_cost(message: Message | CallbackQuery, session: AsyncSession, days: int) -> None:
+    view = await _ai_cost_view(session, days)
+    body = texts.ai_cost_text(view, days)
+    markup = keyboards.ai_cost_keyboard(days)
+    if isinstance(message, CallbackQuery):
+        await safe_edit(message, body, markup)
+    else:
+        await message.answer(body, reply_markup=markup)
+
+
+@super_router.message(F.text == texts.AI_COST_BUTTON)
+async def cb_ai_cost_from_text(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    await state.clear()
+    await _render_ai_cost(message, session, AI_COST_DEFAULT_DAYS)
+
+
+@super_router.callback_query(F.data == "ai_cost_open")
+async def cb_ai_cost_open(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    await state.clear()
+    await callback.answer()
+    await _render_ai_cost(callback, session, AI_COST_DEFAULT_DAYS)
+
+
+@super_router.callback_query(F.data.startswith("ai_cost_range:"))
+async def cb_ai_cost_range(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    raw = (callback.data or "").split(":", 1)[1]
+    days = int(raw) if raw.isascii() and raw.isdecimal() and int(raw) in _AI_COST_DAYS else AI_COST_DEFAULT_DAYS
+    await state.clear()
+    await callback.answer()
+    await _render_ai_cost(callback, session, days)
 
 
 @super_router.callback_query(F.data == "admin_toggle_sms")

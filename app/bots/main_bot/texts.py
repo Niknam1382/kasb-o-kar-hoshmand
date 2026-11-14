@@ -4,7 +4,7 @@ import datetime
 
 from app.services.identity_service import display_name, display_user
 from app.utils.text_limits import clip
-from app.utils.validators import fa_number, fa_percent, fa_text, format_phone_display, format_toman
+from app.utils.validators import fa_grouped, fa_number, fa_percent, fa_text, format_phone_display, format_toman
 
 # =============================================================================
 # عمومی
@@ -4947,4 +4947,81 @@ def owner_dossier_text(data: dict, audit_rows: list[tuple[str, int]]) -> str:
     else:
         lines.append(f"• {OWNER_DOSSIER_AUDIT_NONE}")
     lines += ["", OWNER_DOSSIER_NOTE]
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ پ۶۹ · موردِ ۳۶: برآوردِ هزینهٔ واقعیِ AI
+AI_COST_BUTTON = "💸 برآوردِ هزینهٔ واقعیِ AI"
+AI_COST_INTRO = (
+    "💸 برآوردِ هزینهٔ تمام‌شدهٔ هوش مصنوعی\n\n"
+    "تا این نسخه دو عددِ فرض در پنل بود: چیزی که فروشگاه می‌پردازد و چیزی که ما به ارائه‌دهنده "
+    "می‌دهیم. از اینجا، توکنِ *واقعیِ* هر فراخوانی رویِ همان ردیفِ کسر ثبت می‌شود و این صفحه "
+    "میانگینِ واقعی را با آن فرض‌ها مقایسه می‌کند."
+)
+AI_COST_RANGES = ((7, "۷ روز"), (30, "۳۰ روز"), (90, "۹۰ روز"))
+AI_COST_FEATURE_LABELS = {
+    "chat_message": "💬 پاسخِ چتِ مشتری",
+    "photo_analysis": "🖼 تحلیلِ عکس",
+    "receipt_analysis": "🧾 رسیدِ پرداخت",
+    "voice_transcription": "🎙 تبدیلِ صوت",
+    "order_detection": "📦 سفارش‌یابی",
+    "cart_edit": "🛒 ویرایشِ سبد",
+    "crm_summary": "🗂 خلاصهٔ CRM",
+    "owner_assistant": "🤖 دستیارِ مدیر",
+}
+AI_COST_NO_DATA = "🧾 در این بازه هیچ مصرفِ AI‌ای ثبت نشده است."
+AI_COST_NO_MEASURE = (
+    "⚠️ هیچ فراخوانیِ AI در این بازه با توکنِ ثبت‌شده نیست؛ جمعِ پول پایین نمایش داده می‌شود ولی "
+    "میانگینِ توکن حساب نمی‌شود (برآورد از گذشته ساخته نمی‌شود)."
+)
+AI_COST_COVERAGE_NOTE = "📏 پوششِ اندازه‌گیری: فقط فراخوانی‌هایِ پ۶۹ به بعد توکن دارند."
+AI_COST_ESTIMATED_NOTE = "اعدادِ برچسب‌دار: MEASURED = از ردیف‌هایِ دیتابیس · EXTRAPOLATED = همان ردیف‌ها × نرخِ پنل · ESTIMATED = تقریبِ اندازهٔ پرامپت"
+
+
+def _ai_cost_ratio_word(ratio) -> str:
+    return "بالاتر ازِ هزینهٔ خام (سودِ ناخالص)" if ratio >= 1 else "پایین‌تر ازِ هزینهٔ خام (زیان)"
+
+
+def ai_cost_text(view, days: int) -> str:
+    """صفحهٔ برآورد: جمعِ پنجره، تفکیکِ هر قابلیت، و سه عددِ قیمت."""
+    lines = [f"💸 برآوردِ هزینهٔ واقعیِ AI — {fa_number(days)} روز گذشته", ""]
+    if not view.rows:
+        lines.append(AI_COST_NO_DATA)
+    else:
+        lines.append(f"• فراخوانی‌هایِ AI: {fa_number(view.calls)}")
+        lines.append(f"• گرفته‌شده از فروشگاه‌دارها: {format_toman(view.charged_toman)}")
+        if view.measured_calls:
+            lines.append(f"• توکنِ واقعیِ مصرفی: {fa_grouped(view.tokens)}")
+            lines.append(f"• میانگینِ هر فراخوانی: {fa_grouped(view.mean_tokens)} توکن (MEASURED)")
+            lines.append(f"• چیزی که واقعاً به‌ازایِ هر ۱۰۰۰ توکن گرفته شده: {format_toman(view.charged_per_1k)}")
+            lines.append(f"• هزینهٔ خامِ همین توکن‌ها: {format_toman(int(view.measured_raw_cost_toman))} (EXTRAPOLATED)")
+            ratio = view.margin_ratio()
+            if ratio is not None:
+                lines.append(f"• نسبتِ گرفته/هزینه: {fa_number(f'{float(ratio):g}')}× — {_ai_cost_ratio_word(ratio)}")
+        else:
+            lines.append(AI_COST_NO_MEASURE)
+        lines += ["", "📊 تفکیکِ هر قابلیت:"]
+        for row in view.rows:
+            label = AI_COST_FEATURE_LABELS.get(row.reason, row.reason)
+            if row.measured_calls:
+                lines.append(
+                    f"  ◂ {label}: {fa_number(row.calls)} فراخوانی · {fa_grouped(row.tokens)} توکن · "
+                    f"میانگینِ هر فراخوانی {fa_grouped(row.mean_tokens)} توکن · هر ۱۰۰۰ توکن = "
+                    f"{format_toman(row.charged_per_1k)}"
+                )
+            else:
+                lines.append(f"  ◂ {label}: {fa_number(row.calls)} فراخوانی · {format_toman(row.charged_toman)} · بی‌توکنِ ثبت‌شده")
+        lines.append(AI_COST_COVERAGE_NOTE)
+    lines += [
+        "",
+        "💰 سه عددِ قیمت:",
+        f"• قیمتِ فعلیِ هر ۱۰۰۰ توکن: {format_toman(view.price_per_1k_toman)}",
+        f"• هزینهٔ خامِ هر ۱۰۰۰ توکن با نرخِ پنل: {format_toman(int(view.raw_cost_per_1k_toman))}",
+        f"• پیشنهادِ فرمولِ خودکار (با ضریبِ سود): {format_toman(view.suggested_price_per_1k)}",
+        "",
+        f"🧠 کفِ پرامپتِ سیستمی (ESTIMATED): فروشگاهی {fa_number(view.prompt_floor_sales)} توکن، "
+        f"مشاوره‌ای {fa_number(view.prompt_floor_consultation)} توکن — این سهم را *هر* فراخوانی "
+        "پخش می‌کند، حتی اگر مشتری یک کلمه بنویسد.",
+        AI_COST_ESTIMATED_NOTE,
+    ]
     return "\n".join(lines)

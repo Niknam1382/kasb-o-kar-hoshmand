@@ -191,6 +191,7 @@ async def deduct(
     order_id: int | None = None,
     idempotency_key: str | None = None,
     customer_id: int | None = None,
+    ai_total_tokens: int | None = None,
 ) -> bool:
     """
     از قدیمی‌ترین شارژِ منقضی‌نشده (FIFO) کم می‌کنه، حتی اگه بینِ چند بسته پخش
@@ -229,6 +230,7 @@ async def deduct(
         return False
 
     remaining_to_deduct = amount_toman
+    pending_tokens = ai_total_tokens
     for charge in charges:
         if remaining_to_deduct <= 0:
             break
@@ -248,8 +250,12 @@ async def deduct(
                 # چند بسته پخش شود و قیدِ یکتا نباید جلویِ خودِ آن را بگیرد، ولی
                 # اجرایِ دوبارهٔ همان رویداد رویِ همان بسته را می‌گیرد.
                 idempotency_key=None if idempotency_key is None else f"{idempotency_key}:lot:{charge.id}",
+                ai_total_tokens=pending_tokens,
             )
         )
+        # پ۶۹: توکنِ یکِ فراخوانی فقط رویِ اولین ردیفِ این کسر می‌نشیند؛ اگر مصرف بینِ چند بسته
+        # پخش شده باشد، جمعِ توکن‌ها همان یک فراخوانی می‌ماند و دوباره شمرده نمی‌شود.
+        pending_tokens = None
 
     if remaining_to_deduct > 0:
         # به‌طورِ نظری دیگه نباید به اینجا برسیم (چونِ چکِ بالا از قبل مجموع

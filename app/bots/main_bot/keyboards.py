@@ -772,9 +772,18 @@ def admin_pricing_menu_keyboard() -> InlineKeyboardMarkup:
     # A6: UIِ «طرح‌های اشتراک» حذف شد (جدول و سرویسِ داده دست‌نخورده ماندند).
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=texts.AI_COST_BUTTON, callback_data="ai_cost_open")],
             [InlineKeyboardButton(text="🏷 کدهای تخفیف", callback_data="admin_pricing_discounts")],
         ]
     )
+
+
+def ai_cost_keyboard(days: int) -> InlineKeyboardMarkup:
+    """پ۶۹: پنجرهٔ زمانیِ برآورد + تازه‌سازیِ همان پنجره."""
+    rows = [[InlineKeyboardButton(text=label, callback_data=f"ai_cost_range:{value}") for value, label in texts.AI_COST_RANGES]]
+    rows.append([InlineKeyboardButton(text="🔄 تازه‌سازی", callback_data=f"ai_cost_range:{days}")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت", callback_data="admin_pricing_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def admin_discounts_list_keyboard(codes) -> InlineKeyboardMarkup:

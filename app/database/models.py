@@ -609,6 +609,10 @@ class WalletTransaction(Base, CreatedAtMixin):
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_wallet_tx_idempotency"),
         Index("ix_wallet_transactions_customer_created", "customer_id", "created_at"),
+        Index(
+            "ix_wallet_transactions_ai_tokens", "created_at", "reason",
+            postgresql_where=text("ai_total_tokens IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -626,6 +630,9 @@ class WalletTransaction(Base, CreatedAtMixin):
     idempotency_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     reason: Mapped[WalletTransactionReason] = _enum_column(WalletTransactionReason, nullable=False)
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # پ۶۹ · موردِ ۳۶: توکن‌هایِ واقعیِ همان فراخوانیِ AI، فقط رویِ اولین ردیفِ کسر (تا کسرِ
+    # چندبسته‌ای دوباره شمرده نشود). NULL یعنی ردیف بی‌AI است، usage برنگشته، یا قدیمی است.
+    ai_total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Referral(Base, CreatedAtMixin):

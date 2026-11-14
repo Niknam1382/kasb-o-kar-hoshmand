@@ -102,7 +102,10 @@ async def assistant_question(message: Message, session: AsyncSession, state: FSM
         return
 
     cost = wallet_service.estimate_owner_assistant_cost(admin_settings, ai_result.total_tokens)
-    await ai_billing.charge_owner(session, owner, admin_settings, cost, WalletTransactionReason.OWNER_ASSISTANT, message.bot)
+    await ai_billing.charge_owner(
+        session, owner, admin_settings, cost, WalletTransactionReason.OWNER_ASSISTANT, message.bot,
+        ai_total_tokens=ai_result.total_tokens,
+    )
 
     history.extend([{"role": "user", "content": question}, {"role": "assistant", "content": reply}])
     await state.update_data(assistant_history=owner_assistant_service.trim_history(history))

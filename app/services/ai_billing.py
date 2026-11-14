@@ -43,11 +43,17 @@ def has_funds(owner, estimated_cost_toman: int) -> bool:
 
 
 async def charge_owner(
-    session, owner, admin_settings, amount_toman: int, reason: WalletTransactionReason, main_bot: Bot
+    session, owner, admin_settings, amount_toman: int, reason: WalletTransactionReason, main_bot: Bot,
+    ai_total_tokens: int | None = None,
 ) -> bool:
-    """بعدِ فراخوانیِ موفقِ AI صدا زده می‌شه. اگه موجودی در لحظه‌یِ کسر کافی نبود (مثلاً یه پیامِ
-    هم‌زمانِ مشتری مصرفش کرده) فقط لاگ می‌شه — جوابِ تولیدشده از دست نمی‌ره. خروجی: آیا کسر انجام شد."""
-    success = await wallet_service.deduct(session, owner, amount_toman, reason)
+    """بعدِ فراخوانیِ موفقِ هوش مصنوعی صدا زده می‌شه. اگه موجودی در لحظه‌یِ کسر کافی نبود (مثلاً یه پیامِ
+    هم‌زمانِ مشتری مصرفش کرده) فقط لاگ می‌شه — جوابِ تولیدشده از دست نمی‌ره. خروجی: آیا کسر انجام شد.
+
+    `ai_total_tokens` (پ۶۹) همان تعدادِ توکنِ واقعی را رویِ ردیفِ کسر می‌گذارد تا «برآوردِ هزینهٔ
+    تمام‌شده» از تجربهٔ واقعی حساب شود، نه از حدس."""
+    success = await wallet_service.deduct(
+        session, owner, amount_toman, reason, ai_total_tokens=ai_total_tokens
+    )
     if not success:
         logger.warning("کسرِ %s تومنِ %s برایِ فروشگاه‌دارِ %s ناموفق بود (موجودیِ ناکافی در لحظه‌یِ کسر).", amount_toman, reason, owner.id)
 

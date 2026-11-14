@@ -521,7 +521,10 @@ async def crm_summary_run(callback: CallbackQuery, session: AsyncSession) -> Non
             return
 
         cost = wallet_service.estimate_crm_summary_cost(admin_settings, ai_result.total_tokens)
-        await ai_billing.charge_owner(session, owner, admin_settings, cost, WalletTransactionReason.CRM_SUMMARY, callback.bot)
+        await ai_billing.charge_owner(
+            session, owner, admin_settings, cost, WalletTransactionReason.CRM_SUMMARY, callback.bot,
+            ai_total_tokens=ai_result.total_tokens,
+        )
         await safe_edit(callback, texts.crm_summary_result(summary, cost), back)
     finally:
         _summary_inflight.discard(inflight_key)

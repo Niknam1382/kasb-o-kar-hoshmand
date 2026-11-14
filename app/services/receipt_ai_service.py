@@ -235,8 +235,12 @@ async def analyze_receipt(
         {"analysis": None if analysis is None else analysis.__dict__, "flags": flags}, ensure_ascii=False
     )
     if analysis is not None:
-        cost = wallet_service.estimate_receipt_cost(admin_settings, getattr(result, "total_tokens", None))
-        if not await wallet_service.deduct(session, owner, cost, WalletTransactionReason.RECEIPT_ANALYSIS, reference=f"order_payment:{payment.id}"):
+        tokens_used = getattr(result, "total_tokens", None)
+        cost = wallet_service.estimate_receipt_cost(admin_settings, tokens_used)
+        if not await wallet_service.deduct(
+            session, owner, cost, WalletTransactionReason.RECEIPT_ANALYSIS,
+            reference=f"order_payment:{payment.id}", ai_total_tokens=tokens_used,
+        ):
             logger.warning("تحلیلِ رسیدِ پرداخت %s انجام شد ولی هزینه‌اش (%s تومان) از موجودی کم بود.", payment.id, cost)
     await session.commit()
     return advisory_line(verdict, flags)

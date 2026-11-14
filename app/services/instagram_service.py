@@ -1021,7 +1021,10 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
     if account.private_reply_enabled:
         await send_private_reply(session, account, event, private_reply_text(reply, shop_bot))
     cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
-    await chat_billing_service.deduct_and_notify(session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot)
+    await chat_billing_service.deduct_and_notify(
+        session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot,
+        ai_total_tokens=ai_result.total_tokens,
+    )
     await session.commit()
 
 
@@ -1242,7 +1245,8 @@ async def _handle_inbound(session: AsyncSession, main_bot, event: DirectMessage)
     await conversation_service.save_turn(session, customer.id, event.text, reply)
     cost = wallet_service.estimate_chat_cost(admin_settings, ai_result.total_tokens)
     await chat_billing_service.deduct_and_notify(
-        session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot, customer_id=customer.id
+        session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot, customer_id=customer.id,
+        ai_total_tokens=ai_result.total_tokens,
     )
     await session.commit()
 
