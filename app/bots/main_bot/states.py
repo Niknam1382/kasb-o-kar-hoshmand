@@ -180,6 +180,12 @@ class AiUsageStates(StatesGroup):
     waiting_limit = State()
 
 
+class DoctorThresholdStates(StatesGroup):
+    """پ۷۲: فقط نوشتنِ عددِ آستانهٔ عیب‌یاب (کراندار، بی‌اثر رویِ رفتارِ ربات)."""
+
+    waiting_value = State()
+
+
 class OwnerAiUsageStates(StatesGroup):
     """پ۷۰: فقط نوشتنِ عددِ «سقفِ ۲۴ ساعت» برایِ یکِ مشتریِ خودِ فروشگاه (کلیدهایِ state جدا ازِ پنلِ ادمین)."""
 

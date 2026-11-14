@@ -6,8 +6,8 @@
    «خوانده نشد» می‌آید.
 ۲. قوانینِ شمارنده‌ها و لاگ: رد شدنِ وب‌هوک، سقفِ نرخ، ردِ برداشتِ کیف‌پول، خطاهایِ شبکهٔ
    تلگرام/بله (از پیام و استک‌تریس)، شکستِ پیاپیِ کلیدِ AI و شمارِ خطاهایِ ERROR در بافر.
-۳. `inspect`: فقط‌خواندنی — یکِ `SELECT` رویِ استخرِ کلیدها، صفر INSERT/UPDATE، و عددِ زندهٔ
-   همان پنلِ ظرفیت (نه نسخهٔ دومِ حقیقت).
+۳. `inspect`: فقط‌خواندنی — یکِ `SELECT` رویِ استخرِ کلیدها، بی‌هیچ نوشتنی جزِ ساختِ خودِ ردیفِ
+   تنظیمات (که پ۷۲ برایِ آستانه‌ها می‌خواندش)، و عددِ زندهٔ همان پنلِ ظرفیت (نه نسخهٔ دومِ حقیقت).
 ۴. `run`: خنک‌کردنِ یک‌ساعته برایِ هرِ یافته (دوباره‌ارسال نمی‌شود)، ارسالِ خلاصه به ادمین‌ها،
    بی‌ارسال وقتی هیچ موردی نیست، و بی‌سقوط اگر ارسالِ تلگرام خطا داد.
 ۵. صفحهٔ پنل: دکمه ⇒ یکِ پیام با سرِصفحهٔ جلالی، شمارشِ شدت‌ها و یادداشتِ «هیچ اقدامی نمی‌کند»؛
@@ -93,10 +93,13 @@ def _log_rows(*rows: tuple[str, str, str]) -> None:
     )
 
 
+_LIM = server_doctor.defaults()  # پ۷۲: توابعِ تشخیص حالا آستانه می‌گیرند (پیش‌فرض = عددِ پ۶۲)
+
+
 async def test_threshold_rules_fire_only_past_the_line() -> None:
-    assert _keys(server_doctor._thresholds(_system(disk=80.0), _db(), _ai())) == {"proc"}  # noqa: SLF001
+    assert _keys(server_doctor._thresholds(_system(disk=80.0), _db(), _ai(), _LIM)) == {"proc"}  # noqa: SLF001
     findings = server_doctor._thresholds(  # noqa: SLF001
-        _system(disk=90.0, memory=95.0, load_percent=200.0), _db(percent=95.0), _ai(percent=90.0, inflight=18, usable=20)
+        _system(disk=90.0, memory=95.0, load_percent=200.0), _db(percent=95.0), _ai(percent=90.0, inflight=18, usable=20), _LIM
     )
     keys = _keys(findings)
     assert {"disk", "memory", "load", "db_pool", "ai_pressure"} <= keys, keys
@@ -107,20 +110,20 @@ async def test_threshold_rules_fire_only_past_the_line() -> None:
     assert "گلوگاه" in by_key["ai_pressure"].detail
     assert "استخرِ کلیدهایِ AI" in by_key["ai_pressure"].suggestion, "پیشنهاد باید بگوید کجا اقدام شود"
     # استخرِ خالی ⇒ قرمز، و «فشار» نمی‌گوید (چون چیزی برایِ پر شدن نیست)
-    empty = server_doctor._thresholds(_system(), _db(), _ai(keys=False, usable=0, sum_caps=0))  # noqa: SLF001
+    empty = server_doctor._thresholds(_system(), _db(), _ai(keys=False, usable=0, sum_caps=0), _LIM)  # noqa: SLF001
     assert _keys(empty) == {"ai_keys", "proc"}, _keys(empty)
     assert [f.severity for f in empty if f.key == "ai_keys"][0] == server_doctor.ERROR
     # آستانه‌ها مرزِ بازه‌اند: دقیقاً رویِ خط هم شعله می‌شود (نه یکِ واحد بالاتر)
-    assert "disk" in _keys(server_doctor._thresholds(_system(disk=server_doctor.DISK_ALERT_PERCENT), _db(), _ai()))  # noqa: SLF001
+    assert "disk" in _keys(server_doctor._thresholds(_system(disk=server_doctor.DISK_ALERT_PERCENT), _db(), _ai(), _LIM))  # noqa: SLF001
     print("PASS test_threshold_rules_fire_only_past_the_line")
 
 
 async def test_counter_and_log_rules() -> None:
     findings = server_doctor._counter_findings({  # noqa: SLF001
         "webhook.rejected": 25, "webhook.rate_limited": 60, "wallet.deduct_denied": 7,
-    })
+    }, _LIM, "از شروعِ این پروسه")
     assert _keys(findings) == {"webhook_rejected", "webhook_rate_limited", "wallet_denied"}, _keys(findings)
-    quiet = server_doctor._counter_findings({"webhook.rejected": 1, "webhook.rate_limited": 2, "wallet.deduct_denied": 1})  # noqa: SLF001
+    quiet = server_doctor._counter_findings({"webhook.rejected": 1, "webhook.rate_limited": 2, "wallet.deduct_denied": 1}, _LIM, "از شروعِ این پروسه")  # noqa: SLF001
     assert quiet == [], quiet
 
     _log_rows(
@@ -132,9 +135,9 @@ async def test_counter_and_log_rules() -> None:
     rows = observability.recent_logs(view="warnings", limit=300)
     assert server_doctor._log_matches(rows, server_doctor._AI_FAILURE_MARKERS) == 3, rows  # noqa: SLF001
     assert server_doctor._log_matches(rows, server_doctor._TELEGRAM_MARKERS) == 1, "خطا از استک‌تریس هم گرفته می‌شود"
-    logged = server_doctor._log_findings(3, 1, 1)  # noqa: SLF001
+    logged = server_doctor._log_findings(3, 1, 1, _LIM)  # noqa: SLF001
     assert _keys(logged) == {"telegram_network", "ai_failures"}, _keys(logged)
-    assert _keys(server_doctor._log_findings(1, 0, 9)) == {"log_errors"}  # noqa: SLF001
+    assert _keys(server_doctor._log_findings(1, 0, 9, _LIM)) == {"log_errors"}  # noqa: SLF001
     print("PASS test_counter_and_log_rules")
 
 
@@ -150,9 +153,12 @@ async def test_inspect_is_read_only_and_uses_live_numbers() -> None:
             with _counted() as seen:
                 findings = await server_doctor.inspect(session)
         assert _keys(findings) >= {"ai_keys"}, _keys(findings)
-        selects = [s for s in seen if s.upper().startswith("SELECT")]
-        assert len(seen) == len(selects) == 1, f"فقط یکِ SELECT مجاز است: {seen}"
-        assert "ai_api_key_pool" in selects[0], selects[0]
+        # پ۷۲: عیب‌یاب اول آستانه‌ها را از `admin_settings` می‌خواند و اولینِ خواندنِ دیتابیسِ تازه
+        # همان ردیف را می‌سازد (INSERTِ سطرِ تنظیمات، نه نوشتنِ یافته). جزِ آن، هیچ نوشتنی مجاز نیست.
+        writes = [s for s in seen if s.upper().startswith(("INSERT", "UPDATE", "DELETE"))]
+        assert all(w.upper().startswith("INSERT INTO ADMIN_SETTINGS") for w in writes), writes
+        pool_reads = [s for s in seen if "ai_api_key_pool" in s]
+        assert len(pool_reads) == 1, "کوئریِ استخرِ کلیدها همان یکی است که پنلِ ظرفیت می‌زند"
 
         async with session_scope() as session:
             session.add(

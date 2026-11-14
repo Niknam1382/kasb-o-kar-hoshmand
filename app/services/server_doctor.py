@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -33,7 +34,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import observability
 from app.config import settings
 from app.services import capacity_service
+from app.services.admin_settings_service import get_admin_settings
 from app.utils.validators import fa_number, fa_percent
+
+PERSIAN_DIGITS = {"۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4", "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9"}
+ARABIC_DIGITS = {"٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4", "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9"}
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +48,9 @@ INFO = "info"
 
 SEVERITY_ICON = {ERROR: "🔴", WARN: "🟠", INFO: "🔵"}
 
-# آستانه‌ها: عمداً در همین فایل‌اند تا با عددِ پنلِ ظرفیت یکی بمانند و در تستِ ۱ قفل شوند.
+# پیش‌فرض‌ها همان عددِ پ۶۲ است تا با پنلِ ظرفیت یکی بماند و در تستِ ۱ قفل شود.
+# پ۷۲: این‌ها دیگر ثابتِ غیرقابلِ تغییر نیستند؛ هر کدام کلید، پیش‌فرض، کران و نوع دارد و
+# ادمین از «⚖️ آستانه‌هایِ عیب‌یاب» عوضشان می‌کند (ذخیره در `admin_settings.doctor_thresholds`).
 DISK_ALERT_PERCENT = 85.0
 MEMORY_ALERT_PERCENT = 90.0
 LOAD_ALERT_PERCENT = 150.0
@@ -54,12 +61,102 @@ WEBHOOK_RATE_LIMIT_ALERT = 50
 WALLET_DENIAL_ALERT = 5
 LOG_ERRORS_ALERT = 5
 AI_FAILURE_LOGS_ALERT = 3
+WINDOW_MINUTES_DEFAULT = 60
+
+# کلید → (پیش‌فرض، کرانِ پایین، کرانِ بالا، نوع، برچسبِ فارسی)
+THRESHOLD_SPECS: dict[str, tuple[float, float, float, str, str]] = {
+    "disk_percent": (DISK_ALERT_PERCENT, 50.0, 99.0, "percent", "🗄 دیسکِ بکاپ"),
+    "memory_percent": (MEMORY_ALERT_PERCENT, 50.0, 99.0, "percent", "🧠 رمِ سرور"),
+    "load_percent": (LOAD_ALERT_PERCENT, 50.0, 500.0, "percent", "⚙️ بارِ پردازنده"),
+    "db_pool_percent": (DB_POOL_ALERT_PERCENT, 50.0, 100.0, "percent", "🔌 استخرِ اتصالِ دیتابیس"),
+    "ai_pressure_percent": (AI_PRESSURE_ALERT_PERCENT, 20.0, 100.0, "percent", "🤖 فشارِ ظرفیتِ AI"),
+    "ai_failures": (float(AI_FAILURE_LOGS_ALERT), 1.0, 1000.0, "count", "🔑 شکستِ کلیدِ AI"),
+    "log_errors": (float(LOG_ERRORS_ALERT), 1.0, 1000.0, "count", "🧾 خطایِ تازهٔ لاگ"),
+    "webhook_rejected": (float(WEBHOOK_REJECTED_ALERT), 1.0, 100000.0, "count", "📮 وب‌هوکِ ردشده"),
+    "webhook_rate_limited": (float(WEBHOOK_RATE_LIMIT_ALERT), 1.0, 100000.0, "count", "🚦 سقفِ نرخِ وب‌هوک"),
+    "wallet_denied": (float(WALLET_DENIAL_ALERT), 1.0, 100000.0, "count", "💸 برداشتِ ردشده"),
+    "window_minutes": (float(WINDOW_MINUTES_DEFAULT), 5.0, 1440.0, "count", "⏱ پنجرهٔ شمارنده‌ها"),
+}
+THRESHOLD_KEYS: tuple[str, ...] = tuple(THRESHOLD_SPECS)
+
+
+def defaults() -> dict[str, float]:
+    return {key: spec[0] for key, spec in THRESHOLD_SPECS.items()}
+
+
+def parse_thresholds(raw: str | None) -> dict[str, float]:
+    """`admin_settings.doctor_thresholds` ⇒ نگاشتِ کاملِ آستانه‌ها. خراب/ناشناخته ⇒ پیش‌فرض."""
+    values = defaults()
+    if not raw:
+        return values
+    try:
+        loaded = json.loads(raw)
+    except (ValueError, TypeError):
+        return values
+    if not isinstance(loaded, dict):
+        return values
+    for key, spec in THRESHOLD_SPECS.items():
+        if key not in loaded:
+            continue
+        try:
+            number = float(loaded[key])
+        except (TypeError, ValueError):
+            continue
+        values[key] = min(spec[2], max(spec[1], number))
+    return values
+
+
+def dump_thresholds(values: dict[str, float]) -> str | None:
+    """همه پیش‌فرض ⇒ None (ستونِ خالی)؛ وگرنه فقط تفاوت‌ها ذخیره می‌شود."""
+    base = defaults()
+    changed = {key: values[key] for key in THRESHOLD_KEYS if values.get(key, base[key]) != base[key]}
+    if not changed:
+        return None
+    return json.dumps(changed, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def parse_input(key: str, text: str | None) -> float | None:
+    """ورودیِ ادمین ⇒ عددِ کراندار؛ بیرونِ کران ⇒ None.
+
+    ممیز: رقمِ جلالی/عربی یا لاتین با «.» و «٫»؛ ویرگول (نیمه‌تمام و لاتین) جداکنندهٔ هزار است، پس
+    «۱,۵۰۰» همان ۱۵۰۰ خوانده می‌شود نه ۱.۵ — برایِ همین آستانهٔ اعشاری را با نقطه بنویسند.
+    """
+    raw = (text or "").strip().replace(",", "").replace("٬", "").replace("٫", ".").replace(" ", "")
+    if not raw:
+        return None
+    latin = "".join(PERSIAN_DIGITS.get(ch, ARABIC_DIGITS.get(ch, ch)) for ch in raw)
+    if not latin.isascii():
+        return None
+    try:
+        number = float(latin)
+    except ValueError:
+        return None
+    _default, low, high, _kind, _label = THRESHOLD_SPECS[key]
+    return number if low <= number <= high else None
+
+
+def window_deltas(counters: dict[str, int], minutes: int) -> tuple[dict[str, int], str]:
+    """پ۷۲: شمارنده‌ها «از شروعِ پروسه» جمع می‌شوند؛ برایِ قضاوتِ «الان بد است یا نه» تفاضلِ
+    پنجره لازم است. اگر از آخرین snapshot بیشتر از دو پنجره گذشته باشد (جاب خاموش بوده یا
+    تازه روشن شده) تفاضل معنی ندارد ⇒ جمعِ کل با برچسبِ خودش."""
+    now = time.monotonic()
+    previous = dict(_counter_state.get("values") or {})
+    previous_at = _counter_state.get("at")
+    _counter_state["values"] = dict(counters)
+    _counter_state["at"] = now
+    window_seconds = max(60.0, minutes * 60.0)
+    if previous_at is None or now - previous_at > 2 * window_seconds:
+        return dict(counters), "از شروعِ این پروسه"
+    deltas = {name: max(0, int(counters.get(name, 0) - previous.get(name, 0))) for name in counters}
+    span_minutes = max(1, int(round((now - previous_at) / 60.0)))
+    return deltas, f"در {fa_number(span_minutes)} دقیقهٔ گذشته"
 
 _TELEGRAM_MARKERS = ("telegramnetworkerror", "timed out", "timeout", "network is unreachable", "cannot connect to host")
 _AI_FAILURE_MARKERS = ("کلیدِ ai", "کلید ai", "ai service error", "صفِ درخواست‌هایِ اینِ کلید")
 
 ALERT_COOLDOWN_SECONDS = 60 * 60
 _last_alert_at: dict[str, float] = {}
+_counter_state: dict[str, object] = {}
 
 
 @dataclass(frozen=True)
@@ -72,8 +169,9 @@ class Finding:
 
 
 def reset_alert_clock_for_tests() -> None:
-    """فقط برایِ تست: خنک‌کردنِ هشدارها صفر می‌شود."""
+    """فقط برایِ تست: خنک‌کردنِ هشدارها و snapshotِ پنجره صفر می‌شود."""
     _last_alert_at.clear()
+    _counter_state.clear()
 
 
 def _log_matches(rows: list[dict], markers: tuple[str, ...]) -> int:
@@ -86,35 +184,35 @@ def _log_matches(rows: list[dict], markers: tuple[str, ...]) -> int:
     return hits
 
 
-def _thresholds(system: dict, db: dict, ai: dict) -> list[Finding]:
+def _thresholds(system: dict, db: dict, ai: dict, limits: dict[str, float]) -> list[Finding]:
     findings: list[Finding] = []
     disk = system["disk_used_percent"]
-    if disk is not None and disk >= DISK_ALERT_PERCENT:
+    if disk is not None and disk >= limits["disk_percent"]:
         findings.append(
             Finding(
                 "disk", ERROR, "دیسکِ بکاپ پر است",
-                f"مصرفِ دیسکِ «{system['disk_label']}»: {fa_percent(disk)} (آستانه {fa_percent(DISK_ALERT_PERCENT)}).",
+                f"مصرفِ دیسکِ «{system['disk_label']}»: {fa_percent(disk)} (آستانه {fa_percent(limits["disk_percent"])}).",
                 "مهلتِ نگهداریِ بکاپ را در «⚙️ تنظیماتِ کلیدها» کم کن یا فایل‌هایِ قدیمی را "
                 "از رویِ سرور بردار؛ تا پر شدنِ دیسک، بکاپِ بعدی و فاکتورها می‌ایستند.",
             )
         )
     memory = system["memory_used_percent"]
-    if memory is not None and memory >= MEMORY_ALERT_PERCENT:
+    if memory is not None and memory >= limits["memory_percent"]:
         findings.append(
             Finding(
                 "memory", WARN, "رمِ سرور رو به اتمام است",
-                f"رمِ استفاده‌شده: {fa_percent(memory)} (آستانه {fa_percent(MEMORY_ALERT_PERCENT)}).",
+                f"رمِ استفاده‌شده: {fa_percent(memory)} (آستانه {fa_percent(limits["memory_percent"])}).",
                 "اگر همزمانِ درخواست‌ها بالا رفته، سقفِ همزمانیِ AI را از «🔑 استخرِ کلیدهایِ AI» "
                 "کم کن؛ هر درخواستِ باز یکِ تکه رم است.",
             )
         )
     load_percent = system["load_percent"]
-    if load_percent is not None and load_percent >= LOAD_ALERT_PERCENT:
+    if load_percent is not None and load_percent >= limits["load_percent"]:
         findings.append(
             Finding(
                 "load", WARN, "پردازنده زیرِ فشار است",
                 f"بارِ میانگینِ ۱ دقیقه {fa_percent(load_percent)} ظرفیتِ "
-                f"{fa_number(system['cores'])} هسته است (آستانه {fa_percent(LOAD_ALERT_PERCENT)}).",
+                f"{fa_number(system['cores'])} هسته است (آستانه {fa_percent(limits["load_percent"])}).",
                 "صفِ طولانی‌تر از هسته‌ها یعنی درخواست‌ها منتظر می‌مانند؛ اول ببین گلوگاه "
                 "«🗄 دیتابیس» است یا خودِ پردازنده («📡 ظرفیت و فشارِ سرور»).",
             )
@@ -128,7 +226,7 @@ def _thresholds(system: dict, db: dict, ai: dict) -> list[Finding]:
                 "برایِ دیدنِ اعدادِ واقعی، ربات را داخلِ کانتینرِ لینوکس اجرا کن.",
             )
         )
-    if db["percent"] >= DB_POOL_ALERT_PERCENT:
+    if db["percent"] >= limits["db_pool_percent"]:
         findings.append(
             Finding(
                 "db_pool", WARN, "اتصال‌هایِ دیتابیس دارد تمام می‌شود",
@@ -147,7 +245,7 @@ def _thresholds(system: dict, db: dict, ai: dict) -> list[Finding]:
                 "از «🔑 استخرِ کلیدهایِ AI» حداقل یکِ کلیدِ فعال با قابلیتِ چت اضافه کن.",
             )
         )
-    elif ai["percent"] >= AI_PRESSURE_ALERT_PERCENT:
+    elif ai["percent"] >= limits["ai_pressure_percent"]:
         bottleneck = "جمعِ سقفِ کلیدها" if ai["bottleneck"] == "keys" else "سقفِ پلتفرم"
         where = (
             "سقفِ همزمانیِ همان کلیدها را از «🔑 استخرِ کلیدهایِ AI» بالا ببر"
@@ -165,7 +263,7 @@ def _thresholds(system: dict, db: dict, ai: dict) -> list[Finding]:
     return findings
 
 
-def _log_findings(ai_failure_logs: int, telegram_logs: int, error_count: int) -> list[Finding]:
+def _log_findings(ai_failure_logs: int, telegram_logs: int, error_count: int, limits: dict[str, float]) -> list[Finding]:
     findings: list[Finding] = []
     if telegram_logs:
         findings.append(
@@ -176,7 +274,7 @@ def _log_findings(ai_failure_logs: int, telegram_logs: int, error_count: int) ->
                 "خودکار دوباره تلاش می‌شوند (نباید دستی چیزی فرستاد).",
             )
         )
-    if ai_failure_logs >= AI_FAILURE_LOGS_ALERT:
+    if ai_failure_logs >= limits["ai_failures"]:
         findings.append(
             Finding(
                 "ai_failures", WARN, "کلیدهایِ AI پاسخ نمی‌دهند",
@@ -185,7 +283,7 @@ def _log_findings(ai_failure_logs: int, telegram_logs: int, error_count: int) ->
                 "کلیدهایِ AI» سر بزن و اعتبار/آدرسِ همان کلید را درست کن.",
             )
         )
-    if error_count >= LOG_ERRORS_ALERT:
+    if error_count >= limits["log_errors"]:
         findings.append(
             Finding(
                 "log_errors", WARN, "خطاهایِ تازه در لاگِ همین پروسه",
@@ -196,34 +294,34 @@ def _log_findings(ai_failure_logs: int, telegram_logs: int, error_count: int) ->
     return findings
 
 
-def _counter_findings(counters: dict[str, int]) -> list[Finding]:
+def _counter_findings(counters: dict[str, int], limits: dict[str, float], window_label: str) -> list[Finding]:
     findings: list[Finding] = []
     rejected = counters.get("webhook.rejected", 0)
-    if rejected >= WEBHOOK_REJECTED_ALERT:
+    if rejected >= limits["webhook_rejected"]:
         findings.append(
             Finding(
                 "webhook_rejected", WARN, "وب‌هوک‌هایِ ردشده زیاد است",
-                f"{fa_number(rejected)} رویداد از شروعِ این پروسه به‌خاطرِ نامعتبربودن رد شده است.",
+                f"{fa_number(rejected)} رویدادِ ردشده به‌خاطرِ نامعتبربودن ({window_label}).",
                 "اگر اخیراً دامنه/توکن عوض شده، آدرسِ وب‌هوک و کلیدِ احراز را در تنظیماتِ "
                 "سرور تطبیق بده؛ رد شدنِ همهٔ رویدادها یعنی ربات چیزی دریافت نمی‌کند.",
             )
         )
     rate_limited = counters.get("webhook.rate_limited", 0)
-    if rate_limited >= WEBHOOK_RATE_LIMIT_ALERT:
+    if rate_limited >= limits["webhook_rate_limited"]:
         findings.append(
             Finding(
                 "webhook_rate_limited", INFO, "سقفِ نرخِ وب‌هوک خورده شده",
-                f"{fa_number(rate_limited)} رویداد به‌خاطرِ سقفِ نرخِ محافظتی رد شده است.",
+                f"{fa_number(rate_limited)} رویداد به‌خاطرِ سقفِ نرخِ محافظتی رد شده است ({window_label}).",
                 "یا ترافیکِ واقعی بالاست یا عددِ `webhook_rate_limit_per_minute` "
                 "(پیش‌فرض ۶۰۰ در دقیقه) برایِ این حجم کم است.",
             )
         )
     denied = counters.get("wallet.deduct_denied", 0)
-    if denied >= WALLET_DENIAL_ALERT:
+    if denied >= limits["wallet_denied"]:
         findings.append(
             Finding(
                 "wallet_denied", INFO, "چند بار کیف‌پولِ فروشگاه‌ها کافی نبوده",
-                f"{fa_number(denied)} برداشتِ ردشده از شروعِ این پروسه.",
+                f"{fa_number(denied)} برداشتِ ردشده ({window_label}).",
                 "به فروشگاه‌دارها یادآوریِ شارژ بفرست؛ این یعنی پاسخِ AI آن‌ها در همان لحظه "
                 "ساخته نشده است.",
             )
@@ -233,18 +331,28 @@ def _counter_findings(counters: dict[str, int]) -> list[Finding]:
 
 async def inspect(session: AsyncSession) -> list[Finding]:
     """یکِ دورِ کاملِ بازرسی — فقط‌خواندنی، بی‌هیچ نوشتنِ جدیدی."""
+    limits = parse_thresholds((await get_admin_settings(session)).doctor_thresholds)
     system = capacity_service.system_lines()
     db = capacity_service.db_pool_lines()
     ai = await capacity_service.ai_lines(session)
     counters = dict(capacity_service.counters_lines())
     log_counts = observability.recent_log_counts()
     rows = observability.recent_logs(view="warnings", limit=300)
-    findings = _thresholds(system, db, ai)
+    deltas, window_label = window_deltas(counters, int(limits["window_minutes"]))
+    findings = _thresholds(system, db, ai, limits)
     findings += _log_findings(
-        _log_matches(rows, _AI_FAILURE_MARKERS), _log_matches(rows, _TELEGRAM_MARKERS), log_counts["errors"]
+        _log_matches(rows, _AI_FAILURE_MARKERS),
+        _log_matches(rows, _TELEGRAM_MARKERS),
+        log_counts["errors"],
+        limits,
     )
-    findings += _counter_findings(counters)
+    findings += _counter_findings(deltas, limits, window_label)
     return findings
+
+
+async def thresholds(session: AsyncSession) -> dict[str, float]:
+    """آستانه‌هایِ *موثرِ* همین لحظه (پیش‌فرض + تغییرهایِ ادمین) — برایِ صفحهٔ پنل."""
+    return parse_thresholds((await get_admin_settings(session)).doctor_thresholds)
 
 
 def alert_text(findings: list[Finding], moment: datetime.datetime) -> str:

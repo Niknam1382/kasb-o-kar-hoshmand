@@ -354,6 +354,8 @@ class AdminSettings(Base):
     conversation_retention_days: Mapped[int] = mapped_column(Integer, default=90, nullable=False)
     knowledge_items_limit: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
     global_ai_system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # پ۷۲: آستانه‌هایِ عیب‌یابِ سرور (JSONِ کوچک؛ خالی = همه پیش‌فرضِ `server_doctor`).
+    doctor_thresholds: Mapped[str | None] = mapped_column(Text, nullable=True)
     reference_channel_link: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # --- تنظیماتِ سیستمِ کیف‌پول (جایگزینِ اشتراکِ ثابت) ---

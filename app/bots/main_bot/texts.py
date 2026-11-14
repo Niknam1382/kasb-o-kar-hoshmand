@@ -1744,6 +1744,66 @@ DOCTOR_BUTTON = "🩺 عیب‌یابِ سرور"
 # پ۷۰: این دکمه رویِ صفحهٔ عیب‌یاب «محل» می‌رود، نه «تازه‌سازی» ⇒ نامِ خودِ پنل را می‌گیرد
 # (برچسبِ «🔄 تازه‌سازی» رویِ این دکمه باعث شد مالکِ محصول فکر کند همان تازه‌سازیِ بازرسی است).
 DOCTOR_OPEN_CAPACITY = CAPACITY_BUTTON
+DOCTOR_THRESH_BUTTON = "⚖️ آستانه‌هایِ عیب‌یاب"
+DOCTOR_THRESH_STALE = "این دکمهٔ آستانه دیگر معتبر نیست؛ از «🩺 عیب‌یابِ سرور» دوباره باز کن."
+DOCTOR_THRESH_RESET = "♻️ بازگشت به همهٔ پیش‌فرض‌ها"
+DOCTOR_THRESH_INTRO = (
+    "⚖️ آستانه‌هایِ عیب‌یاب — فقط برایِ همین پلتفرم\n\n"
+    "یافته‌ها از مقایسهٔ عددِ زنده با همین آستانه‌ها ساخته می‌شود. هر عدد بیرونِ کرانِ خودش "
+    "ذخیره نمی‌شود، و هیچ‌کدام رویِ رفتارِ ربات اثر ندارد: فقط *تشخیص* را حساس یا بی‌حس می‌کند."
+)
+DOCTOR_THRESH_ASK = (
+    "عددِ تازه را بنویس (بینِ {low} تا {high}). برایِ انصراف /cancel را بزن.\n"
+    "مثالِ درست: {example}"
+)
+DOCTOR_THRESH_INVALID = (
+    "این عدد قابلِ استفاده نیست. فقط رقم بنویس{between} — بیرونِ کران ذخیره نمی‌شود."
+)
+DOCTOR_THRESH_SAVED = "✅ آستانهٔ «{label}» رویِ {value} تنظیم شد و در ممیزی ثبت شد."
+DOCTOR_THRESH_RESET_DONE = "♻️ همهٔ آستانه‌ها به پیش‌فرضِ نسخه برگشت."
+DOCTOR_THRESH_DEFAULT_MARK = "پیش‌فرض"
+DOCTOR_THRESH_WINDOW_NOTE = (
+    "⏱ شمارنده‌ها در پنجرهٔ زمانی قضاوت می‌شوند؛ اگر جاب تازه روشن شده باشد یا آخرین بازرسی "
+    "بیش از دو پنجره فاصله داشته باشد، خودِ جمعِ کل با برچسبِ «از شروعِ این پروسه» نشان داده می‌شود."
+)
+
+
+def doctor_threshold_value_text(key: str, value: float, spec) -> str:
+    """نمایشِ عددِ آستانه با نوعش: درصد یا شمارش."""
+    default, low, high, kind, label = spec
+    if kind == "percent":
+        shown = fa_percent(value)
+        bounds = f"{fa_percent(low)} تا {fa_percent(high)}"
+    else:
+        shown = fa_number(int(value))
+        bounds = f"{fa_number(int(low))} تا {fa_number(int(high))}"
+    mark = "" if value == default else " (خودت)"
+    return f"{label}: {shown}{mark} · کران {bounds}"
+
+
+def doctor_thresholds_text(limits: dict, specs: dict) -> str:
+    lines = [DOCTOR_THRESH_INTRO, ""]
+    for key, spec in specs.items():
+        lines.append("• " + doctor_threshold_value_text(key, limits[key], spec))
+    lines += ["", DOCTOR_THRESH_WINDOW_NOTE]
+    return "\n".join(lines)
+
+
+def doctor_threshold_ask_text(spec) -> str:
+    _default, low, high, kind, _label = spec
+    example = "۹۰" if kind == "percent" else "۲۰"
+    return DOCTOR_THRESH_ASK.format(low=fa_number(int(low)), high=fa_number(int(high)), example=example)
+
+
+def doctor_threshold_invalid_text(spec) -> str:
+    _default, low, high, kind, _label = spec
+    if kind == "percent":
+        between = f" و بینِ {fa_percent(low)} تا {fa_percent(high)}"
+    else:
+        between = f" و بینِ {fa_number(int(low))} تا {fa_number(int(high))}"
+    return DOCTOR_THRESH_INVALID.format(between=between)
+
+
 DOCTOR_REFRESH = "🔄 تازه‌سازیِ بازرسی"
 DOCTOR_CLEAN = "✅ هیچِ موردِ غیرعادی پیدا نشد: فشارِ سرور، استخرِ دیتابیس، استخرِ کلیدهایِ " \
                "هوشِ مصنوعی و لاگِ همین پروسه همه در محدوده‌اند."

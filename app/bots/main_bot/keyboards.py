@@ -12,7 +12,7 @@ from aiogram.types import (
 from app.bots.common.wizard_nav import page_label
 from app.bots.main_bot import texts
 from app.utils.text_limits import clip
-from app.utils.validators import fa_grouped, fa_number
+from app.utils.validators import fa_grouped, fa_number, fa_percent
 
 PAGE_SIZE = 10
 
@@ -752,8 +752,32 @@ def doctor_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=texts.DOCTOR_REFRESH, callback_data="doctor_refresh")],
+            [InlineKeyboardButton(text=texts.DOCTOR_THRESH_BUTTON, callback_data="doctor_thr_open")],
             [InlineKeyboardButton(text=texts.DOCTOR_OPEN_CAPACITY, callback_data="capacity_refresh")],
             [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")],
+        ]
+    )
+
+
+def doctor_thresholds_keyboard(limits) -> InlineKeyboardMarkup:
+    """پ۷۲: فهرستِ آستانه‌ها؛ هر ردیف همان کلید را برایِ ویرایش می‌دهد."""
+    from app.services import server_doctor
+
+    rows = []
+    for key in server_doctor.THRESHOLD_KEYS:
+        _default, _low, _high, kind, label = server_doctor.THRESHOLD_SPECS[key]
+        shown = fa_percent(limits[key]) if kind == "percent" else fa_number(int(limits[key]))
+        rows.append([InlineKeyboardButton(text=f"{label} — {shown}", callback_data=f"doctor_thr:{key}")])
+    rows.append([InlineKeyboardButton(text=texts.DOCTOR_THRESH_RESET, callback_data="doctor_thr_reset")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به عیب‌یاب", callback_data="doctor_refresh")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def doctor_threshold_detail_keyboard(key: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ بازگشت به آستانه‌ها", callback_data="doctor_thr_open")],
+            [InlineKeyboardButton(text="🩺 بازگشت به عیب‌یاب", callback_data="doctor_refresh")],
         ]
     )
 
