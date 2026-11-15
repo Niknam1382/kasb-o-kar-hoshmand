@@ -27,6 +27,7 @@ from app.bots.shop_bot import texts as shop_texts  # noqa: E402
 from app.bots.shop_bot.handlers import customer as customer_handlers  # noqa: E402
 from app.database.models import Customer, DigitalCode, OrderConsultation, OrderStatus, OrderType, Product, ShippingMethod, ShopBot, TenantMode  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
+from app.services import digital_service  # noqa: E402
 from app.services import ai_context, digital_service, excel_import_service, order_service, product_service, shipping_service  # noqa: E402
 from app.utils.encryption import decrypt_token  # noqa: E402
 from app.utils.validators import parse_nonneg_int  # noqa: E402
@@ -42,6 +43,7 @@ _ctx: dict = {}
 async def _setup() -> tuple[int, Chat, Bot]:
     """دیتابیسِ تمیز + فروشگاه + چتِ مالک + رباتِ فروشگاهیِ جعلی (ثبت‌شده در bot_manager)."""
     await reset_database()
+    digital_service.NEW_DIGITAL_ALLOWED = False  # پ۷۸: هر آزمون از حالتِ پیش‌فرضِ متوقف‌شده شروع کند
     shop_bot_id = await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID)
     owner = Chat(_ctx["main_dp"], OWNER_TG_ID)
     shop_bot = Bot(token=f"{SHOP_BOT_TG_ID}:SHOP_FAKE_TOKEN", session=FakeSession())
@@ -204,6 +206,7 @@ async def test_excel_kind_column_and_legacy_rows() -> None:
 # =============================================================================
 async def test_add_digital_link_product_flow_and_double_tap() -> None:
     shop_bot_id, owner, _shop = await _setup()
+    digital_service.NEW_DIGITAL_ALLOWED = True  # پ۷۸: خودِ جادوگر هنوز آزمون‌پذیر است
     await _run_add_flow(
         owner,
         [
@@ -239,6 +242,7 @@ async def test_add_digital_link_product_flow_and_double_tap() -> None:
 
 async def test_add_digital_code_pool_flow_dedupes_and_syncs_stock() -> None:
     shop_bot_id, owner, _shop = await _setup()
+    digital_service.NEW_DIGITAL_ALLOWED = True  # پ۷۸: خودِ جادوگر هنوز آزمون‌پذیر است
     await _run_add_flow(
         owner,
         [
@@ -275,13 +279,15 @@ async def test_digital_blocked_in_consultation_mode_and_stale_buttons() -> None:
     shop_bot_id, owner, _shop = await _setup()
     async with session_scope() as session:
         shop_bot = await session.get(ShopBot, shop_bot_id)
-        assert "product_add_digital" in callbacks(keyboards.products_list_keyboard([], sales_mode=(shop_bot.tenant_mode == TenantMode.SALES)))
+        # پ۷۸: دکمهٔ «💾 افزودنِ محصولِ دیجیتال» عمداً از کیبورد برداشته شد (تغییرِ رفتاری، نه باگ).
+        assert "product_add_digital" not in callbacks(keyboards.products_list_keyboard([], sales_mode=(shop_bot.tenant_mode == TenantMode.SALES)))
+        assert "product_add" in callbacks(keyboards.products_list_keyboard([], sales_mode=(shop_bot.tenant_mode == TenantMode.SALES)))
         shop_bot.tenant_mode = TenantMode.CONSULTATION
     assert "product_add_digital" not in callbacks(keyboards.products_list_keyboard([], sales_mode=False))
     assert "shipping_list" not in callbacks(keyboards.products_list_keyboard([], sales_mode=False))
 
     await owner.tap("product_add_digital")
-    assert owner.last_toast["text"] == texts.DG_ONLY_SALES and owner.last_toast["show_alert"] is True
+    assert owner.last_toast["text"] == texts.DG_RETIRED and owner.last_toast["show_alert"] is True, owner.last_toast
     await owner.tap("shipping_list")
     assert owner.last_toast["text"] == texts.DG_ONLY_SALES
 

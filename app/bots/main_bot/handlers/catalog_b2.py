@@ -49,6 +49,10 @@ async def cb_product_add_digital(callback: CallbackQuery, state: FSMContext, ses
     shop_bot = await require_shop_bot_cb(callback, session)
     if shop_bot is None:
         return
+    if not digital_service.NEW_DIGITAL_ALLOWED:
+        # پ۷۸ · درِ ساختنِ تازه بسته است (دکمه هم از کیبورد رفته). تحویلِ محصولاتِ موجود کار می‌کند.
+        await callback.answer(texts.DG_RETIRED, show_alert=True)
+        return
     if not _sales(shop_bot):
         await callback.answer(texts.DG_ONLY_SALES, show_alert=True)
         return

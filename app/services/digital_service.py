@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 KIND_PHYSICAL = "physical"
 KIND_DIGITAL = "digital"
 DELIVERY_MODES = ("file", "link", "text", "code_pool")
+# پ۷۸ · موردِ ۲۵ (مالکِ محصول): ساختنِ محصولِ دیجیتالِ *تازه* متوقف شد. مدل، انبارِ کد و مسیرِ
+# تحویل عمداً سالم مانده‌اند تا محصول‌ها و سفارش‌هایِ موجودِ مشتری‌ها نه گم شوند نه بی‌پاسخ بمانند؛
+# فقط درِ ساختنِ تازه و دکمه‌اش بسته شده (برگشت = همین یکِ True).
+NEW_DIGITAL_ALLOWED = False
 
 MAX_CODE_LEN = 255
 MAX_CODES_PER_BATCH = 5000

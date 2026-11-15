@@ -256,7 +256,6 @@ def products_list_keyboard(products, page: int = 0, sales_mode: bool = True) -> 
             grid(
                 [
                     InlineKeyboardButton(text="➕ افزودن محصول جدید", callback_data="product_add"),
-                    InlineKeyboardButton(text="💾 افزودنِ محصولِ دیجیتال", callback_data="product_add_digital"),
                     InlineKeyboardButton(text="🚚 روش‌هایِ ارسال", callback_data="shipping_list"),
                     InlineKeyboardButton(text="📥 افزودن گروهی از اکسل", callback_data="product_bulk_import"),
                     InlineKeyboardButton(text=texts.CATEGORY_BUTTON, callback_data="category_list"),
