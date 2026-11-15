@@ -98,7 +98,14 @@ async def test_wallet_screen_names_every_charge_expiry(main_dp) -> None:
     assert "۴۰۰٬۰۰۰ تومان — ۶ روزِ دیگر" in screen, screen
     assert "۴۰۰٬۰۰۰ تومان — ۲۶ روزِ دیگر" in screen, screen
     assert screen.count("۴۰۰٬۰۰۰ تومان — ") == 2, screen
-    assert "آبان ۱۴۰۵" in screen and "آذر ۱۴۰۵" in screen, "تاریخِ جلالیِ هر شارژ هم گفته می‌شود"
+    # تاریخِ جلالیِ *هر* شارژ باید نوشته شود. انتظارِ قدیمی نامِ ماه را سخت‌کد کرده بود
+    # («آبان ۱۴۰۵» و «آذر ۱۴۰۵») و چون امروز ۲۵ آبان است، +۶ روز به آذر می‌افتد و تست می‌سوخت —
+    # باگِ محصول نبود، باگِ فرضِ تاریخِ تست بود. حالا خودِ تاریخ از همان خط خوانده می‌شود.
+    dated = [line for line in screen.splitlines() if "تومان — " in line and "· " in line]
+    assert len(dated) == 2, screen
+    expiries = [line.rsplit("· ", 1)[1].strip() for line in dated]
+    assert all("۱۴۰" in value for value in expiries), expiries
+    assert expiries[0] != expiries[1], f"هر شارژ تاریخِ انقضایِ خودش را می‌گوید: {expiries}"
     # ادعایِ تکِ قبلی («۸۰۰٬۰۰۰ از این مبلغ تا ۳۰ روزِ دیگر منقضی می‌شود») نباید بماند
     assert "از این مبلغ تا" not in screen, screen
     assert "تا ۳۰ روزِ دیگر منقضی می‌شود" not in screen, screen
