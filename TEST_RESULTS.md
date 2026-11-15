@@ -1083,3 +1083,10 @@ pasِ پایانی ⇒ مایگریشن‌هایِ پ۷۷ و پ۷۹ رفت‌و�
 `docker compose build bot` → `run_all_tests.py` ⇒ **۱۶۳/۱۶۳ فایل · ۱٬۰۴۴ تست · `SUITE_EXIT=0`**
 (۱ تستِ بیشتر از §۶۶ = آزمونِ تازهٔ `test_prune_removes_only_old_rows`). محیطِ زنده پس ازِ پایان:
 `docker compose up -d bot` و `GET /health` ⇒ **۲۰۰**.
+
+## §۶۸) پ۸۳ و پ۸۴ (۲۰۲۶-۱۱-۱۶)
+**MEASURED** — `test_p79_counter_aggregation.py` ⇒ ۷/۷ (+۱ تستِ پاک‌سازی) و
+`test_p84_comment_erasure.py` ⇒ ۴/۴ (هر دو exit=0، با مانتِ `app`/`tests_manual`).
+گیت‌ها: `check_callbacks.py` ⇒ ۴۱۶ شکلِ `callback_data`، همگی مصرف‌کننده دارند ·
+`check_text_hygiene.py` تمیز · `ruff --select F,E9 app/` تمیز. **NOT RUN:** سوئیتِ کاملِ پس ازِ پ۸۴
+(در اجرایِ پایانیِ همین دسته سنجیده می‌شود).
