@@ -183,6 +183,7 @@ TEST_FILES = [
     "test_p77_instagram_comment_blocks.py",
     "test_p78_digital_retired.py",
     "test_p79_counter_aggregation.py",
+    "test_p80_concise_prompts.py",
 ]
 
 
