@@ -28,7 +28,7 @@ import sys
 sys.path.insert(0, ".")
 sys.path.insert(0, "tests_manual")
 
-from sqlalchemy import func, select  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
 from app import observability  # noqa: E402
 from app.bots.main_bot import texts  # noqa: E402
