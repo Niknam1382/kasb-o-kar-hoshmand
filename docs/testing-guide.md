@@ -146,11 +146,12 @@ docker compose up -d bot             # بعد ازِ اجرا برگردان
 | `test_p76_recurring_broadcasts.py` | occurrenceِ تهران→UTC، تکرارِ روزانه/هفتگی، سقفِ ۶۰، dedupe هرِ نوبت، ویزاردِ کلیکى | ۶ |
 | `test_p77_instagram_comment_blocks.py` | یکدست‌سازیِ نامِ کاربری، idempotency/سقفِ ۲۰۰/ممیزی، درِ «جواب نده» پیش ازِ AI و پیش ازِ کسر، مالکیتِ ردیف، اکسل | ۸ |
 | `test_p78_digital_retired.py` | نبودِ دکمه، توستِ «متوقف شد» بدونِ side effect، بازگشتِ جادوگر با پرچم | ۴ |
-| `test_p79_counter_aggregation.py` | نامِ خام vs برچسب (رگرسیونِ باگِ اصلی)، upsertِ یکِ ردیف، جمعِ چندپروسه، ردیفِ قدیمی/خراب، یافتهٔ عیب‌یاب | ۶ |
+| `test_p79_counter_aggregation.py` | نامِ خام vs برچسب (رگرسیونِ باگِ اصلی)، upsertِ یکِ ردیف، جمعِ چندپروسه، ردیفِ قدیمی/خراب، یافتهٔ عیب‌یاب، پاک‌سازیِ ۷روزه | ۷ |
 | `test_p80_concise_prompts.py` | کاهشِ اندازهٔ پرامپت، حفظِ واژه‌هایِ معنا، کلیدِ گریز، کاهشِ تخمینِ توکن | ۵ |
 | `test_p81_metrics_peer_summary.py` | شکلِ `/metrics` پیش ازِ ضربان، دو gauge پس ازِ ضربان، هم‌خوانیِ عددِ متریک با `aggregate_counters` | ۳ |
+| `test_p84_comment_erasure.py` | تطبیقِ نرمال‌شدهٔ نام، دامنهٔ per-فروشگاه، دست‌نخورده‌بودنِ CRM/سفارش/کیف‌پول، تایید/انصراف، دستکاریِ شناسه | ۴ |
 
 **چطور بگیرم:** یکِ فایل ⇒ `docker compose run --rm -e PYTHONIOENCODING=utf-8 -e PYTHONUTF8=1 bot python3 tests_manual/run_one.py test_p79_counter_aggregation.py`
 (رویِ `kasbokar_test`؛ اگر مایگریشنِ تازه رویِ دیسک هست ولی در ایمیج نه، `-v "$PWD/migrations:/app/migrations:ro"` را هم اضافه کن).
-کلِ مجموعه ⇒ `run_all_tests.py` (≈۲۰ دقیقه؛ عددِ انتظاری امروز: **۱۶۳ فایل · ۱٬۰۴۳ تست · exit=0**).
+کلِ مجموعه ⇒ `run_all_tests.py` (≈۲۰ دقیقه؛ عددِ انتظاری: **۱۶۴ فایل · ≥۱٬۰۵۵ تست · exit=0** (پس ازِ پ۸۳/پ۸۴)).
 **قبل ازِ اجرایِ کلِ مجموعه، `docker compose stop bot`** تا قفلِ polling و TRUNCATE نسازد.
