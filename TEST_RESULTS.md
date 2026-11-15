@@ -1012,3 +1012,30 @@ Payment · ۴ بدونِ قالب هیچ دکمهٔ بله‌پی ساخته ن�
 | فایل‌هایِ درگیرِ قدیمی | **MEASURED سبز** | `test_p49_b_instagram_comments` (۷/۷)، `test_p63_instagram_management` (۷/۷) — بدونِ تغییرِ هیچ ادعا |
 | سوئیتِ کاملِ این فاز | **MEASURED ۱۵۵/۱۵۵ فایل · ۹۹۷ تست · صفر fail · exit=0** رویِ ایمیج `13bc00e123db1b8263c158aafc0ba024c33d544f0e677fea2d4d9ca0e34b78b2` (مبنایِ پ۷۲: ۱۵۴ فایل · ۹۹۰ تست ⇒ +۱ فایل، +۷ تست، صفر حذف؛ تنها اجرایِ این فاز پس ازِ buildِ نهایی و بدونِ کارِ موازی) | — |
 | رابطِ واقعی | NOT RUN | رویدادِ واقعیِ متا (اپِ تأییدشده + App Review + HTTPS)؛ دیدهٔ چشمیِ صفحه در تلگرام/بله؛ حلقهٔ چهارم (فهرستِ «جواب نده») ساخته نشد |
+
+## §۵۸) پ۷۴ — دسته‌بندیِ محصولات (۲۰۲۶-۱۱-۱۵)
+**MEASURED** — `run_one.py test_p74_product_categories.py`: ۸/۸ (exit=0). تست‌هایِ متأثر از ستونِ تازه
+(`test_catalog_digital_physical.py`، `test_products.py`) بدونِ تغییرِ انتظار سبز ماندند؛ تنها اصلاحِ عمدیِ
+انتظارِ کهنه در پ۷۴ نبود (خطِ «🗂 دسته» فقط با دادهٔ موجود چاپ می‌شود).
+
+## §۵۹) پ۷۵ — خوشه‌هایِ سوالِ بی‌جواب (۲۰۲۶-۱۱-۱۵)
+**MEASURED** — `run_one.py test_p75_gap_clusters.py`: ۶/۶ (exit=0). در `test_knowledge_gaps.py` یکِ
+ردیفِ دکمه («🧩 خوشه‌ها») به فهرستِ پین‌شده افزوده شد — تغییرِ رفتاریِ عمدی، دلیلش در `docs/PROGRESS.md` §۶۸.
+
+## §۶۰) پ۷۶ — ویزاردِ زمان‌بندی + تکرار (۲۰۲۶-۱۱-۱۵)
+**MEASURED** — `run_one.py test_p76_recurring_broadcasts.py`: ۶/۶ (exit=0). سه فایلِ قدیمیِ متأثر سبز:
+`test_p21_growth.py`، `test_p24_dead_buttons_and_scope.py`، `test_p26_bale_handoff_and_ux.py` (شمارِ
+دکمه‌هایِ صفحهٔ زمان‌بندی ۷←۸، عمدی).
+
+## §۶۱) پ۷۷ — «جواب نده» + اکسلِ کامنت‌ها (۲۰۲۶-۱۱-۱۵)
+**MEASURED** — `run_one.py test_p77_instagram_comment_blocks.py`: ۸/۸ (exit=0) و
+`run_one.py test_p73_instagram_comment_report.py`: ۷/۷ (exit=0) پس ازِ اصلاحِ عمدیِ شمارِ دکمه‌ها (۷←۹).
+
+## §۶۲) سوئیتِ کاملِ گروه «متوسط» — پ۷۴ تا پ۷۷ (۲۰۲۶-۱۱-۱۵)
+**MEASURED** — ایمیجِ بازسازی‌شده (`docker compose build bot`) + سوئیتِ کاملِ تنها:
+`python3 tests_manual/run_all_tests.py` ⇒ **۱۵۹/۱۵۹ فایل · ۱۰۲۵ تست** (۸۶۰ خطِ `… PASSED` + ۱۶۵ خطِ
+`PASS …`؛ `SUITE_EXIT=0`). پیش ازِ این گروه: ۱۵۵ فایل · ۹۹۷ تست (پ۷۳) ⇒ +۴ فایل و +۲۸ تست، exactly what
+چهار فازِ افزوده‌شده (۸+۶+۶+۸) وعده داده بودند.
+گیت‌ها: `scripts/check_gates.py` تمیز (۳۴۳ فایل، ۴۱۴ شکلِ `callback_data`، ثبتِ فایل‌هایِ تست OK) و
+`ruff --select F,E9 app/` تمیز. مایگریشن: تک‌هدِ `e7b2d4c8a910` با `alembic heads` سنجیده شد.
+**NOT RUN**: سنجشِ statement/زمانِ مسیرِ کاتالوگ با دسته‌هایِ زیاد، و رفتارِ تکرارِ کمپین در دو پروسهٔ worker.
