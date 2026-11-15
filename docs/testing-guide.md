@@ -134,3 +134,23 @@ docker compose up -d bot             # بعد ازِ اجرا برگردان
 
 ## اجرایِ تست‌ها با `.env`ِ واقعی
 تست‌هایِ ادمین آیدیِ `12345` را فرض می‌کنن. `run_all_tests.py` خودش `ADMIN_TELEGRAM_IDS=12345` را به هر تست می‌دهد (متغیرِ محیطی بر `.env` غالب است)، پس می‌تونی `.env`ِ واقعی‌ات (با توکن‌ها و آیدیِ ادمینِ خودت) را نگه داری. اگه تکی اجرا می‌کنی: `docker compose run --rm bot python tests_manual/run_one.py test_xxx.py` (همان دو متغیرِ محیطی را خودش می‌دهد).
+
+
+## پ۷۳ تا پ۸۲ — فایل‌هایِ تستِ تازه و عددهایِ انتظاری (۲۰۲۶-۱۱-۱۶)
+
+| فایل | چی می‌سنجد | تعداد |
+|---|---|---|
+| `test_p73_instagram_comment_report.py` | ردیفِ رویدادِ کامنت، dedupِ پایدار، دلیلِ هرِ جواب‌نرفتن، گزارشِ سه‌پنجره‌ای، صفحه‌بندی، بودجهٔ ۶۴ بایت | ۷ |
+| `test_p74_product_categories.py` | نرمال‌سازیِ دسته، انتصاب/تغییرِ نام/پاک‌کردن، کاتالوگِ دسته‌ایِ مشتری، پرامپتِ AI، دروازهٔ مود | ۸ |
+| `test_p75_gap_clusters.py` | امضایِ خوشه (بدونِ حرفِ اضافه و نشانهٔ عربی)، کمتر از دو واژه ⇒ خوشه نیست، «یکِ جواب برایِ همه» با تایید، backfill | ۶ |
+| `test_p76_recurring_broadcasts.py` | occurrenceِ تهران→UTC، تکرارِ روزانه/هفتگی، سقفِ ۶۰، dedupe هرِ نوبت، ویزاردِ کلیکى | ۶ |
+| `test_p77_instagram_comment_blocks.py` | یکدست‌سازیِ نامِ کاربری، idempotency/سقفِ ۲۰۰/ممیزی، درِ «جواب نده» پیش ازِ AI و پیش ازِ کسر، مالکیتِ ردیف، اکسل | ۸ |
+| `test_p78_digital_retired.py` | نبودِ دکمه، توستِ «متوقف شد» بدونِ side effect، بازگشتِ جادوگر با پرچم | ۴ |
+| `test_p79_counter_aggregation.py` | نامِ خام vs برچسب (رگرسیونِ باگِ اصلی)، upsertِ یکِ ردیف، جمعِ چندپروسه، ردیفِ قدیمی/خراب، یافتهٔ عیب‌یاب | ۶ |
+| `test_p80_concise_prompts.py` | کاهشِ اندازهٔ پرامپت، حفظِ واژه‌هایِ معنا، کلیدِ گریز، کاهشِ تخمینِ توکن | ۵ |
+| `test_p81_metrics_peer_summary.py` | شکلِ `/metrics` پیش ازِ ضربان، دو gauge پس ازِ ضربان، هم‌خوانیِ عددِ متریک با `aggregate_counters` | ۳ |
+
+**چطور بگیرم:** یکِ فایل ⇒ `docker compose run --rm -e PYTHONIOENCODING=utf-8 -e PYTHONUTF8=1 bot python3 tests_manual/run_one.py test_p79_counter_aggregation.py`
+(رویِ `kasbokar_test`؛ اگر مایگریشنِ تازه رویِ دیسک هست ولی در ایمیج نه، `-v "$PWD/migrations:/app/migrations:ro"` را هم اضافه کن).
+کلِ مجموعه ⇒ `run_all_tests.py` (≈۲۰ دقیقه؛ عددِ انتظاری امروز: **۱۶۳ فایل · ۱٬۰۴۳ تست · exit=0**).
+**قبل ازِ اجرایِ کلِ مجموعه، `docker compose stop bot`** تا قفلِ polling و TRUNCATE نسازد.
