@@ -181,8 +181,9 @@ def test_schedule_presets_map_to_the_same_parser() -> None:
     markup = main_keyboards.schedule_when_keyboard()
     buttons = [btn for row in markup.inline_keyboard for btn in row]
     datas = [btn.callback_data for btn in buttons]
-    assert len(buttons) == 7, datas
+    assert len(buttons) == 8, datas  # پ۷۶: ردیفِ «🗓 روز و تکرار» به این صفحه اضافه شد
     assert "sched_when:custom" in datas and "customer_broadcast_cancel" in datas, datas
+    assert "schedw_day" in datas, datas
 
     now = datetime.datetime(2026, 11, 2, 12, 0, tzinfo=datetime.timezone.utc)
     for code, raw in panel_handlers.SCHEDULE_PRESETS.items():

@@ -753,9 +753,50 @@ def schedule_when_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="فردا ۱۰:۰۰", callback_data="sched_when:tom10"),
         InlineKeyboardButton(text="فردا ۱۸:۰۰", callback_data="sched_when:tom18"),
         InlineKeyboardButton(text="✍️ ساعتِ دلخواه", callback_data="sched_when:custom"),
+        # پ۷۶: ویزاردِ «روز → ساعت → تکرار» برایِ کسانی که می‌خواهند چند روز/هفته پشتِ هم بفرستند.
+        InlineKeyboardButton(text=texts.SCHEDULE_WIZARD_BUTTON, callback_data="schedw_day"),
         InlineKeyboardButton(text="❌ لغو", callback_data="customer_broadcast_cancel"),
     ]
     return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=20))
+
+
+def schedule_wizard_day_keyboard() -> InlineKeyboardMarkup:
+    """پ۷۶ · گامِ ۱: روزِ ارسال (شمارهٔ روز نسبت به امروز، نه رشتهٔ متنی)."""
+    buttons = [InlineKeyboardButton(text=label, callback_data=f"schedw_day:{offset}") for offset, label in texts.SCHEDULE_DAY_OPTIONS]
+    buttons.append(InlineKeyboardButton(text="❌ لغو", callback_data="customer_broadcast_cancel"))
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=20))
+
+
+def schedule_wizard_time_keyboard() -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton(text=label, callback_data=f"schedw_time:{hour}") for hour, label in texts.SCHEDULE_TIME_OPTIONS]
+    buttons.append(InlineKeyboardButton(text="✍️ ساعتِ دلخواه", callback_data="schedw_time:custom"))
+    buttons.append(InlineKeyboardButton(text="⬅️ روزِ دیگر", callback_data="schedw_day"))
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=20))
+
+
+def schedule_wizard_repeat_keyboard() -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton(text=label, callback_data=f"schedw_repeat:{kind}") for kind, label in texts.SCHEDULE_REPEAT_OPTIONS]
+    buttons.append(InlineKeyboardButton(text="⬅️ از نو", callback_data="schedw_day"))
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=20))
+
+
+def schedule_wizard_until_keyboard() -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton(text=label, callback_data=f"schedw_until:{days}") for days, label in texts.SCHEDULE_UNTIL_OPTIONS]
+    buttons.append(InlineKeyboardButton(text="بدونِ تاریخِ پایان", callback_data="schedw_until:0"))
+    buttons.append(InlineKeyboardButton(text="⬅️ از نو", callback_data="schedw_day"))
+    return InlineKeyboardMarkup(inline_keyboard=grid(buttons, max_label=20))
+
+
+def schedule_wizard_confirm_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ زمان‌بندی کن", callback_data="schedw_confirm"),
+                InlineKeyboardButton(text="✏️ از نو", callback_data="schedw_day"),
+            ],
+            [InlineKeyboardButton(text="❌ لغو", callback_data="customer_broadcast_cancel")],
+        ]
+    )
 
 
 def admin_panel_keyboard(is_super_admin: bool) -> ReplyKeyboardMarkup:

@@ -127,6 +127,12 @@ class CustomerBroadcastStates(StatesGroup):
     waiting_confirmation = State()
     # P21-D (F2): «برایِ بعد از» ⇒ بعد از تاییدِ متن، زمانِ ارسال پرسیده می‌شود
     waiting_when = State()
+    # پ۷۶ · ویزاردِ زمان‌بندی (روز → ساعت → تکرار → پایان → تایید)
+    waiting_wizard_day = State()
+    waiting_wizard_time = State()
+    waiting_wizard_repeat = State()
+    waiting_wizard_until = State()
+    waiting_wizard_confirm = State()
 
 
 class BaleProviderTokenStates(StatesGroup):

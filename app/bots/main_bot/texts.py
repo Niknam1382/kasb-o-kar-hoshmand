@@ -4784,6 +4784,38 @@ SCHEDULE_EMPTY = (
     "⏰ هیچ ارسالِ زمان‌بندی‌شده‌ای در انتظار نیست.\n"
     "با دکمهٔ پایین، متنِ پیام را بنویس و بعد ساعتِ ارسالش را تعیین کن."
 )
+# پ۷۶ · خواستهٔ مالک (موردِ ۱۷): ویزاردِ «روز → ساعت → تکرار → پایان» + ارسالِ چندروزه/هفتگی.
+SCHEDULE_WIZARD_BUTTON = "🗓 روز و تکرار"
+SCHEDULE_WIZARD_DAY = "🗓 کدامِ روز؟ (همه به وقتِ تهران)"
+SCHEDULE_WIZARD_TIME = "⏰ چه ساعتی؟ برایِ ساعتِ دقیق‌تر «✍️ ساعتِ دلخواه» را بزن."
+SCHEDULE_WIZARD_REPEAT = "🔁 یک‌بار فرستاده شود یا تکرار شود؟"
+SCHEDULE_WIZARD_UNTIL = "🏁 تکرار تا کِی ادامه داشته باشد؟"
+SCHEDULE_WIZARD_CUSTOM_TIME = "ساعت را بنویس (مثلاً ۲۱:۳۰ یا فردا ۹:۳۰):"
+SCHEDULE_WIZARD_STALE = "🗓 این زمان دیگر معتبر نیست؛ از «⏰ برایِ بعد از» دوباره شروع کن."
+SCHEDULE_WIZARD_BAD_TIME = "آن ساعت را نفهمیدم. نمونه: ۲۱:۳۰"
+SCHEDULE_DAY_OPTIONS: tuple[tuple[int, str], ...] = ((0, "امروز"), (1, "فردا"), (2, "پس‌فردا"), (3, "۳ روز بعد"), (7, "یک هفته بعد"))
+SCHEDULE_TIME_OPTIONS: tuple[tuple[int, str], ...] = ((9, "۹:۰۰"), (12, "۱۲:۰۰"), (15, "۱۵:۰۰"), (18, "۱۸:۰۰"), (21, "۲۱:۰۰"))
+SCHEDULE_UNTIL_OPTIONS: tuple[tuple[int, str], ...] = ((3, "۳ روز"), (7, "یک هفته"), (14, "دو هفته"), (30, "یک ماه"))
+SCHEDULE_REPEAT_OPTIONS: tuple[tuple[str, str], ...] = (("once", "یک‌بار"), ("daily", "هر روز"), ("weekly", "هر هفته"))
+SCHEDULE_REPEAT_LABELS = {"once": "یک‌بار", "daily": "هر روز", "weekly": "هر هفته"}
+
+
+def schedule_wizard_preview(when_text: str, repeat_kind: str, until_text: str | None, recipients: int) -> str:
+    label = SCHEDULE_REPEAT_LABELS.get(repeat_kind, repeat_kind)
+    lines = [f"🗓 زمانِ ارسال: {when_text}", f"🔁 تکرار: {label}"]
+    if repeat_kind != "once":
+        lines.append(f"🏁 پایانِ تکرار: {until_text}" if until_text else "🏁 پایانِ تکرار: بدونِ تاریخِ پایان (سقفِ ۶۰ نوبت)")
+    lines.append(f"👥 گیرنده‌ها: {fa_number(recipients)} نفر")
+    lines.append("")
+    lines.append("با «✅ زمان‌بندی کن» این در صف می‌نشیند و هر نوبت سرِ وقتش ارسال می‌شود.")
+    return "\n".join(lines)
+
+
+def schedule_recurring_saved_text(first_text: str, repeat_kind: str, recipients: int) -> str:
+    label = SCHEDULE_REPEAT_LABELS.get(repeat_kind, repeat_kind)
+    return f"✅ زمان‌بندی شد: اولین ارسال {first_text} · {label} · {fa_number(recipients)} گیرنده."
+
+
 SCHEDULE_NEW_BUTTON = "🕓 زمان‌بندیِ تازه"
 SCHEDULE_STALE = "⏳ این ارسال دیگر در فهرست نیست (فرستاده شده یا لغو شده)."
 SCHEDULE_CANCEL_BUTTON = "🗑 لغوِ این ارسال"
@@ -4809,7 +4841,9 @@ def scheduled_list_text(rows) -> str:
     lines = ["⏰ ارسال‌هایِ زمان‌بندی‌شده", ""]
     for position, row in enumerate(rows, start=1):
         preview = (row.text or "").replace("\n", " ")[:60]
-        lines.append(f"{fa_number(position)}) {format_jalali_datetime(row.scheduled_at)} — «{preview}»")
+        kind = getattr(row, "repeat_kind", "once") or "once"
+        repeat = "" if kind == "once" else f" · {SCHEDULE_REPEAT_LABELS.get(kind, kind)}"
+        lines.append(f"{fa_number(position)}) {format_jalali_datetime(row.scheduled_at)}{repeat} — «{preview}»")
     lines.append("")
     lines.append("برایِ لغو، دکمهٔ همان شماره را بزن.")
     return "\n".join(lines)

@@ -34,6 +34,15 @@ MIN_LEAD_MINUTES = 5  # «۵ دقیقهٔ دیگر» مجاز است، «همی�
 MAX_LEAD_DAYS = 60
 MAX_ACTIVE_PER_SHOP = 5
 DUE_LIMIT = 20
+
+# پ۷۶ · خواستهٔ مالک (موردِ ۱۷): «ارسالِ چندروزه/هفتگی». «once» همان رفتارِ امروز است؛ ردیف‌هایِ
+# موجود همه once می‌مانند (server_default) و هیچ پیامی دوبار فرستاده نمی‌شود.
+REPEAT_ONCE = "once"
+REPEAT_DAILY = "daily"
+REPEAT_WEEKLY = "weekly"
+REPEAT_KINDS = (REPEAT_ONCE, REPEAT_DAILY, REPEAT_WEEKLY)
+REPEAT_MAX_OCCURRENCES = 60  # سقفِ ایمنی: حتی با «بی‌پایان»، بیشتر از این نوبت در یکِ ردیف صف نمی‌شود
+STEP_DAYS = {REPEAT_DAILY: 1, REPEAT_WEEKLY: 7}
 _TIME_PATTERN = re.compile(r"^(\d{1,2})[:.](\d{2})$")
 _PLUS_PATTERN = re.compile(r"^\+\s*(\d{1,4})(m|h|d|د|س|ر)$", re.IGNORECASE)
 _UNIT_TO_SECONDS = {"m": 60, "h": 3600, "d": 86400}
@@ -86,6 +95,19 @@ def parse_when(raw: str | None, now: datetime.datetime | None = None) -> datetim
     return _to_utc(candidate)
 
 
+def occurrence(day_offset: int, hour: int, minute: int = 0, now: datetime.datetime | None = None) -> datetime.datetime | None:
+    """پ۷۶ · زمانِ «چند روز بعد، ساعتِ مشخص» به وقتِ تهران ⇒ UTC.
+
+    ویزاردِ تازه به‌جایِ حدس‌زدنِ رشته، این را صدا می‌زند: «امروز ۱۸» اگر گذشته باشد *امروز*
+    برنمی‌گردد (اعتبارسنجیِ `validate_when` ردش می‌کند و فروشگاه‌دار روزِ دیگری انتخاب می‌کند).
+    """
+    if not 0 <= day_offset <= MAX_LEAD_DAYS or not 0 <= hour <= 23 or not 0 <= minute <= 59:
+        return None
+    moment = now or datetime.datetime.now(datetime.timezone.utc)
+    local = _local(moment) + datetime.timedelta(days=day_offset)
+    return _to_utc(datetime.datetime(local.year, local.month, local.day, hour, minute, tzinfo=TEHRAN_TZ))
+
+
 def validate_when(scheduled_at: datetime.datetime | None, now: datetime.datetime | None = None) -> tuple[bool, str]:
     """(مجاز؟، دلیلِ فارسیِ رد). مرزها عمدي‌اند: «همین الان» یعنی مسیرِ فوری، و ۶۰ روز یعنی صفِ نامعقول."""
     if scheduled_at is None:
@@ -120,6 +142,8 @@ async def schedule(
     text: str,
     scheduled_at: datetime.datetime,
     recipient_ids: list[int] | None = None,
+    repeat_kind: str = REPEAT_ONCE,
+    repeat_until: datetime.datetime | None = None,
 ) -> ScheduledBroadcast | str:
     """یکِ ارسالِ زمان‌بندی‌شده می‌سازد؛ ScheduledBroadcast ⇒ موفق، رشته ⇒ کدِ خطا.
 
@@ -132,6 +156,7 @@ async def schedule(
         return "empty"
     if await active_count(session, shop_bot.id) >= MAX_ACTIVE_PER_SHOP:
         return MAX_ACTIVE_REACHED
+    kind = repeat_kind if repeat_kind in REPEAT_KINDS else REPEAT_ONCE
     row = ScheduledBroadcast(
         shop_bot_id=shop_bot.id,
         owner_id=owner_id,
@@ -139,6 +164,8 @@ async def schedule(
         recipient_ids=None if not recipient_ids else ",".join(str(int(pk)) for pk in recipient_ids),
         scheduled_at=scheduled_at,
         status=PENDING,
+        repeat_kind=kind,
+        repeat_until=None if kind == REPEAT_ONCE else (_to_utc(repeat_until) if repeat_until else None),
     )
     session.add(row)
     await session.flush()
@@ -217,7 +244,11 @@ async def queue_due(session: AsyncSession, main_bot: Bot | None = None, limit: i
             summary["empty"] += 1
             continue
         queued = 0
+        # پ۷۶: نوبتِ جاری در dedupe_key می‌آید تا نوبتِ بعدیِ یکِ ارسالِ هفتگی «تکراری» حساب نشود.
+        # برایِ once همان کلیدِ قبلی است ⇒ هیچ ردیفِ موجودی رفتارِ تازه‌ای نمی‌بیند.
+        turn = int(row.repeat_sent or 0)
         for chat_id, platform in recipients:
+            key = f"bcast:{row.id}:{chat_id}:{platform}" if row.repeat_kind == REPEAT_ONCE else f"bcast:{row.id}:{turn}:{chat_id}:{platform}"
             added = await notification_service.enqueue(
                 session,
                 chat_id,
@@ -225,10 +256,16 @@ async def queue_due(session: AsyncSession, main_bot: Bot | None = None, limit: i
                 platform=platform,
                 shop_bot_id=row.shop_bot_id,
                 label=f"scheduled-broadcast:{row.id}",
-                dedupe_key=f"bcast:{row.id}:{chat_id}:{platform}"[:64],
+                dedupe_key=key[:64],
             )
             queued += 1 if added else 0
-        row.status = QUEUED
+        row.repeat_sent = turn + 1
+        nxt = next_occurrence(row, now)
+        if nxt is None:
+            row.status = QUEUED
+        else:
+            row.status = PENDING
+            row.scheduled_at = nxt
         row.queued_count = queued
         row.sent_at = now
         summary["queued"] += queued
@@ -237,3 +274,26 @@ async def queue_due(session: AsyncSession, main_bot: Bot | None = None, limit: i
     if rows:
         await session.flush()
     return summary
+
+
+def next_occurrence(row: ScheduledBroadcast, now: datetime.datetime) -> datetime.datetime | None:
+    """زمانِ نوبتِ بعدیِ یکِ ارسالِ تکرارشونده، یا None اگر تمام شده باشد.
+
+    پایان یعنی: یک‌بارمصرف، یا رسیدن به `repeat_until`، یا خوردن به سقفِ ایمنیِ
+    REPEAT_MAX_OCCURRENCES. زمان از «نوبتِ قبلی + گام» حساب می‌شود (نه از `now`) تا اگر جاب
+    چند ساعت با تأخیر افتاد، ساعتِ انتخابیِ فروشگاه‌دار رویِ هم نرود؛ اگر آن زمان به‌دلیلِ
+    تأخیرِ طولانی در گذشته ماند، از `now` جلو می‌افتد (پیامِ دیرهنگام بهتر از بی‌پیام نیست،
+    پس همان نوبت در نزدیک‌ترین لحظهٔ آینده صف می‌شود).
+    """
+    kind = getattr(row, "repeat_kind", REPEAT_ONCE) or REPEAT_ONCE
+    if kind not in STEP_DAYS:
+        return None
+    if int(getattr(row, "repeat_sent", 0) or 0) >= REPEAT_MAX_OCCURRENCES:
+        return None
+    step = datetime.timedelta(days=STEP_DAYS[kind])
+    base = _to_utc(row.scheduled_at) + step
+    candidate = base if base > now else now + step
+    until = getattr(row, "repeat_until", None)
+    if until is not None and candidate > _to_utc(until):
+        return None
+    return candidate

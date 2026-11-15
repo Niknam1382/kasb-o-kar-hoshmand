@@ -1559,6 +1559,12 @@ class ScheduledBroadcast(Base):
     recipient_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
     scheduled_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     status: Mapped[str] = mapped_column(String(12), default="pending", server_default="pending", nullable=False, index=True)
+    # پ۷۶ · خواستهٔ مالک (موردِ ۱۷): «ارسالِ چندروزه/هفتگی». once همان رفتارِ امروز است و هیچ
+    # ردیفِ موجودی با تغییرِ نسخه رفتارِ تازه نمی‌گیرد. `repeat_sent` شمارِ نوبت‌هایِ صف‌شده است
+    # (هم برایِ سقفِ ایمنی و هم برایِ dedupe_keyِ هر نوبت، تا نوبتِ دوم پیامِ تکراری نشود).
+    repeat_kind: Mapped[str] = mapped_column(String(12), default="once", server_default="once", nullable=False)
+    repeat_until: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    repeat_sent: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     queued_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     note: Mapped[str | None] = mapped_column(String(180), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

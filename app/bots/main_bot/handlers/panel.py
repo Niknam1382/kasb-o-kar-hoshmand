@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 import secrets
 
@@ -1252,7 +1253,15 @@ async def customer_broadcast_confirmed(callback: CallbackQuery, state: FSMContex
 
 
 @router.callback_query(
-    StateFilter(CustomerBroadcastStates.waiting_confirmation, CustomerBroadcastStates.waiting_when),
+    StateFilter(
+        CustomerBroadcastStates.waiting_confirmation,
+        CustomerBroadcastStates.waiting_when,
+        CustomerBroadcastStates.waiting_wizard_day,
+        CustomerBroadcastStates.waiting_wizard_time,
+        CustomerBroadcastStates.waiting_wizard_repeat,
+        CustomerBroadcastStates.waiting_wizard_until,
+        CustomerBroadcastStates.waiting_wizard_confirm,
+    ),
     F.data == "customer_broadcast_cancel",
 )
 async def customer_broadcast_cancelled(callback: CallbackQuery, state: FSMContext) -> None:
@@ -1721,3 +1730,198 @@ async def cb_advance_order(callback: CallbackQuery, session: AsyncSession) -> No
         await callback.message.edit_caption(caption=new_text, reply_markup=keyboard)
     else:
         await callback.message.edit_text(new_text, reply_markup=keyboard)
+
+
+# =============================================================================
+# پ۷۶ · ویزاردِ زمان‌بندی (موردِ ۱۷): روز ← ساعت ← تکرار ← پایان ← تایید
+# =============================================================================
+# چرا ویزارد و نه نوشتنِ ساعت: «ارسالِ هر روز تا یک ماه» با رشته‌نویسیِ آزاد ساختنی نیست، و
+# فروشگاه‌دار نباید برایِ یکِ انتخابِ ساده مجبور شود قالبِ متنی حفظ کند. مسیرِ متنیِ قبلی
+# (`sched_when:*` و نوشتنِ آزاد) دست‌نخورده مانده تا هیچ عادتِ قدیمی‌ای نشکند.
+_WIZARD_ENTRY_STATES = StateFilter(
+    CustomerBroadcastStates.waiting_confirmation,
+    CustomerBroadcastStates.waiting_when,
+    CustomerBroadcastStates.waiting_wizard_day,
+    CustomerBroadcastStates.waiting_wizard_time,
+    CustomerBroadcastStates.waiting_wizard_repeat,
+    CustomerBroadcastStates.waiting_wizard_until,
+    CustomerBroadcastStates.waiting_wizard_confirm,
+)
+
+
+def _wizard_when(data: dict) -> datetime.datetime | None:
+    raw = data.get("w_when")
+    if not raw:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+
+
+async def _wizard_preview(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    """پیش‌نمایشِ آخرین گام: زمانِ نخست، تکرار، پایان و شمارِ گیرنده‌ها (همین‌جا، نه بعداً)."""
+    data = await state.get_data()
+    owner = await _current_owner(callback, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await callback.answer(texts.SHOP_BOT_NOT_SET_UP, show_alert=True)
+        return
+    scheduled_at = _wizard_when(data)
+    allowed, _why = scheduled_broadcast_service.validate_when(scheduled_at)
+    if not allowed:
+        await state.set_state(CustomerBroadcastStates.waiting_wizard_day)
+        await callback.answer(texts.SCHEDULE_TOO_SOON, show_alert=True)
+        await callback.message.answer(texts.SCHEDULE_WIZARD_DAY, reply_markup=keyboards.schedule_wizard_day_keyboard())
+        return
+    recipients = await customer_service.recipients_by_shop_bot(session, shop_bot.id)
+    repeat_kind = str(data.get("w_repeat") or scheduled_broadcast_service.REPEAT_ONCE)
+    until = data.get("w_until")
+    until_text = format_jalali_datetime(datetime.datetime.fromisoformat(str(until))) if until else None
+    await state.set_state(CustomerBroadcastStates.waiting_wizard_confirm)
+    await callback.answer()
+    await callback.message.answer(
+        texts.schedule_wizard_preview(format_jalali_datetime(scheduled_at), repeat_kind, until_text, len(recipients)),
+        reply_markup=keyboards.schedule_wizard_confirm_keyboard(),
+    )
+
+
+@router.callback_query(_WIZARD_ENTRY_STATES, F.data == "schedw_day")
+async def schedw_day_ask(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(CustomerBroadcastStates.waiting_wizard_day)
+    await callback.answer()
+    await callback.message.answer(texts.SCHEDULE_WIZARD_DAY, reply_markup=keyboards.schedule_wizard_day_keyboard())
+
+
+@router.callback_query(CustomerBroadcastStates.waiting_wizard_day, F.data.startswith("schedw_day:"))
+async def schedw_day_chosen(callback: CallbackQuery, state: FSMContext) -> None:
+    raw = (callback.data or "").split(":", 1)[1]
+    if not raw.isdigit():
+        await callback.answer(texts.SCHEDULE_WIZARD_STALE, show_alert=True)
+        return
+    await state.update_data(w_day_offset=int(raw))
+    await state.set_state(CustomerBroadcastStates.waiting_wizard_time)
+    await callback.answer()
+    await callback.message.answer(texts.SCHEDULE_WIZARD_TIME, reply_markup=keyboards.schedule_wizard_time_keyboard())
+
+
+@router.callback_query(CustomerBroadcastStates.waiting_wizard_time, F.data.startswith("schedw_time:"))
+async def schedw_time_chosen(callback: CallbackQuery, state: FSMContext) -> None:
+    raw = (callback.data or "").split(":", 1)[1]
+    if raw == "custom":
+        await callback.answer()
+        await callback.message.answer(texts.SCHEDULE_WIZARD_CUSTOM_TIME)
+        return
+    if not raw.isdigit() or not 0 <= int(raw) <= 23:
+        await callback.answer(texts.SCHEDULE_WIZARD_BAD_TIME, show_alert=True)
+        return
+    data = await state.get_data()
+    when = scheduled_broadcast_service.occurrence(int(data.get("w_day_offset") or 1), int(raw))
+    if when is None:
+        await callback.answer(texts.SCHEDULE_WIZARD_BAD_TIME, show_alert=True)
+        return
+    await state.update_data(w_when=when.isoformat())
+    await state.set_state(CustomerBroadcastStates.waiting_wizard_repeat)
+    await callback.answer()
+    await callback.message.answer(texts.SCHEDULE_WIZARD_REPEAT, reply_markup=keyboards.schedule_wizard_repeat_keyboard())
+
+
+@router.message(CustomerBroadcastStates.waiting_wizard_time, F.text)
+async def schedw_time_written(message: Message, state: FSMContext) -> None:
+    when = scheduled_broadcast_service.parse_when((message.text or "").strip())
+    if when is None:
+        await message.answer(texts.SCHEDULE_WIZARD_BAD_TIME)  # state می‌ماند تا دوباره بنویسد
+        return
+    await state.update_data(w_when=when.isoformat())
+    await state.set_state(CustomerBroadcastStates.waiting_wizard_repeat)
+    await message.answer(texts.SCHEDULE_WIZARD_REPEAT, reply_markup=keyboards.schedule_wizard_repeat_keyboard())
+
+
+@router.callback_query(CustomerBroadcastStates.waiting_wizard_repeat, F.data.startswith("schedw_repeat:"))
+async def schedw_repeat_chosen(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    kind = (callback.data or "").split(":", 1)[1]
+    if kind not in scheduled_broadcast_service.REPEAT_KINDS:
+        await callback.answer(texts.SCHEDULE_WIZARD_STALE, show_alert=True)
+        return
+    await state.update_data(w_repeat=kind)
+    if kind != scheduled_broadcast_service.REPEAT_ONCE:
+        await state.set_state(CustomerBroadcastStates.waiting_wizard_until)
+        await callback.answer()
+        await callback.message.answer(texts.SCHEDULE_WIZARD_UNTIL, reply_markup=keyboards.schedule_wizard_until_keyboard())
+        return
+    await _wizard_preview(callback, state, session)
+
+
+@router.callback_query(CustomerBroadcastStates.waiting_wizard_until, F.data.startswith("schedw_until:"))
+async def schedw_until_chosen(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    raw = (callback.data or "").split(":", 1)[1]
+    if not raw.isdigit():
+        await callback.answer(texts.SCHEDULE_WIZARD_STALE, show_alert=True)
+        return
+    days = int(raw)
+    data = await state.get_data()
+    when = _wizard_when(data)
+    if when is None:
+        await state.set_state(CustomerBroadcastStates.waiting_wizard_day)
+        await callback.answer(texts.SCHEDULE_WIZARD_STALE, show_alert=True)
+        return
+    await state.update_data(w_until=(when + datetime.timedelta(days=days)).isoformat() if days else None)
+    await _wizard_preview(callback, state, session)
+
+
+@router.callback_query(CustomerBroadcastStates.waiting_wizard_confirm, F.data == "schedw_confirm")
+async def schedw_confirm(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    owner = await _current_owner(callback, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner)
+    if shop_bot is None:
+        await callback.answer(texts.SHOP_BOT_NOT_SET_UP, show_alert=True)
+        return
+    scheduled_at = _wizard_when(data)
+    allowed, why = scheduled_broadcast_service.validate_when(scheduled_at)
+    if not allowed:
+        await callback.answer()
+        await safe_edit(callback, texts.SCHEDULE_TOO_SOON if why == "too_soon" else texts.SCHEDULE_TOO_FAR)
+        return
+    body = (data.get("broadcast_text") or "").strip()
+    if not body:
+        await state.clear()
+        await callback.answer()
+        await safe_edit(callback, texts.SCHEDULE_WIZARD_STALE)
+        return
+    repeat_kind = str(data.get("w_repeat") or scheduled_broadcast_service.REPEAT_ONCE)
+    until_raw = data.get("w_until")
+    repeat_until = datetime.datetime.fromisoformat(str(until_raw)) if until_raw else None
+    segment_ids = data.get("broadcast_customer_ids")
+    result = await scheduled_broadcast_service.schedule(
+        session,
+        shop_bot=shop_bot,
+        owner_id=owner.id,
+        text=body,
+        scheduled_at=scheduled_at,
+        recipient_ids=[int(pk) for pk in segment_ids] if segment_ids is not None else None,
+        repeat_kind=repeat_kind,
+        repeat_until=repeat_until,
+    )
+    await session.commit()
+    await state.clear()
+    if isinstance(result, str):
+        await callback.answer()
+        await safe_edit(
+            callback,
+            texts.SCHEDULE_MAX_REACHED if result == scheduled_broadcast_service.MAX_ACTIVE_REACHED else texts.SCHEDULE_INVALID_WHEN,
+        )
+        return
+    recipients = (
+        await customer_service.recipients_by_ids(session, shop_bot.id, [int(pk) for pk in segment_ids])
+        if segment_ids is not None
+        else await customer_service.recipients_by_shop_bot(session, shop_bot.id)
+    )
+    await callback.answer()
+    if result.repeat_kind == scheduled_broadcast_service.REPEAT_ONCE:
+        await safe_edit(callback, texts.schedule_saved_text(format_jalali_datetime(result.scheduled_at), len(recipients)))
+    else:
+        await safe_edit(
+            callback,
+            texts.schedule_recurring_saved_text(format_jalali_datetime(result.scheduled_at), result.repeat_kind, len(recipients)),
+        )
