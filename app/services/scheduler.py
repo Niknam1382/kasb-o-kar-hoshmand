@@ -246,6 +246,8 @@ async def run_counter_heartbeat(stop_event: asyncio.Event, interval_seconds: int
         try:
             async with session_scope() as session:
                 await capacity_service.publish_counters(session)
+                # پ۸۳ · ردیفِ ضربان‌هایِ پروسه‌هایِ مرده بی‌نهایت انبار نمی‌شود
+                await capacity_service.prune_counter_snapshots(session)
                 await session.commit()
         except Exception:
             logger.exception("پ۷۹: ضربانِ شمارنده‌ها نوشته نشد (عددِ عیب‌یاب موقتاً کم‌گویی است).")

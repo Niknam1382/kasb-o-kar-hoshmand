@@ -27,7 +27,7 @@ import os
 import shutil
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -141,6 +141,7 @@ def db_pool_lines() -> dict[str, object]:
 
 # ------------------------------------------------------------------ پ۷۹ · شمارنده‌هایِ چندپروسه‌ای
 SNAPSHOT_STALE_SECONDS = 150  # ردیفِ قدیمی‌تر از این، «پروسهٔ مرده» است و در جمع نمی‌آید
+SNAPSHOT_RETENTION_DAYS = 7  # پ۸۳ · پاک‌کردنِ ردیفِ پروسه‌هایی که دیگر هرگز ضربان نمی‌دهند
 _counter_started_at: datetime.datetime | None = None
 
 
@@ -172,6 +173,17 @@ async def publish_counters(session: AsyncSession) -> dict[str, object]:
     totals, processes, stale_rows = await aggregate_counters(session)
     observability.set_peer_summary(processes, stale_rows)
     return {"processes": processes, "stale": stale_rows, "totals": totals}
+
+
+async def prune_counter_snapshots(session: AsyncSession, *, keep_days: int = SNAPSHOT_RETENTION_DAYS) -> int:
+    """حذفِ ردیف‌هایِ بی‌ضربانی که از پنجرهٔ نگهداری بیرون‌اند ⇒ جمعِ شمارنده‌ها کوئریِ رشدکرده نمی‌شود.
+
+    فقط telemetry عملیاتی پاک می‌شود (نه دادهٔ کاربر). `keep_days` بزرگ‌تر از پنجرهٔ اعتبار است، پس هیچ
+    ردیفِ «شاید برگردد» حذف نمی‌شود و عددی از جمعِ زنده‌ها کم نمی‌کند.
+    """
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=keep_days)
+    result = await session.execute(sa_delete(RuntimeCounterSnapshot).where(RuntimeCounterSnapshot.updated_at < cutoff))
+    return int(result.rowcount or 0)
 
 
 async def aggregate_counters(session: AsyncSession) -> tuple[dict[str, int], int, int]:

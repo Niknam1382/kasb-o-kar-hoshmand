@@ -174,6 +174,26 @@ async def test_capacity_panel_shares_process_count() -> None:
     print("PASS test_capacity_panel_shares_process_count")
 
 
+# ============================================================================= ۶ — پاک‌سازیِ ردیفِ مرده
+async def test_prune_removes_only_old_rows() -> None:
+    await reset_database()
+    observability.reset_counters()
+    now = dt.datetime.now(UTC)
+    async with session_scope() as session:
+        session.add(RuntimeCounterSnapshot(process_key="old-worker:1", hostname="old", counters="{}", updated_at=now - dt.timedelta(days=9)))
+        session.add(RuntimeCounterSnapshot(process_key="fresh-worker:2", hostname="fresh", counters="{}", updated_at=now - dt.timedelta(days=2)))
+        await session.commit()
+    async with session_scope() as session:
+        removed = await capacity_service.prune_counter_snapshots(session)
+        await session.commit()
+    assert removed == 1, removed
+    keys = [row.process_key for row in await _rows()]
+    assert "fresh-worker:2" in keys and "old-worker:1" not in keys, keys
+    # پنجرهٔ پاک‌سازی باید بزرگ‌تر از پنجرهٔ اعتبار باشد، وگرنه ردیفِ «شاید برگردد» حذف می‌شود
+    assert capacity_service.SNAPSHOT_RETENTION_DAYS * 86400 > capacity_service.SNAPSHOT_STALE_SECONDS
+    print("PASS test_prune_removes_only_old_rows")
+
+
 async def main() -> None:
     test_local_counters_keep_raw_names()
     test_process_key_shape()
@@ -181,6 +201,7 @@ async def main() -> None:
     await test_stale_and_broken_rows_are_excluded()
     await test_doctor_uses_raw_names_and_reports_scope()
     await test_capacity_panel_shares_process_count()
+    await test_prune_removes_only_old_rows()
 
 
 if __name__ == "__main__":
