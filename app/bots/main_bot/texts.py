@@ -2789,6 +2789,21 @@ INSTAGRAM_EXPORT_EMPTY = "در این بازه کامنتی نبود که فای
 INSTAGRAM_EXPORT_READY = "فایلِ کامنت‌هایِ {label} آماده شد ({count} ردیف)."
 INSTAGRAM_EXPORT_TRUNCATED = "• بازه بزرگ‌تر از سقفِ فایل بود؛ فقط {limit} ردیفِ جدیدتر در فایل است."
 INSTAGRAM_BLOCK_BACK_BUTTON = "⬅️ بازگشت به گزارشِ کامنت‌ها"
+INSTAGRAM_BLOCK_ERASE_BUTTON = "🗑 حذفِ دادهٔ این حساب"
+INSTAGRAM_ERASE_TITLE = "🗑 حذفِ داده‌هایِ @{name}"
+INSTAGRAM_ERASE_ASK = (
+    "در این فروشگاه {events} کامنت از این حساب دیده شده است. با تایید، همان ردیف‌هایِ کامنت و ردیفِ این "
+    "حساب در فهرستِ «جواب نده» پاک می‌شوند. برگشتی ندارد."
+)
+INSTAGRAM_ERASE_SCOPE = (
+    "• آنچه پاک **نمی‌شود**: پیام‌هایِ دایرکت، مشتری‌هایِ CRM، سفارش‌ها و دفترِ کیف‌پول — کامنت نه مشتری "
+    "است و هیچ‌کدام از آن‌ها به این ردیف‌ها وصل نیست."
+)
+INSTAGRAM_ERASE_CONFIRM_BUTTON = "✅ بله، پاک کن"
+INSTAGRAM_ERASE_CANCEL_BUTTON = "⬅️ بی‌خیال، چیزی پاک نشود"
+INSTAGRAM_ERASE_DONE = "پاک شد: {events} رویدادِ کامنت · {blocks} ردیفِ فهرستِ جواب‌نده."
+INSTAGRAM_ERASE_NOTHING = "هیچ کامنتی از این حساب ثبت نشده بود؛ فقط ردیفِ فهرست برداشته شد."
+INSTAGRAM_ERASE_INVALID = "آن حساب در فهرستِ این فروشگاه نیست."
 
 
 def instagram_blocks_text(rows: list) -> str:

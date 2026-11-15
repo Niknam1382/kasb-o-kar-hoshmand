@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.handlers.owner_common import panel_keyboard, require_shop_bot, require_shop_bot_cb, safe_edit
 from app.bots.main_bot.states import InstagramStates
-from app.database.models import InstagramCommentEvent, ShopBot
+from app.database.models import InstagramCommentBlock, InstagramCommentEvent, ShopBot
 from app.services import excel_export_service, instagram_service, shop_bot_service, shop_owner_service
 from app.services.admin_settings_service import get_admin_settings
 from app.utils.text_limits import clip
@@ -282,6 +282,75 @@ async def cb_unblock_sender(callback: CallbackQuery, session: AsyncSession) -> N
         await callback.answer(text=texts.INSTAGRAM_BLOCK_INVALID, show_alert=True)
         return
     await callback.answer(text=texts.INSTAGRAM_BLOCK_REMOVED)
+    await _blocks_screen(callback, shop_bot, session)
+
+
+async def _block_row_or_none(session: AsyncSession, shop_bot: ShopBot, raw_id: str):
+    if not raw_id.isascii() or not raw_id.isdigit():
+        return "invalid"
+    row = (
+        await session.execute(
+            select(InstagramCommentBlock).where(
+                InstagramCommentBlock.id == int(raw_id), InstagramCommentBlock.shop_bot_id == shop_bot.id
+            )
+        )
+    ).scalar_one_or_none()
+    return row
+
+
+@router.callback_query(F.data.startswith("ig_blk_erase:"))
+async def cb_block_erase_ask(callback: CallbackQuery, session: AsyncSession) -> None:
+    """پ۸۴ · صفحهٔ تاییدِ «حذفِ دادهٔ این حساب» با شمارشِ واقعیِ ردیف‌ها (بدونِ شمارشِ ساختگی)."""
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    row = await _block_row_or_none(session, shop_bot, (callback.data or "").split(":", 1)[1])
+    if row == "invalid" or row is None:
+        await callback.answer(texts.INSTAGRAM_ERASE_INVALID, show_alert=True)
+        return
+    events = await instagram_service.comment_sender_event_count(session, shop_bot.id, row.username)
+    await session.commit()
+    await callback.answer()
+    body = chr(10).join(
+        (
+            texts.INSTAGRAM_ERASE_TITLE.format(name=row.username),
+            "",
+            texts.INSTAGRAM_ERASE_ASK.format(events=fa_number(events)),
+            texts.INSTAGRAM_ERASE_SCOPE,
+        )
+    )
+    await safe_edit(callback, body, keyboards.instagram_erase_confirm_keyboard(row))
+
+
+@router.callback_query(F.data.startswith("ig_blk_erase_yes:"))
+async def cb_block_erase_yes(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    row = await _block_row_or_none(session, shop_bot, (callback.data or "").split(":", 1)[1])
+    if row == "invalid" or row is None:
+        await callback.answer(texts.INSTAGRAM_ERASE_INVALID, show_alert=True)
+        return
+    name = row.username
+    events, blocks = await instagram_service.erase_comment_sender_data(
+        session, shop_bot.id, name, actor_telegram_id=callback.from_user.id
+    )
+    await session.commit()
+    await callback.answer(
+        text=texts.INSTAGRAM_ERASE_DONE.format(events=fa_number(events), blocks=fa_number(blocks))
+        if events
+        else texts.INSTAGRAM_ERASE_NOTHING,
+        show_alert=True,
+    )
+    await _blocks_screen(callback, shop_bot, session)
+
+
+@router.callback_query(F.data == "ig_blk_erase_no")
+async def cb_block_erase_no(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer(texts.INSTAGRAM_ERASE_CANCEL_BUTTON.replace("⬅️ ", ""))
     await _blocks_screen(callback, shop_bot, session)
 
 

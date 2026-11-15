@@ -36,7 +36,7 @@ from dataclasses import dataclass
 
 import aiohttp
 from aiogram.exceptions import TelegramAPIError
-from sqlalchemy import distinct, func, select
+from sqlalchemy import delete as sa_delete, distinct, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -508,6 +508,73 @@ async def unblock_comment_sender(
         details=f"پ۷۷: «@{name}» از فهرستِ جواب‌نده‌ها برداشته شد",
     )
     return row
+
+
+ERASE_SCAN_LIMIT = 5000  # سقفِ ردیف‌هایی که برایِ یکِ نامِ کاربری نگاه می‌شوند (عملیاتِ ادمین، نه مسیرِ داغ)
+
+
+async def comment_sender_event_count(session: AsyncSession, shop_bot_id: int, username: str) -> int:
+    """چند ردیفِ رویدادِ کامنت به این نامِ کاربری می‌رسد (برایِ همان صفحهٔ تایید)."""
+    name = normalize_comment_username(username)
+    if not name:
+        return 0
+    rows = list(
+        (
+            await session.execute(
+                select(InstagramCommentEvent.username).where(
+                    InstagramCommentEvent.shop_bot_id == shop_bot_id,
+                    InstagramCommentEvent.username.is_not(None),
+                ).limit(ERASE_SCAN_LIMIT)
+            )
+        ).scalars().all()
+    )
+    return sum(1 for raw in rows if normalize_comment_username(raw) == name)
+
+
+async def erase_comment_sender_data(
+    session: AsyncSession, shop_bot_id: int, username: str, *, actor_telegram_id: int
+) -> tuple[int, int]:
+    """پ۸۴ · حقِ فراموشی رویِ کامنت‌ها ⇒ ⇒ (ردیف‌هایِ رویدادِ پاک‌شده، ردیفِ فهرستِ پاک‌شده).
+
+    نامِ کاربری در رویدادها همان چیزی است که متا فرستاده (`@Sara_Test`)، پس مقایسه با *همان*
+    نرمال‌سازیِ فهرستِ مسدودها انجام می‌شود؛ این کار در Python است نه SQL، چونِ قواعدِ نقطه/خطِ تیره
+    در SQL نوشته نمی‌شوند. عملیاتِ دستیِ ادمین/فروشگاه‌دار است (نه مسیرِ هرِ پیام) و سقفِ اسکن دارد.
+    """
+    name = normalize_comment_username(username)
+    if not name:
+        return 0, 0
+    ids = [
+        row_id
+        for row_id, raw in (
+            await session.execute(
+                select(InstagramCommentEvent.id, InstagramCommentEvent.username).where(
+                    InstagramCommentEvent.shop_bot_id == shop_bot_id,
+                    InstagramCommentEvent.username.is_not(None),
+                ).limit(ERASE_SCAN_LIMIT)
+            )
+        ).all()
+        if normalize_comment_username(raw) == name
+    ]
+    events = 0
+    if ids:
+        result = await session.execute(sa_delete(InstagramCommentEvent).where(InstagramCommentEvent.id.in_(ids)))
+        events = int(result.rowcount or 0)
+    blocked = (
+        await session.execute(
+            sa_delete(InstagramCommentBlock).where(
+                InstagramCommentBlock.shop_bot_id == shop_bot_id, InstagramCommentBlock.username == name
+            )
+        )
+    ).rowcount or 0
+    await session.flush()
+    await audit_log_service.log(
+        session,
+        AuditEventType.INSTAGRAM_TOGGLED,
+        shop_bot_id=shop_bot_id,
+        actor_telegram_id=actor_telegram_id,
+        details=f"پ۸۴: دادهٔ «@{name}» پاک شد — {events} رویدادِ کامنت، {blocked} ردیفِ فهرستِ جواب‌نده",
+    )
+    return events, int(blocked)
 
 
 # ============================================================================= ۲ — آدرس‌ها و توکنِ وضعیت

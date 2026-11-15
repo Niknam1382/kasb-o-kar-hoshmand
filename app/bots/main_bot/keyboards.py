@@ -1996,11 +1996,15 @@ def instagram_comments_keyboard(report, *, blocked: frozenset[str] = frozenset()
 
 def instagram_blocks_keyboard(rows: list) -> InlineKeyboardMarkup:
     """پ۷۷: آزاد کردنِ تک‌تکِ حساب‌ها + افزودنِ دستیِ نامی که کامنتش دیگر نمی‌رسد."""
-    buttons = [
-        InlineKeyboardButton(text="✅ آزاد کردنِ " + clip("@" + (row.username or ""), 22), callback_data=f"ig_unblk:{row.id}")
-        for row in rows
-    ]
-    kb = [buttons[start : start + 1] for start in range(0, len(buttons), 1)]
+    kb = []
+    for row in rows:
+        label = clip("@" + (row.username or ""), 18)
+        kb.append(
+            [
+                InlineKeyboardButton(text="✅ آزاد کردنِ " + label, callback_data=f"ig_unblk:{row.id}"),
+                InlineKeyboardButton(text=texts.INSTAGRAM_BLOCK_ERASE_BUTTON, callback_data=f"ig_blk_erase:{row.id}"),
+            ]
+        )
     kb.append([InlineKeyboardButton(text="✍️ افزودنِ نامِ کاربری", callback_data="ig_blk_add")])
     kb.append([InlineKeyboardButton(text=texts.INSTAGRAM_COMMENTS_BUTTON, callback_data="ig_cmt:7d:0")])
     kb.append([InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")])
@@ -2274,5 +2278,15 @@ def owner_ai_usage_detail_keyboard(customer_id: int, window: str, page: int, *, 
                 ),
                 InlineKeyboardButton(text="📊 بازگشت به فهرست", callback_data=f"ouai:{window}:{page}"),
             ],
+        ]
+    )
+
+
+def instagram_erase_confirm_keyboard(row) -> InlineKeyboardMarkup:
+    """پ۸۴ · تاییدِ صریحِ پاک‌کردن (هیچ فعلِ مالی ندارد، ولی برگشتِ داده ممکن نیست)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.INSTAGRAM_ERASE_CONFIRM_BUTTON, callback_data=f"ig_blk_erase_yes:{row.id}")],
+            [InlineKeyboardButton(text=texts.INSTAGRAM_ERASE_CANCEL_BUTTON, callback_data="ig_blk_erase_no")],
         ]
     )
