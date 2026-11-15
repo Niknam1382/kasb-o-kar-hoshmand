@@ -152,10 +152,11 @@ async def record_gap(
         shop_bot_id=shop_bot_id,
         question_text=clean_text,
         question_key=key,
+        cluster_key=cluster_signature(question_text),  # پ۷۵: امضا همان لحظه نوشته می‌شود
         occurrences=1,
         first_seen_at=now,
         last_seen_at=now,
-        status=KnowledgeGapStatus.OPEN.value,
+        status=KnowledgeGapStatus.OPEN,
     )
     statement = statement.on_conflict_do_update(
         index_elements=["shop_bot_id", "question_key"],
@@ -313,3 +314,149 @@ async def get_active_for_prompt(
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+# =============================================================================
+# ۴-پ (پ۷۵): خوشه‌بندیِ سوال‌هایِ بی‌جواب
+# =============================================================================
+# خواستهٔ مالک (موردِ ۹): «سوال‌هایِ مشابه را گروه کن و از آن‌ها دانش بساز». امضا **واژگانی** است،
+# نه معنایی: بدونِ وابستگیِ تازه و بدونِ هیچ فراخوانِ هوشِ مصنوعی، چون هدفِ این صفحه این است که
+# فروشگاه‌دار *یک بار* جواب بنویسد و چند سوالِ هم‌معنی با همان جواب بسته شوند. پس دو سوال وقتی
+# گروه می‌شوند که مجموعهٔ واژه‌هایِ محتوایی‌شان یکی باشد (ترتیب، علامت، اعراب و پرهملول‌ها بی‌اهمیت).
+CLUSTER_MIN_SIZE = 2
+CLUSTER_SCAN_LIMIT = MAX_OPEN_GAPS_PER_SHOP
+CLUSTER_STOPWORDS = frozenset({
+    "و", "با", "از", "به", "در", "که", "کی", "کجا", "چرا", "چه", "چی", "چطور", "چگونه", "آیا", "ای",
+    "است", "هست", "می", "خوب", "لطفا", "لطفاً", "این", "آن", "یک", "دو", "چند", "من", "تو", "شما",
+    "هو", "او", "ها", "ی", "اگه", "اگر", "بعد", "درباره", "درمورد", "را", "نیز", "هم",
+})
+# فقط حروفِ واقعی (عربی/فارسی/لاتین + رقم): علامت‌هایِ خودِ خطِ عربی («؟»، «،»، «؛»، «۔»، «٪») هم
+# داخلِ بازهٔ U+0600-U+06FF هستند، پس اگر «هرچیز جز فاصله» را واژه بگیریم «چنده؟» با «چنده» یکی
+# نمی‌شود و هیچ سوالی گروه نمی‌گیرد.
+_LETTER_RUN_RE = re.compile(r"[0-9A-Za-z\u0621-\u063A\u0641-\u064A\u066E-\u06D3\uFB50-\uFD3F\uFE70-\uFEFC]+")
+_ZWNJ_RE = re.compile(r"[\u200c\u0640]")
+
+
+def _fold_words(text: str | None) -> str:
+    """همان یکسان‌سازیِ `normalize_question`، ولی فاصله‌ها را نگه می‌دارد تا واژه‌ها جدا بمانند."""
+    if not text:
+        return ""
+    folded = text.translate(_DIGIT_TABLE).translate(_CHAR_TABLE).casefold()
+    folded = _DIACRITICS_RE.sub("", folded)
+    folded = _ZWNJ_RE.sub("", folded)
+    return " ".join(_LETTER_RUN_RE.findall(folded))
+
+
+def cluster_signature(text: str | None) -> str | None:
+    """امضایِ گروهِ سوال ⇒ هشِ ۶۴تاییِ مجموعهٔ واژه‌هایِ محتوایی؛ None اگر چیزی نماند.
+
+    واژه‌هایِ پرهملول (و/با/چه/است/…) حذف می‌شوند تا «قیمت ارسال چنده» و «چنده قیمت ارسال» یکی
+    شوند. اگر کمتر از دو واژهٔ محتوایی بماند امضا ساخته نمی‌شود (None): «سلام» یا «قیمت؟» با هر
+    سوالِ مبهمِ دیگری گروه نمی‌شود، و سوالِ بی‌امضا در صفحهٔ گروه‌ها ظاهر نمی‌شود.
+    """
+    tokens = {word for word in _fold_words(text).split() if len(word) > 1 and word not in CLUSTER_STOPWORDS}
+    if len(tokens) < 2:
+        return None
+    return hashlib.sha256("|".join(sorted(tokens)).encode("utf-8")).hexdigest()
+
+
+async def backfill_cluster_keys(session: AsyncSession, shop_bot_id: int) -> int:
+    """ردیف‌هایِ قدیمیِ همین فروشگاه که امضا ندارند را محاسبه و پر می‌کند (یکِ SELECT + UPDATEها).
+
+    صفحهٔ خوشه‌ها همین‌جا را صدا می‌زند، پس مایگریشنِ داده لازم نیست: امضا فقط از متنِ خودِ سوال
+    می‌آید و هیچ تصمیمِ تازه‌ای نمی‌گیرد.
+    """
+    rows = (
+        await session.execute(
+            select(KnowledgeGap.id, KnowledgeGap.question_text)
+            .where(KnowledgeGap.shop_bot_id == shop_bot_id, KnowledgeGap.cluster_key.is_(None))
+            .limit(CLUSTER_SCAN_LIMIT)
+        )
+    ).all()
+    for gap_id, question_text in rows:
+        await session.execute(update(KnowledgeGap).where(KnowledgeGap.id == gap_id).values(cluster_key=cluster_signature(question_text)))
+    await session.flush()
+    return len(rows)
+
+
+async def list_gap_clusters(
+    session: AsyncSession, shop_bot_id: int, *, min_size: int = CLUSTER_MIN_SIZE, limit: int = 10
+) -> list[dict]:
+    """گروه‌هایِ سوال‌هایِ باز، بزرگ‌ترینِ گروه اول.
+
+    خروجیِ هر گروه: `representative` (ردیفِ پرتکرارترین، برایِ شناسه و متنِ نمایش)، `questions`
+    (متن‌هایِ عضو)، `size` (چند سوالِ متفاوت) و `occurrences` (جمعِ تکرارها). فقط گروه‌هایی که
+    حداقل `min_size` سوالِ *متفاوت* دارند برمی‌گردند؛ سوالِ یکتا خوشه نیست.
+    """
+    await backfill_cluster_keys(session, shop_bot_id)
+    rows = list(
+        (
+            await session.execute(
+                select(KnowledgeGap)
+                .where(
+                    KnowledgeGap.shop_bot_id == shop_bot_id,
+                    KnowledgeGap.status == KnowledgeGapStatus.OPEN,
+                    KnowledgeGap.cluster_key.is_not(None),
+                )
+                .order_by(KnowledgeGap.occurrences.desc(), KnowledgeGap.last_seen_at.desc(), KnowledgeGap.id.desc())
+                .limit(CLUSTER_SCAN_LIMIT)
+            )
+        ).scalars().all()
+    )
+    buckets: dict[str, list[KnowledgeGap]] = {}
+    for gap in rows:
+        buckets.setdefault(gap.cluster_key, []).append(gap)
+    clusters = [
+        {
+            "signature": key,
+            "representative": members[0],
+            "questions": [member.question_text for member in members],
+            "size": len(members),
+            "occurrences": sum(int(member.occurrences) for member in members),
+        }
+        for key, members in buckets.items()
+        if len(members) >= max(1, min_size)
+    ]
+    clusters.sort(key=lambda item: (-item["size"], -item["occurrences"], item["representative"].id))
+    return clusters[:limit]
+
+
+async def answer_cluster(session: AsyncSession, shop_bot_id: int, signature: str, answer: str | None) -> tuple[LearnedAnswer, int]:
+    """یکِ جواب برایِ همهٔ سوال‌هایِ گروه: یکِ پرسش‌وپاسخِ فعال + ANSWERED شدنِ همهٔ عضوهایِ باز.
+
+    متنِ سوالِ نماینده از خودِ مشتری آمده ⇒ غیرِ قابلِ اعتماد است و مثلِ مسیرِ تک‌سوالی برش می‌خورد؛
+    جواب را خودِ فروشگاه‌دار نوشته (تاییدِ انسانی همان چیزی است که «خودکار» بودنِ این مسیر را امن
+    می‌کند). خطایِ اعتبارسنجی از `create_learned_answer` عیناً بالا می‌آید و هیچ گپی عوض نمی‌شود.
+    """
+    if not signature:
+        raise KnowledgeError("gap_not_open")
+    members = list(
+        (
+            await session.execute(
+                select(KnowledgeGap)
+                .where(
+                    KnowledgeGap.shop_bot_id == shop_bot_id,
+                    KnowledgeGap.cluster_key == signature,
+                    KnowledgeGap.status == KnowledgeGapStatus.OPEN,
+                )
+                .order_by(KnowledgeGap.occurrences.desc(), KnowledgeGap.last_seen_at.desc(), KnowledgeGap.id.desc())
+            )
+        ).scalars().all()
+    )
+    if not members:
+        raise KnowledgeError("gap_not_open")
+    representative = members[0]
+    learned = await create_learned_answer(
+        session, shop_bot_id, representative.question_text, answer, source_gap_id=representative.id
+    )
+    result = await session.execute(
+        update(KnowledgeGap)
+        .where(
+            KnowledgeGap.shop_bot_id == shop_bot_id,
+            KnowledgeGap.cluster_key == signature,
+            KnowledgeGap.status == KnowledgeGapStatus.OPEN,
+        )
+        .values(status=KnowledgeGapStatus.ANSWERED.value)
+    )
+    await session.flush()
+    return learned, int(result.rowcount or 0)

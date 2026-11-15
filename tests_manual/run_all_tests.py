@@ -178,6 +178,7 @@ TEST_FILES = [
     "test_p72_doctor_thresholds.py",
     "test_p73_instagram_comment_report.py",
     "test_p74_product_categories.py",
+    "test_p75_gap_clusters.py",
 ]
 
 

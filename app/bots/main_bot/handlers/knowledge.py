@@ -20,6 +20,8 @@ from app.bots.main_bot.states import KnowledgeStates
 from app.database.models import KnowledgeGapStatus, ShopBot
 from app.services import knowledge_service
 from app.services.admin_settings_service import get_admin_settings
+from app.utils.text_limits import clip
+from app.utils.validators import fa_number
 
 logger = logging.getLogger(__name__)
 
@@ -366,7 +368,137 @@ async def learned_manual_cancelled(callback: CallbackQuery, state: FSMContext) -
     await safe_edit(callback, texts.GAP_SAVE_CANCELLED)
 
 
-@router.callback_query(F.data.in_({"gap_save_confirm", "gap_save_cancel", "learned_manual_confirm", "learned_manual_cancel"}))
+# =============================================================================
+# ۴-پ (پ۷۵): گروه‌هایِ سوال‌هایِ مشابه و «یکِ جواب برایِ همه»
+# =============================================================================
+async def _cluster_of(session: AsyncSession, shop_bot: ShopBot, gap_id: int | None):
+    """گروهی که نماینده‌اش همین `gap_id` است، یا None (ردیف نیست / بسته شده / دیگر گروه نیست).
+
+    امضایِ گروه از خودِ ردیف خوانده می‌شود، نه از `callback_data` — پس دستکاریِ شناسه نه به گروهِ
+    فروشگاهِ دیگر می‌رسد نه به گروهِ بسته‌شده.
+    """
+    gap = await knowledge_service.get_owned_gap(session, gap_id, shop_bot.id)
+    if gap is None or gap.status != KnowledgeGapStatus.OPEN:
+        return None
+    clusters = await knowledge_service.list_gap_clusters(session, shop_bot.id)
+    return next((cluster for cluster in clusters if cluster["representative"].id == gap.id), None)
+
+
+@router.callback_query(F.data == "gap_clusters")
+async def gap_clusters_page(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    clusters = await knowledge_service.list_gap_clusters(session, shop_bot.id)
+    open_total = await knowledge_service.count_open_gaps(session, shop_bot.id)
+    await session.commit()
+    await callback.answer()
+    await safe_edit(callback, texts.gap_clusters_text(clusters, open_total), keyboards.gap_clusters_keyboard(clusters))
+
+
+@router.callback_query(F.data.startswith("gapc_view:"))
+async def gap_cluster_view(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    cluster = await _cluster_of(session, shop_bot, parse_suffix_int(callback.data, "gapc_view:"))
+    if cluster is None:
+        await callback.answer(texts.GAP_CLUSTER_STALE, show_alert=True)
+        return
+    await session.commit()
+    await callback.answer()
+    await safe_edit(callback, texts.gap_cluster_detail_text(cluster), keyboards.gap_cluster_detail_keyboard(cluster))
+
+
+@router.callback_query(F.data.startswith("gapc_answer:"))
+async def gap_cluster_answer_start(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    cluster = await _cluster_of(session, shop_bot, parse_suffix_int(callback.data, "gapc_answer:"))
+    if cluster is None:
+        await callback.answer(texts.GAP_CLUSTER_STALE, show_alert=True)
+        return
+    await state.clear()
+    await state.set_state(KnowledgeStates.waiting_cluster_answer)
+    await state.update_data(cluster_signature=cluster["signature"], cluster_size=cluster["size"])
+    await session.commit()
+    await callback.answer()
+    await callback.message.answer(
+        f"{texts.ASK_CLUSTER_ANSWER.format(count=fa_number(cluster['size']))}\n\n{texts.CLUSTER_PREVIEW_QUESTION}\n"
+        + "\n".join(f"• {clip(question, 70)}" for question in cluster["questions"])
+    )
+
+
+@router.message(KnowledgeStates.waiting_cluster_answer, F.text)
+async def gap_cluster_answer_received(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot(message, session)
+    if shop_bot is None:
+        await state.clear()
+        return
+    raw = (message.text or "").strip()
+    if raw in {"انصراف", "لغو", "/cancel"}:
+        await state.clear()
+        await message.answer(texts.OPERATION_CANCELLED)
+        return
+    if not raw:
+        await message.answer(texts.GAP_ANSWER_EMPTY)
+        return
+    if _collapsed_len(raw) > knowledge_service.LEARNED_ANSWER_MAX_LEN:
+        await message.answer(texts.GAP_ANSWER_TOO_LONG)
+        return
+    data = await state.get_data()
+    signature = str(data.get("cluster_signature") or "")
+    # نمایندهٔ گروه دوباره از پایگاهِ داده خوانده می‌شود تا متنِ سوالِ تاییدشده همان چیزی باشد که ذخیره می‌شود
+    clusters = await knowledge_service.list_gap_clusters(session, shop_bot.id)
+    cluster = next((item for item in clusters if item["signature"] == signature), None)
+    if cluster is None:
+        await state.clear()
+        await message.answer(texts.GAP_CLUSTER_STALE)
+        return
+    await state.set_state(KnowledgeStates.waiting_cluster_confirm)
+    await state.update_data(answer=raw, cluster_size=cluster["size"])
+    await session.commit()
+    await message.answer(
+        f"{texts.gap_answer_preview(cluster['representative'].question_text, raw)}\n\n"
+        f"{texts.CLUSTER_PREVIEW_QUESTION}\n" + "\n".join(f"• {clip(question, 70)}" for question in cluster["questions"]),
+        reply_markup=keyboards.gap_cluster_confirm_keyboard(),
+    )
+
+
+@router.callback_query(KnowledgeStates.waiting_cluster_confirm, F.data == "gapc_save_confirm")
+async def gap_cluster_save_confirmed(callback: CallbackQuery, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    await state.clear()
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    signature = str(data.get("cluster_signature") or "")
+    try:
+        _learned, answered = await knowledge_service.answer_cluster(session, shop_bot.id, signature, data.get("answer"))
+    except knowledge_service.KnowledgeError as exc:
+        await callback.answer()
+        if exc.code == "limit_reached":
+            await safe_edit(callback, texts.LEARNED_LIMIT_REACHED)
+        elif exc.code == "gap_not_open":
+            await safe_edit(callback, texts.GAP_CLUSTER_STALE)
+        else:
+            await safe_edit(callback, texts.GAP_ANSWER_EMPTY)
+        return
+    await session.commit()
+    await callback.answer()
+    text, keyboard = await _gaps_payload(session, shop_bot, 0)
+    await safe_edit(callback, f"{texts.CLUSTER_SAVED.format(count=fa_number(answered))}\n\n{text}", keyboard)
+
+
+@router.callback_query(KnowledgeStates.waiting_cluster_confirm, F.data == "gapc_save_cancel")
+async def gap_cluster_save_cancelled(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.answer()
+    await safe_edit(callback, texts.OPERATION_CANCELLED)
+
+
+@router.callback_query(F.data.in_({"gap_save_confirm", "gap_save_cancel", "gapc_save_confirm", "gapc_save_cancel", "learned_manual_confirm", "learned_manual_cancel"}))
 async def stale_knowledge_button(callback: CallbackQuery) -> None:
     """دکمه‌یِ تاییدِ کهنه (مثلاً بعدِ /cancel یا ری‌استارتِ ربات که FSM رو پاک کرده)."""
     await callback.answer(texts.KNOWLEDGE_STALE_BUTTON, show_alert=True)

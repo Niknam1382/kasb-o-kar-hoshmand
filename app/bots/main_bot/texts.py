@@ -3770,6 +3770,58 @@ LEARNED_LIMIT_REACHED = "به سقفِ ۲۰۰ پرسش‌وپاسخِ تایید
 KNOWLEDGE_STALE_BUTTON = "این دکمه دیگه معتبر نیست. دوباره از منو شروع کن."
 
 
+# پ۷۵ · خواستهٔ مالک (موردِ ۹): «سوال‌هایِ بی‌جوابِ مشابه را گروه کن و از آن‌ها دانش بساز».
+GAP_CLUSTERS_BUTTON = "🧠 سوال‌هایِ مشابه"
+GAP_CLUSTERS_TITLE = "🧠 سوال‌هایِ مشابه — {clusters} گروه از {gaps} سوالِ باز"
+GAP_CLUSTERS_INTRO = (
+    "هر گروه چند سوالِ *متفاوت* است که واژه‌هایِ اصلی‌شان یکی است (ترتیبِ کلمات، علامت‌ها و "
+    "پیشوند/پسوند فرق نمی‌کند). با «✍️ یکِ جواب برایِ همه» یکِ پرسش‌وپاسخ می‌سازی و همهٔ سوال‌هایِ آن "
+    "گروه بسته می‌شوند — جواب را خودت می‌نویسی و تا تایید نکنی چیزی به ربات اضافه نمی‌شود."
+)
+GAP_CLUSTERS_EMPTY = (
+    "🧠 فعلاً دو سوالِ شبیه هم نداری. هر وقت چند مشتری چیزی را به شکل‌هایِ مختلف پرسیدند، اینجا "
+    "گروه می‌شوند."
+)
+ASK_CLUSTER_ANSWER = (
+    "جوابِ این گروه را بنویس (همان جواب برایِ همهٔ {count} سوال ذخیره می‌شود). برایِ انصراف «انصراف» "
+    "را بزن."
+)
+CLUSTER_PREVIEW_QUESTION = "🧩 سوال‌هایِ این گروه:"
+CLUSTER_SAVED = "✅ دانش ساخته شد و {count} سوالِ این گروه بسته شد."
+GAP_CLUSTER_STALE = "این گروه دیگر باز نیست؛ فهرستِ سوال‌هایِ بی‌جواب را دوباره باز کن."
+
+
+def gap_cluster_line(index: int, cluster: dict) -> str:
+    """یکِ خطِ فهرست: «۱. «سوالِ نماینده» — ۳ سوال · ۷ تکرار»."""
+    return (
+        f"{fa_number(index)}. «{clip(cluster['representative'].question_text, 52)}» — "
+        f"{fa_number(cluster['size'])} سوال · {fa_number(cluster['occurrences'])} تکرار"
+    )
+
+
+def gap_clusters_text(clusters: list[dict], open_total: int) -> str:
+    if not clusters:
+        return GAP_CLUSTERS_EMPTY
+    grouped = sum(cluster["size"] for cluster in clusters)
+    lines = [GAP_CLUSTERS_TITLE.format(clusters=fa_number(len(clusters)), gaps=fa_number(open_total)), ""]
+    lines.extend(gap_cluster_line(index, cluster) for index, cluster in enumerate(clusters, start=1))
+    lines += ["", GAP_CLUSTERS_INTRO]
+    if grouped < open_total:
+        lines.append("")
+        lines.append(f"• {fa_number(open_total - grouped)} سوالِ باز در هیچ گروهی نیستند (تنها خودش‌اند).")
+    return "\n".join(lines)
+
+
+def gap_cluster_detail_text(cluster: dict) -> str:
+    lines = [
+        f"🧠 گروه با {fa_number(cluster['size'])} سوالِ متفاوت · {fa_number(cluster['occurrences'])} بار پرسیده شده",
+        "",
+        CLUSTER_PREVIEW_QUESTION,
+    ]
+    lines += [f"• {clip(question, 70)}" for question in cluster["questions"]]
+    return "\n".join(lines)
+
+
 def gaps_page_text(gaps, total: int, page: int, page_size: int) -> str:
     """سوالِ مشتری غیرِ قابلِ اعتماده؛ همیشه متنِ ساده (بدونِ parse_mode) نمایش داده می‌شه."""
     lines = [f"🧩 سوال‌هایِ بی‌جواب ({fa_number(total)} مورد) — بیشترین تکرار اول:\n"]

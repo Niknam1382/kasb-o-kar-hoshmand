@@ -247,6 +247,9 @@ class KnowledgeStates(StatesGroup):
 
     waiting_gap_answer = State()
     waiting_gap_confirm = State()
+    # پ۷۵ · یکِ جواب برایِ چند سوالِ مشابه
+    waiting_cluster_answer = State()
+    waiting_cluster_confirm = State()
     waiting_edit_answer = State()
     waiting_manual_question = State()
     waiting_manual_answer = State()

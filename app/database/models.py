@@ -1017,6 +1017,9 @@ class KnowledgeGap(Base):
     shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), index=True, nullable=False)
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
     question_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    # پ۷۵ · امضایِ واژگانیِ سوال (بدونِ ترتیبِ کلمات، بدونِ پرهملول‌ها) ⇒ سوال‌هایِ «مشابه» یکِ
+    # گروه می‌شوند. خالی = هنوز محاسبه نشده (ردیف‌هایِ قدیمی)؛ صفحهٔ خوشه‌ها خودش پرش می‌کند.
+    cluster_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     occurrences: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     first_seen_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_seen_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

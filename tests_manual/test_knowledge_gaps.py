@@ -304,6 +304,8 @@ async def test_owner_flow_answer_dismiss_and_validation(main_dp) -> None:
         f"gap_dismiss:{popular}",
         f"gap_answer:{rare}",
         f"gap_dismiss:{rare}",
+        # پ۷۵: ردیفِ تازهٔ «🧠 سوال‌هایِ مشابه» (ادعایِ کهنه عمداً گسترش یافت، نه ضعیف).
+        "gap_clusters",
     ]
 
     # --- پاسخ: اعتبارسنجی، پیش‌نمایش، تایید ---

@@ -1377,7 +1377,49 @@ def gaps_list_keyboard(gaps, page: int, total: int, page_size: int) -> InlineKey
     nav = _pagination_row(page, _page_count(total, page_size), "gap_list")
     if nav:
         rows.append(nav)
+    # پ۷۵: گروه‌هایِ سوال‌هایِ مشابه از همین فهرست باز می‌شوند (فقط وقتی سوالِ باز هست معنا دارد).
+    rows.append([InlineKeyboardButton(text=texts.GAP_CLUSTERS_BUTTON, callback_data="gap_clusters")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def gap_clusters_keyboard(clusters) -> InlineKeyboardMarkup:
+    """پ۷۵: هر گروه دو فعل دارد — دیدنِ سوال‌ها و نوشتنِ یکِ جواب برایِ همه.
+
+    شناسهٔ گروه، idِ سوالِ نماینده است (نه هشِ امضا): کوتاه‌تر است، بودجهٔ ۶۴ بایتی را نمی‌شکند و
+    مالکیت با همان `get_owned_gap` همیشگی چک می‌شود.
+    """
+    rows = []
+    for cluster in clusters:
+        gap_id = cluster["representative"].id
+        rows.append([
+            InlineKeyboardButton(text=f"👁 سوال‌ها ({fa_number(cluster['size'])})", callback_data=f"gapc_view:{gap_id}"),
+            InlineKeyboardButton(text=f"✍️ یکِ جواب برایِ همه ({fa_number(cluster['occurrences'])})", callback_data=f"gapc_answer:{gap_id}"),
+        ])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به سوال‌ها", callback_data="gap_list:0")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def gap_cluster_confirm_keyboard() -> InlineKeyboardMarkup:
+    """پ۷۵: تاییدِ «یکِ جواب برایِ همه» — شناسه‌هایِ جدا از تاییدِ تک‌سوالی، تا گاردِ «دکمهٔ کهنه»
+    همانِ قبلی را نبندد و دو جریانِ هم‌زمانِ FSM یکدیگر را قاطی نکنند."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ ذخیره کن", callback_data="gapc_save_confirm"),
+                InlineKeyboardButton(text="❌ لغو", callback_data="gapc_save_cancel"),
+            ]
+        ]
+    )
+
+
+def gap_cluster_detail_keyboard(cluster) -> InlineKeyboardMarkup:
+    gap_id = cluster["representative"].id
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✍️ یکِ جواب برایِ همه", callback_data=f"gapc_answer:{gap_id}")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به گروه‌ها", callback_data="gap_clusters")],
+        ]
+    )
 
 
 def gap_confirm_keyboard() -> InlineKeyboardMarkup:
