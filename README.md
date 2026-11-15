@@ -92,7 +92,7 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
 مجموعاً **۱۶۳ فایلِ تست و ۱۶۳ فایل و ۱٬۰۴۳ تست تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۶۳/۱۶۳ فایل · ۱۶۳ فایل و ۱٬۰۴۳ تست تست · `SUITE_EXIT=0`**
-(۲۰۲۶-۱۱-۱۵، پس ازِ پ۸۱؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۶۵ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
+(۲۰۲۶-۱۱-۱۶، پس ازِ پ۸۳ و پ۸۴؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۶۹ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
 (عددِ کوئری/کارِ هر پیام) و `tests_manual/load_simulation.py`. فقط یه فایل:
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
 `kasbokar_test` اجرا می‌شود تا تنظیماتِ پنلِ تو پاک نشود). جزئیات و چک‌لیستِ تستِ دستیِ تلگرام: `docs/testing-guide.md`.
