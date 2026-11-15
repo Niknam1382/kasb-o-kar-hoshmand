@@ -90,8 +90,8 @@ async def log_event(
             admin_alert_service.record_event(
                 admin_alert_service.KIND_PAYMENT, f"{provider}/{method}: {status} (ref={reference}, shop={shop_bot_id})"
             )
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:  # noqa: BLE001 — هشدارِ ادمین هرگز مسیرِ رویدادِ پرداخت را نمی‌شکند
+            logger.warning("پ۸۲: ثبتِ رویدادِ پرداخت در صفِ هشدارِ ادمین ناموفق بود (%s/%s).", provider, status, exc_info=True)
 
 
 async def recent_events(session: AsyncSession, limit: int = 20) -> list[PaymentEventLog]:
