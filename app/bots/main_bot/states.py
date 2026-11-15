@@ -82,6 +82,13 @@ class ShippingStates(StatesGroup):
     waiting_eta = State()
 
 
+class ProductCategoryStates(StatesGroup):
+    """پ۷۴ · نوشتنِ دسته برایِ یکِ محصول، و تغییرِ نامِ یکِ دسته (هر دو با متنِ آزاد)."""
+
+    waiting_assign = State()
+    waiting_rename = State()
+
+
 class ProductImportStates(StatesGroup):
     waiting_file = State()
     waiting_confirmation = State()

@@ -923,6 +923,10 @@ class Product(Base, CreatedAtMixin):
     digital_link: Mapped[str | None] = mapped_column(Text, nullable=True)
     digital_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     digital_max_downloads: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # پ۷۴ · خواستهٔ مالک: دسته‌بندیِ محصولات در مودِ فروشگاهی. رشته (نه جدولِ جدا) مثلِ `kind`:
+    # «» یعنی بی‌دسته، پس هیچ ردیفِ موجودی رفتارِ تازه‌ای نمی‌گیرد و فهرستِ دسته‌ها از خودِ
+    # محصولاتِ فروشگاه ساخته می‌شود (بدونِ همگام‌سازیِ جدولِ دوم).
+    category: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
 
     shop_bot: Mapped["ShopBot"] = relationship(back_populates="products", lazy="selectin")
 

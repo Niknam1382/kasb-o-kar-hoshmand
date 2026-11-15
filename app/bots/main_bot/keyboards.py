@@ -259,6 +259,7 @@ def products_list_keyboard(products, page: int = 0, sales_mode: bool = True) -> 
                     InlineKeyboardButton(text="💾 افزودنِ محصولِ دیجیتال", callback_data="product_add_digital"),
                     InlineKeyboardButton(text="🚚 روش‌هایِ ارسال", callback_data="shipping_list"),
                     InlineKeyboardButton(text="📥 افزودن گروهی از اکسل", callback_data="product_bulk_import"),
+                    InlineKeyboardButton(text=texts.CATEGORY_BUTTON, callback_data="category_list"),
                 ],
                 max_label=26,
             )
@@ -279,7 +280,70 @@ def product_detail_keyboard(product_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="✏️ ویرایش", callback_data=f"product_edit:{product_id}"), InlineKeyboardButton(text="🗑 حذف", callback_data=f"product_delete:{product_id}")],
+            # پ۷۴: دسته از همان کارتِ محصول نوشته می‌شود (نیازی به صفحهٔ جدا برایِ یکِ محصول نیست).
+            [InlineKeyboardButton(text=texts.CATEGORY_ASSIGN_BUTTON, callback_data=f"product_category:{product_id}")],
             [InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="product_list")],
+        ]
+    )
+
+
+def category_list_keyboard(categories: list[tuple[str, int]], unassigned: int) -> InlineKeyboardMarkup:
+    """پ۷۴: فهرستِ دسته‌ها با شمارِ محصولات؛ هر ردیف همان دسته را برایِ مدیریت باز می‌کند."""
+    rows = [
+        [InlineKeyboardButton(text=clip(f"{name} — {fa_number(count)} محصول", 48), callback_data=f"category_view:{index}")]
+        for index, (name, count) in enumerate(categories)
+    ]
+    rows.append([
+        InlineKeyboardButton(
+            text=f"📦 بی‌دسته — {fa_number(unassigned)}" if unassigned else "📦 بی‌دسته — صفر",
+            callback_data="category_unassigned",
+        )
+    ])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به فهرست", callback_data="product_list")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def category_view_keyboard(index: int, unassigned: int) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(text="✏️ تغییرِ نامِ دسته", callback_data=f"category_rename:{index}"),
+            InlineKeyboardButton(text="🗑 برداشتنِ دسته", callback_data=f"category_clear:{index}"),
+        ]
+    ]
+    if unassigned:
+        rows.append([InlineKeyboardButton(text=f"➕ افزودنِ محصولِ بی‌دسته ({fa_number(unassigned)})", callback_data=f"category_attach:{index}")])
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به دسته‌ها", callback_data="category_list")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def category_unassigned_keyboard(products: list, page: int = 0) -> InlineKeyboardMarkup:
+    """پ۷۴: محصولاتِ بی‌دسته، صفحه‌به‌صفحه؛ هر دکمه همان محصول را به FSMِ نوشتنِ دسته می‌برد."""
+    page_items, page, total_pages = _paginate(list(products), page)
+    rows = [[InlineKeyboardButton(text=clip(p.name, 40), callback_data=f"product_category:{p.id}")] for p in page_items]
+    nav = _pagination_row(page, total_pages, "category_unassigned")
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به دسته‌ها", callback_data="category_list")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def category_attach_keyboard(index: int, products: list, page: int = 0) -> InlineKeyboardMarkup:
+    page_items, page, total_pages = _paginate(list(products), page)
+    rows = [[InlineKeyboardButton(text=clip(p.name, 40), callback_data=f"category_assign:{index}:{p.id}")] for p in page_items]
+    nav = _pagination_row(page, total_pages, f"category_attach:{index}")
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="⬅️ بازگشت به دسته", callback_data=f"category_view:{index}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def category_confirm_clear_keyboard(index: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ بله، بردار", callback_data=f"category_clear_confirm:{index}"),
+                InlineKeyboardButton(text="❌ بیخیال", callback_data=f"category_view:{index}"),
+            ]
         ]
     )
 

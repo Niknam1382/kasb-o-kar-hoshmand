@@ -326,6 +326,10 @@ def product_added_confirmation(name: str) -> str:
 
 def product_detail_text(product) -> str:
     lines = [f"🏷 {product.name}", f"💰 {format_toman(product.price_toman)}"]
+    category = getattr(product, "category", "") or ""
+    if category:
+        # فقط وقتی دسته نوشته شده این خط می‌آید ⇒ کارتِ محصولاتِ بی‌دسته بایت‌به‌بایت مثلِ قبل است.
+        lines.append(f"🗂 دسته: {category}")
     if product.stock_quantity is not None:
         stock_line = "ناموجود" if product.stock_quantity <= 0 else f"{fa_number(product.stock_quantity)} عدد"
         lines.append(f"📦 موجودی: {stock_line}")
@@ -333,6 +337,67 @@ def product_detail_text(product) -> str:
     if product.description:
         lines.append(f"\n{product.description}")
     return "\n".join(lines)
+
+
+# پ۷۴ · خواستهٔ مالک: دسته‌بندیِ محصولات در مودِ فروشگاهی (پنلِ خودِ فروشگاه + کاتالوگِ مشتری).
+CATEGORY_BUTTON = "🗂 دسته‌بندیِ محصولات"
+CATEGORY_ASSIGN_BUTTON = "🗂 دستهٔ این محصول"
+ASK_PRODUCT_CATEGORY = (
+    "نامِ دسته را بنویس (مثلاً «پیراشکی» یا «نوشیدنی»). اگر چیزی ننویسی یا «خالی» بنویسی، این محصول "
+    "بی‌دسته می‌ماند. حداکثر ۶۴ نویسه؛ دسته‌ای که بنویسی تازه باشد خودش ساخته می‌شود."
+)
+ASK_NEW_CATEGORY_NAME = "نامِ تازهٔ دسته را بنویس (همان دسته با این نام نشان داده می‌شود):"
+CATEGORY_SAVED = "🗂 دستهٔ این محصول «{value}» شد."
+CATEGORY_REMOVED = "🗂 این محصول از دسته‌بندی بیرون آمد (بی‌دسته شد)."
+CATEGORY_RENAMED = "✏️ دستهٔ «{old}» به «{new}» تغییر نام یافت ({count} محصول)."
+CATEGORY_CLEARED = "🗂 دسته از {count} محصول برداشته شد؛ خودِ محصولات حذف نشده‌اند."
+CATEGORY_STALE = "این دسته دیگر در فهرست نیست؛ از «🗂 دسته‌بندیِ محصولات» دوباره باز کن."
+CATEGORY_CONFIRM_CLEAR = (
+    "مطمئنی می‌خوای دستهٔ «{name}» را از همهٔ این محصولات برداری؟ خودِ محصولات می‌مانند و فقط "
+    "بی‌دسته می‌شوند."
+)
+CATEGORY_UNASSIGNED_STALE = "این محصول دیگر در فهرستِ بی‌دسته‌ها نیست؛ صفحه را تازه کن."
+CATEGORY_EMPTY_SHOP = (
+    "🗂 دسته‌بندیِ محصولات — فعلاً هیچ دسته‌ای نساخته‌ای.\n\n"
+    "رویِ هر محصول که بروی دکمهٔ «🗂 دستهٔ این محصول» را می‌بینی؛ نامِ دسته را همان‌جا بنویس تا "
+    "خودش ساخته شود. مشتری بعد ازِ آن در «🛍 محصولات» رباتِ تو می‌تواند دسته‌به‌دسته بگردد."
+)
+CATEGORY_UNCATEGORY_COUNT = "📦 محصولاتِ بی‌دسته: {count}"
+CATEGORY_NO_UNCATEGORY = "📦 همهٔ محصولاتِ فعالِ تو دسته دارند."
+
+
+def category_overview_text(categories: list[tuple[str, int]], unassigned: int, total: int) -> str:
+    lines = [
+        f"🗂 دسته‌بندیِ محصولات — {fa_number(len(categories))} دسته · "
+        f"{fa_number(total - unassigned)} محصول دسته‌دار از {fa_number(total)}"
+    ]
+    if not categories:
+        return CATEGORY_EMPTY_SHOP
+    lines.append("")
+    lines.extend(f"• {name} — {fa_number(count)} محصول" for name, count in categories)
+    lines.append("")
+    lines.append(CATEGORY_UNCATEGORY_COUNT.format(count=fa_number(unassigned)) if unassigned else CATEGORY_NO_UNCATEGORY)
+    lines.append("")
+    lines.append("با زدنِ هر دسته می‌توانی نامش را عوض کنی، محصولاتِ بی‌دسته را به آن اضافه کنی، یا دسته را از همه برداری.")
+    return "\n".join(lines)
+
+
+def category_view_text(name: str, products: list) -> str:
+    lines = [f"🗂 {name} — {fa_number(len(products))} محصول", ""]
+    lines.extend(f"• {clip(product.name, 40)} — {format_toman(product.price_toman)}" for product in products)
+    if not products:
+        lines.append("فعلاً محصولِ فعالی در این دسته نیست.")
+    return "\n".join(lines)
+
+
+def category_unassigned_text(products: list) -> str:
+    lines = [f"📦 محصولاتِ بی‌دسته — {fa_number(len(products))}", ""]
+    lines.append("رویِ هرکدام بزن تا دسته‌اش را بنویسی (دسته‌ای که تازه باشد خودش ساخته می‌شود).")
+    return "\n".join(lines)
+
+
+def category_assigned_bulk_text(name: str, product_name: str) -> str:
+    return f"🗂 «{clip(product_name, 40)}» به دستهٔ «{name}» اضافه شد."
 
 
 def product_deleted_confirmation(name: str) -> str:

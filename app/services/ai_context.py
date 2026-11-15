@@ -31,6 +31,9 @@ def _product_line(product: Product) -> str:
     # پرامپتِ AI (نه متنِ کاربر): رقم اینجا عمداً لاتین است تا خروجیِ مدل و تستِ
     # «بایت‌به‌بایت مثلِ قبل» دست‌نخورده بماند (نمایشِ فارسی مربوط به پیام‌هایِ پنل و ربات است).
     line = f"- {product.name} ({product.price_toman:,} تومان)"
+    # پ۷۴: دسته فقط وقتی نوشته شده به پرامپت می‌آید ⇒ فروشگاه‌هایِ بی‌دسته بایت‌به‌بایت مثلِ قبل.
+    if getattr(product, "category", ""):
+        line += f" [دسته: {product.category}]"
     if product.description:
         line += f": {product.description}"
     if product.stock_quantity is not None:

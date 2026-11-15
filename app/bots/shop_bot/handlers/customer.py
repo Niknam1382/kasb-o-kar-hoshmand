@@ -269,11 +269,36 @@ async def cart_open_products(message: Message, session: AsyncSession) -> None:
         await message.answer(texts.PLATFORM_MAINTENANCE_REPLY)
         return
 
-    products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
-    if not products:
+    text, markup = await _catalog_screen(session, shop_bot.id, "", 0)
+    if text is None:
         await message.answer(texts.NO_PRODUCTS_AVAILABLE)
         return
-    await message.answer(texts.PRODUCTS_BROWSE_TITLE, reply_markup=keyboards.products_browse_keyboard(products))
+    await message.answer(text, reply_markup=markup)
+
+
+async def _catalog_screen(session: AsyncSession, shop_bot_id: int, category_index: str, page: int) -> tuple[str | None, object]:
+    """پ۷۴ · یکِ مسیرِ مشترک برایِ «🛍 محصولات»: فهرستِ همه یا فهرستِ یکِ دسته.
+
+    `category_index` شمارهٔ دسته در فهرستِ مرتب‌شدهٔ همان فروشگاه است (نام در `callback_data`
+    نمی‌نشیند تا بودجهٔ ۶۴ بایتی نشکند و نامِ دست‌کاری‌شده به ردیفِ فروشگاهِ دیگر نرسد). هر
+    مقدارِ بیرونِ فهرست یعنی «همه» ⇒ نه خطا، نه صفحهٔ خالیِ ساختگی.
+    """
+    products = await product_service.get_active_by_shop_bot(session, shop_bot_id)
+    if not products:
+        return None, None
+    categories = product_service.category_view(products)[0]
+    active = ""
+    if categories and category_index.isdigit():
+        index = int(category_index)
+        if 0 <= index < len(categories):
+            active = categories[index]
+    shown = [p for p in products if p.category == active] if active else products
+    lines = [texts.PRODUCTS_BROWSE_TITLE]
+    if active:
+        lines.append(
+            texts.PRODUCTS_BROWSE_CATEGORY_EMPTY if not shown else texts.PRODUCTS_BROWSE_CATEGORY_LINE.format(name=active)
+        )
+    return "\n".join(lines), keyboards.products_browse_keyboard(shown, page, categories=categories, active=active)
 
 
 @router.message(F.text == texts.BTN_CART)
@@ -336,11 +361,43 @@ async def cart_browse_page(callback: CallbackQuery, session: AsyncSession) -> No
     if shop_bot is None:
         return
     page = int(callback.data.split(":")[1])
-    products = await product_service.get_active_by_shop_bot(session, shop_bot.id)
-    if not products:
+    await _edit_catalog(session, callback, shop_bot.id, "", page)
+
+
+@router.callback_query(F.data.startswith("cart_cat:"))
+async def cart_category_filter(callback: CallbackQuery, session: AsyncSession) -> None:
+    """پ۷۴: «🏷 همه» یا یکِ دسته. فهرستِ دسته‌ها از همان فروشگاه خوانده می‌شود، نه از callback."""
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
+    if shop_bot is None:
+        await callback.answer()
+        return
+    await callback.answer()
+    await _edit_catalog(session, callback, shop_bot.id, (callback.data or "").split(":", 1)[1], 0)
+
+
+@router.callback_query(F.data.startswith("cart_catpage:"))
+async def cart_category_page(callback: CallbackQuery, session: AsyncSession) -> None:
+    """پ۷۴: صفحه‌گردانیِ داخلِ یکِ دسته (`cart_catpage:{index}:{page}`)."""
+    shop_bot = await shop_bot_service.get_by_bot(session, callback.bot)
+    parts = (callback.data or "").split(":")
+    if shop_bot is None:
+        await callback.answer()
+        return
+    await callback.answer()
+    index = parts[1] if len(parts) > 1 else ""
+    try:
+        page = int(parts[2]) if len(parts) > 2 else 0
+    except ValueError:
+        page = 0
+    await _edit_catalog(session, callback, shop_bot.id, index, page)
+
+
+async def _edit_catalog(session: AsyncSession, callback: CallbackQuery, shop_bot_id: int, category_index: str, page: int) -> None:
+    text, markup = await _catalog_screen(session, shop_bot_id, category_index, page)
+    if text is None:
         await _safe_edit(callback, texts.NO_PRODUCTS_AVAILABLE)
         return
-    await _safe_edit(callback, texts.PRODUCTS_BROWSE_TITLE, keyboards.products_browse_keyboard(products, page))
+    await _safe_edit(callback, text, markup)
 
 
 @router.callback_query(F.data.startswith("cart_add:"))

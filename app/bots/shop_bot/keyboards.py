@@ -113,21 +113,42 @@ def online_payment_keyboard(pay_url: str) -> InlineKeyboardMarkup:
 # =============================================================================
 # سبدِ خریدِ واقعی (فازِ ۳)
 # =============================================================================
-def products_browse_keyboard(products, page: int = 0) -> InlineKeyboardMarkup:
+def products_browse_keyboard(products, page: int = 0, categories: tuple[str, ...] = (), active: str = "") -> InlineKeyboardMarkup:
+    """پ۷۴: اگر فروشگاه دسته داشته باشد، یکِ ردیفِ «🏷 همه / <دسته‌ها>» بالایِ فهرست می‌آید.
+
+    بدونِ دسته (همهٔ فروشگاه‌هایِ امروز) خروجی دقیقاً مثلِ قبل است. صفحه‌گردانیِ دسته‌دار
+    `cart_catpage:{index}:{page}` است تا فیلتر بینِ دو صفحه گم نشود؛ فیلترِ فعال با نامش در
+    callback نمی‌آید (نامِ فارسی بودجهٔ ۶۴ بایتی `callback_data` را می‌شکند) و از فهرستِ
+    مرتب‌شدهٔ همان فروشگاه خوانده می‌شود.
+    """
     page_items, page, total_pages = _paginate(list(products), page)
     rows = []
+    if categories:
+        try:
+            current = categories.index(active) if active else None
+        except ValueError:
+            current = None
+        row = [InlineKeyboardButton(text=("✅ " if current is None else "") + "🏷 همه", callback_data="cart_cat:")]
+        row += [
+            InlineKeyboardButton(text=("✅ " if current == index else "") + name, callback_data=f"cart_cat:{index}")
+            for index, name in enumerate(categories)
+        ]
+        rows.append(row)
     for p in page_items:
         row = [InlineKeyboardButton(text=f"{p.name} — {fa_grouped(p.price_toman)} تومان", callback_data=f"cart_add:{p.id}")]
         if getattr(p, "photo_file_id", None):  # W5: محصولِ عکس‌دار دکمه‌یِ «🖼» دارد
             row.append(InlineKeyboardButton(text="🖼", callback_data=f"cart_photo:{p.id}"))
         rows.append(row)
     if total_pages > 1:
+        prefix = "cart_browse" if not categories else (
+            f"cart_catpage:{categories.index(active)}" if active in categories else "cart_browse"
+        )
         nav = []
         if page > 0:
-            nav.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"cart_browse:{page - 1}"))
+            nav.append(InlineKeyboardButton(text="◀️ قبلی", callback_data=f"{prefix}:{page - 1}"))
         nav.append(InlineKeyboardButton(text=page_label(page, total_pages), callback_data="noop"))
         if page < total_pages - 1:
-            nav.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"cart_browse:{page + 1}"))
+            nav.append(InlineKeyboardButton(text="بعدی ▶️", callback_data=f"{prefix}:{page + 1}"))
         rows.append(nav)
     rows.append([InlineKeyboardButton(text="🛒 دیدنِ سبدِ خرید", callback_data="cart_view")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

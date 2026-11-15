@@ -8,10 +8,10 @@ from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
-from app.bots.main_bot.states import ProductImportStates, ProductStates
+from app.bots.main_bot.states import ProductCategoryStates, ProductImportStates, ProductStates
 from app.database.models import ShopBot, TenantMode
 from app.services import digital_service, excel_import_service, product_service, shop_bot_service, shop_owner_service
-from app.utils.validators import parse_nonneg_int, parse_price_toman
+from app.utils.validators import fa_number, parse_nonneg_int, parse_price_toman
 
 logger = logging.getLogger(__name__)
 
@@ -639,4 +639,258 @@ async def _apply_field_edit(message: Message, state: FSMContext, session: AsyncS
 
     await state.clear()
     await message.answer(texts.product_field_updated(field))
+    await message.answer(texts.product_detail_text(product), reply_markup=keyboards.product_detail_keyboard(product.id))
+
+
+# ============================================================================= پ۷۴ · دسته‌بندیِ محصولات
+# خواستهٔ مالک: «امکانِ دسته‌بندیِ محصولات در حالتِ فروشگاهی، تا کاربر بتواند دسته‌به‌دسته بگردد».
+# دسته یکِ رشته رویِ خودِ محصول است، پس فهرستِ دسته‌ها از همان فهرستِ محصولات ساخته می‌شود (یکِ
+# SELECT) و در `callback_data` شمارهٔ دسته می‌آید نه نامش — نامِ فارسی هم بودجهٔ ۶۴ بایتی را
+# می‌شکند هم راهِ «دستهٔ فروشگاهِ دیگر» را باز می‌گذارد. همه‌چیز فقط در مودِ فروشگاهی کار می‌کند.
+_CANCEL_WORDS = {"انصراف", "لغو", "/cancel"}
+
+
+def _index_of(data: str | None) -> int | None:
+    parts = (data or "").split(":")
+    raw = parts[1] if len(parts) > 1 else ""
+    return int(raw) if raw.isdigit() else None
+
+
+def _page_of(data: str | None) -> int:
+    parts = (data or "").split(":")
+    tail = parts[-1] if len(parts) > 1 else ""
+    return int(tail) if tail.isdigit() else 0
+
+
+async def _category_state(session: AsyncSession, shop_bot_id: int):
+    products = await product_service.get_active_by_shop_bot(session, shop_bot_id)
+    names, groups, unassigned = product_service.category_view(products)
+    return products, names, groups, unassigned
+
+
+def _counted(names, groups) -> list[tuple[str, int]]:
+    return [(name, len(groups[name])) for name in names]
+
+
+async def _sales_gate(callback: CallbackQuery, session: AsyncSession):
+    """مالکیت + دروازۀ مود: فروشگاهِ مشاوره‌ای کاتالوگ ندارد، پس دسته‌بندی هم معنا ندارد."""
+    shop_bot = await _require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return None
+    if not _sales(shop_bot):
+        await callback.answer(texts.CONSULT_NO_CATALOG, show_alert=True)
+        return None
+    return shop_bot
+
+
+async def _show_categories(callback: CallbackQuery, session: AsyncSession, shop_bot_id: int) -> None:
+    products, names, groups, unassigned = await _category_state(session, shop_bot_id)
+    counted = _counted(names, groups)
+    await callback.message.edit_text(
+        texts.category_overview_text(counted, len(unassigned), len(products)),
+        reply_markup=keyboards.category_list_keyboard(counted, len(unassigned)),
+    )
+
+
+@router.callback_query(F.data == "category_list")
+async def cb_category_list(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    await _show_categories(callback, session, shop_bot.id)
+
+
+@router.callback_query(F.data.startswith("category_view:"))
+async def cb_category_view(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    index = _index_of(callback.data)
+    _products, names, groups, unassigned = await _category_state(session, shop_bot.id)
+    if index is None or index >= len(names):
+        await callback.answer(texts.CATEGORY_STALE, show_alert=True)
+        return
+    await callback.answer()
+    name = names[index]
+    await callback.message.edit_text(
+        texts.category_view_text(name, groups[name]),
+        reply_markup=keyboards.category_view_keyboard(index, len(unassigned)),
+    )
+
+
+@router.callback_query(F.data == "category_unassigned" or F.data.startswith("category_unassigned:"))
+async def cb_category_unassigned(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    _products, _names, _groups, unassigned = await _category_state(session, shop_bot.id)
+    await callback.answer()
+    await callback.message.edit_text(
+        texts.category_unassigned_text(unassigned),
+        reply_markup=keyboards.category_unassigned_keyboard(unassigned, _page_of(callback.data)),
+    )
+
+
+@router.callback_query(F.data.startswith("category_attach:"))
+async def cb_category_attach(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    index = _index_of(callback.data)
+    _products, names, _groups, unassigned = await _category_state(session, shop_bot.id)
+    if index is None or index >= len(names):
+        await callback.answer(texts.CATEGORY_STALE, show_alert=True)
+        return
+    if not unassigned:
+        await callback.answer("📦 همهٔ محصولاتِ فعالِ تو دسته دارند.", show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.edit_text(
+        texts.category_unassigned_text(unassigned),
+        reply_markup=keyboards.category_attach_keyboard(index, unassigned, _page_of(callback.data)),
+    )
+
+
+@router.callback_query(F.data.startswith("category_assign:"))
+async def cb_category_assign(callback: CallbackQuery, session: AsyncSession) -> None:
+    """افزودنِ یکِ محصولِ بی‌دسته به دستهٔ جاری؛ صفحه همان‌جا می‌ماند تا افزودنِ گروهی سریع باشد."""
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    parts = (callback.data or "").split(":")
+    index = _index_of(callback.data)
+    product_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else -1
+    page = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+    _products, names, _groups, _unassigned = await _category_state(session, shop_bot.id)
+    if index is None or index >= len(names):
+        await callback.answer(texts.CATEGORY_STALE, show_alert=True)
+        return
+    product = await product_service.get_owned_by_id(session, product_id, shop_bot.id)
+    if product is None or not product.is_active:
+        await callback.answer(texts.CATEGORY_UNASSIGNED_STALE, show_alert=True)
+        return
+    name = names[index]
+    await product_service.set_category(session, product, name)
+    await session.commit()
+    await callback.answer(texts.category_assigned_bulk_text(name, product.name))
+    remaining = (await _category_state(session, shop_bot.id))[3]
+    await callback.message.edit_text(
+        texts.category_unassigned_text(remaining),
+        reply_markup=keyboards.category_attach_keyboard(index, remaining, page),
+    )
+
+
+@router.callback_query(F.data.startswith("category_rename:"))
+async def cb_category_rename(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    index = _index_of(callback.data)
+    _products, names, _groups, _unassigned = await _category_state(session, shop_bot.id)
+    if index is None or index >= len(names):
+        await callback.answer(texts.CATEGORY_STALE, show_alert=True)
+        return
+    await state.set_state(ProductCategoryStates.waiting_rename)
+    await state.update_data(category_old=names[index])
+    await callback.answer()
+    await callback.message.answer(f"{texts.ASK_NEW_CATEGORY_NAME}\n\nدستهٔ فعلی: «{names[index]}»")
+
+
+@router.callback_query(F.data.startswith("category_clear:"))
+async def cb_category_clear(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    index = _index_of(callback.data)
+    _products, names, _groups, _unassigned = await _category_state(session, shop_bot.id)
+    if index is None or index >= len(names):
+        await callback.answer(texts.CATEGORY_STALE, show_alert=True)
+        return
+    await callback.answer()
+    await callback.message.edit_text(
+        texts.CATEGORY_CONFIRM_CLEAR.format(name=names[index]),
+        reply_markup=keyboards.category_confirm_clear_keyboard(index),
+    )
+
+
+@router.callback_query(F.data.startswith("category_clear_confirm:"))
+async def cb_category_clear_confirm(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    await state.clear()
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    index = _index_of(callback.data)
+    _products, names, _groups, _unassigned = await _category_state(session, shop_bot.id)
+    if index is None or index >= len(names):
+        await callback.answer(texts.CATEGORY_STALE, show_alert=True)
+        return
+    name = names[index]
+    removed = await product_service.clear_category(session, shop_bot.id, name)
+    await session.commit()
+    await callback.answer(texts.CATEGORY_CLEARED.format(count=fa_number(removed)))
+    await _show_categories(callback, session, shop_bot.id)
+
+
+@router.message(ProductCategoryStates.waiting_rename, F.text)
+async def save_category_rename(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    old = str(data.get("category_old") or "")
+    await state.clear()
+    shop_bot = await _require_shop_bot(message, session)
+    if shop_bot is None or not _sales(shop_bot) or not old:
+        return
+    raw = (message.text or "").strip()
+    if raw in _CANCEL_WORDS:
+        await message.answer(texts.OPERATION_CANCELLED)
+        return
+    new = product_service.normalize_category(raw)
+    if not new:
+        await message.answer(texts.CATEGORY_STALE)
+        return
+    count = await product_service.rename_category(session, shop_bot.id, old, new)
+    await session.commit()
+    await message.answer(texts.CATEGORY_RENAMED.format(old=old, new=new, count=fa_number(count)))
+
+
+@router.callback_query(F.data.startswith("product_category:"))
+async def cb_product_category(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await _sales_gate(callback, session)
+    if shop_bot is None:
+        return
+    raw_id = (callback.data or "").split(":", 1)[1]
+    product = await product_service.get_owned_by_id(session, int(raw_id) if raw_id.isdigit() else -1, shop_bot.id)
+    if product is None or not product.is_active:
+        await callback.answer(texts.GENERIC_ERROR, show_alert=True)
+        return
+    await state.set_state(ProductCategoryStates.waiting_assign)
+    await state.update_data(category_product_id=product.id)
+    await callback.answer()
+    await callback.message.answer(texts.ASK_PRODUCT_CATEGORY)
+
+
+@router.message(ProductCategoryStates.waiting_assign, F.text)
+async def save_product_category(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    data = await state.get_data()
+    product_id = data.get("category_product_id")
+    await state.clear()
+    shop_bot = await _require_shop_bot(message, session)
+    if shop_bot is None or not _sales(shop_bot) or not product_id:
+        return
+    raw = (message.text or "").strip()
+    if raw in _CANCEL_WORDS:
+        await message.answer(texts.OPERATION_CANCELLED)
+        return
+    product = await product_service.get_owned_by_id(session, int(product_id), shop_bot.id)
+    if product is None:
+        await message.answer(texts.GENERIC_ERROR)
+        return
+    value = await product_service.set_category(session, product, raw)
+    await session.commit()
+    await message.answer(texts.CATEGORY_SAVED.format(value=value) if value else texts.CATEGORY_REMOVED)
     await message.answer(texts.product_detail_text(product), reply_markup=keyboards.product_detail_keyboard(product.id))
