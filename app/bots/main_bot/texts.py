@@ -1797,7 +1797,17 @@ def capacity_text(snapshot: dict) -> str:
     )
     counters = snapshot["counters"]
     if counters:
-        lines.append("\n📚 شمارنده‌ها (از شروعِ این پروسه):")
+        # پ۷۹ · شمارنده‌ها دیگر فقط سهمِ یکِ پروسه نیستند؛ پنل می‌گوید چند پروسه جمع شده‌اند.
+        processes = int(snapshot.get("processes") or 1)
+        stale = int(snapshot.get("stale_processes") or 0)
+        scope = (
+            "جمعِ شمارنده‌ها از " + fa_number(processes) + " پروسهٔ زنده"
+            if processes > 1
+            else "از شروعِ این پروسه"
+        )
+        if stale:
+            scope += " · " + fa_number(stale) + " پروسهٔ بی‌ضربان شمرد نشد"
+        lines.append(f"\n📚 شمارنده‌ها ({scope}):")
         for label, value in counters[:12]:
             lines.append(f"• {label}: {fa_number(value)}")
     lines.append("\n" + CAPACITY_NOT_RUN_NOTE)

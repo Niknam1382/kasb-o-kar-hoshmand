@@ -335,7 +335,10 @@ async def inspect(session: AsyncSession) -> list[Finding]:
     system = capacity_service.system_lines()
     db = capacity_service.db_pool_lines()
     ai = await capacity_service.ai_lines(session)
-    counters = dict(capacity_service.counters_lines())
+    # پ۷۹ · دو اصلاحِ مهم: (۱) نامِ خامِ شمارنده (برچسبِ فارسی کلیدِ `webhook.rejected` را هیچ‌وقت
+    # پیدا نمی‌کرد ⇒ سه یافتهٔ آستانه‌محور در تولید هرگز شلیک نمی‌شدند)، (۲) جمعِ سهمِ همهٔ پروسه‌ها
+    # (بدونِ آن، سرورِ چندworker فقط شمارندهٔ پروسهٔ core را می‌دید).
+    counters, processes, stale_rows = await capacity_service.aggregate_counters(session)
     log_counts = observability.recent_log_counts()
     rows = observability.recent_logs(view="warnings", limit=300)
     deltas, window_label = window_deltas(counters, int(limits["window_minutes"]))
@@ -347,6 +350,27 @@ async def inspect(session: AsyncSession) -> list[Finding]:
         limits,
     )
     findings += _counter_findings(deltas, limits, window_label)
+    if stale_rows:
+        findings.append(
+            Finding(
+                "counters.stale_rows",
+                WARN,
+                f"{fa_number(stale_rows)} پروسهٔ بی‌ضربان",
+                "ردیفِ شمارندهٔ اینِ پروسه‌ها از پنجرهٔ اعتبار بیرون افتاده (خاموش یا گیر کرده) و در جمع "
+                "شمرده نشده.",
+                "اگر تعدادِ پروسه‌هایِ زنده کمتر از چیزی است که انتظار داری (مثلا `docker compose ps`)، "
+                "کانتینرِ از‌دست‌رفته را دوباره روشن کن؛ تا آن موقع عددهایِ این گزارش کم‌گویی است.",
+            )
+        )
+    findings.append(
+        Finding(
+            "counters.scope",
+            INFO,
+            f"جمعِ شمارنده‌ها: {fa_number(processes)} پروسه",
+            "عددِ شمارنده‌هایِ این گزارش سهمِ همهٔ پروسه‌هایِ زنده است، نه فقط پروسهٔ بازبین.",
+            "اگر تک‌پروسه‌ای کار می‌کنی همین خط باید «۱ پروسه» بگوید؛ بیشتر یعنی ضربان‌ها می‌رسند.",
+        )
+    )
     return findings
 
 

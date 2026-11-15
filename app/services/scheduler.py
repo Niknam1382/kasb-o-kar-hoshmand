@@ -229,6 +229,32 @@ async def run_periodic_tasks(
             pass
 
 
+COUNTER_HEARTBEAT_SECONDS = 30
+
+
+async def run_counter_heartbeat(stop_event: asyncio.Event, interval_seconds: int = COUNTER_HEARTBEAT_SECONDS) -> None:
+    """پ۷۹ · هرِ پروسه (نه فقط core) سهمِ شمارنده‌هایش را در دیتابیس می‌گذارد.
+
+    بی‌این ضربان، عیب‌یابِ سرور و پنلِ ظرفیت که در پروسهٔ core اجرا می‌شوند فقط همان یکِ پروسه را
+    می‌بینند ⇒ «رویدادِ نامعتبرِ ردشده» و «ردِ برداشتِ کیف‌پول» کم‌گویی می‌شد. یکِ upsert به‌ازایِ هر
+    ضربان (نه به‌ازایِ هرِ پیام)؛ شکستِ آن فقط لاگ می‌شود و هرگز polling را نمی‌خواباند.
+    """
+    from app.database.session import session_scope
+    from app.services import capacity_service
+
+    while not stop_event.is_set():
+        try:
+            async with session_scope() as session:
+                await capacity_service.publish_counters(session)
+                await session.commit()
+        except Exception:
+            logger.exception("پ۷۹: ضربانِ شمارنده‌ها نوشته نشد (عددِ عیب‌یاب موقتاً کم‌گویی است).")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except asyncio.TimeoutError:
+            pass
+
+
 NOTIFICATION_INTERVAL_SECONDS = 60
 PAYMENT_EXPIRY_INTERVAL_SECONDS = 60
 

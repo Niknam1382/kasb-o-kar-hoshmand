@@ -182,6 +182,7 @@ TEST_FILES = [
     "test_p76_recurring_broadcasts.py",
     "test_p77_instagram_comment_blocks.py",
     "test_p78_digital_retired.py",
+    "test_p79_counter_aggregation.py",
 ]
 
 

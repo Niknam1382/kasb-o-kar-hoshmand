@@ -841,6 +841,27 @@ class InstagramCommentBlock(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class RuntimeCounterSnapshot(Base):
+    """پ۷۹ · اثرِ شمارنده‌هایِ هرِ پروسه (برایِ جمعِ درستِ «چند رویداد/چند ردِ برداشت» در سرورِ چند‌worker).
+
+    چرا در دیتابیس: شمارنده‌هایِ `observability` در حافظهٔ هرِ پروسه‌اند و فقط *پروسهٔ core* صفحه را
+    می‌خواند ⇒ بدونِ این ردیف، عددِ عیب‌یاب فقط همین یکِ پروسه را می‌دید (کم‌گوییِ بی‌صدا).
+    هرِ پروسه دوره‌ای snapshot خودش را این‌جا می‌نویسد (یکِ UPDATE به‌ازایِ هرِ ضربان، نه به‌ازایِ هرِ
+    پیام) و خواننده ردیف‌هایِ تازه را جمع می‌زند. هیچ دادهٔ کاربری در این جدول نیست.
+    """
+
+    __tablename__ = "runtime_counter_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    process_key: Mapped[str] = mapped_column(String(96), unique=True, nullable=False)
+    hostname: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
+    counters: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
+    started_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 

@@ -270,6 +270,8 @@ async def run_polling() -> None:
     notification_task = (
         asyncio.create_task(scheduler.run_notification_loop(main_bot, bot_manager, stop_event)) if core else None
     )
+    # پ۷۹ · ضربانِ شمارنده در همهٔ پروسه‌ها (core و شارد‌ها) تا جمعِ عملیاتی کامل بماند.
+    counter_heartbeat_task = asyncio.create_task(scheduler.run_counter_heartbeat(stop_event))
     bale_updates_task = await _start_bale_updates_polling(stop_event) if core else None
 
     try:
@@ -281,7 +283,7 @@ async def run_polling() -> None:
             await _wait_until_stopped(stop_event)
     finally:
         stop_event.set()
-        for task in (scheduler_task, payment_expiry_task, notification_task, bale_updates_task):
+        for task in (scheduler_task, payment_expiry_task, notification_task, bale_updates_task, counter_heartbeat_task):
             if task is not None:
                 await task
         _stop_health_server(health)

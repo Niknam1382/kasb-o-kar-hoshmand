@@ -21,15 +21,17 @@ API‌ها و فشارِ سرور به‌صورتِ درصدی و آمارِ د�
 """
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import shutil
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import observability
-from app.database.models import AiApiKeyPoolEntry
+from app.database.models import AiApiKeyPoolEntry, RuntimeCounterSnapshot
 from app.database.session import engine
 from app.services import ai_service
 
@@ -136,10 +138,83 @@ def db_pool_lines() -> dict[str, object]:
     }
 
 
-def counters_lines() -> list[tuple[str, int]]:
-    snapshot = observability.snapshot()
+# ------------------------------------------------------------------ پ۷۹ · شمارنده‌هایِ چندپروسه‌ای
+SNAPSHOT_STALE_SECONDS = 150  # ردیفِ قدیمی‌تر از این، «پروسهٔ مرده» است و در جمع نمی‌آید
+_counter_started_at: datetime.datetime | None = None
+
+
+def process_key() -> str:
+    """یکتایِ اینِ پروسه: نامِ میزبان (در داکر = نامِ کانتینر) + pid. بدونِ RDB/کشِ تازه."""
+    return f"{os.uname().nodename if hasattr(os, 'uname') else os.environ.get('HOSTNAME', '?')}:{os.getpid()}"
+
+
+def local_counters() -> dict[str, int]:
+    """شمارنده‌هایِ عملیاتیِ *همینِ* پروسه با نامِ فنی (برچسبِ فارسی فقط برایِ نمایش ساخته می‌شود)."""
+    return {name: value for name, value in observability.snapshot().items() if name.startswith(_COUNTER_PREFIXES)}
+
+
+async def publish_counters(session: AsyncSession) -> None:
+    """ضربانِ اینِ پروسه: یکِ upsert رویِ ردیفِ خودش (نه به‌ازایِ هرِ پیام ⇒ بارِ ناچیز)."""
+    global _counter_started_at
+    if _counter_started_at is None:
+        _counter_started_at = datetime.datetime.now(datetime.timezone.utc)
+    payload = json.dumps(local_counters(), sort_keys=True)
+    statement = insert(RuntimeCounterSnapshot).values(
+        process_key=process_key(), hostname=process_key().split(":")[0][:64], counters=payload,
+        started_at=_counter_started_at, updated_at=func.now(),
+    )
+    await session.execute(statement.on_conflict_do_update(
+        index_elements=[RuntimeCounterSnapshot.process_key],
+        set_={"counters": statement.excluded.counters, "hostname": statement.excluded.hostname,
+              "updated_at": func.now()},
+    ))
+
+
+async def aggregate_counters(session: AsyncSession) -> tuple[dict[str, int], int, int]:
+    """⇒ (جمعِ شمارنده‌ها، پروسه‌هایِ زندهٔ شمرده‌شده، ردیف‌هایِ بی‌اعتبارِ قدیمی).
+
+    سهمِ خودِ اینِ پروسه از *حافظه* خوانده می‌شود (ردیفِ خودش می‌تواند تا یکِ ضربان کهنه باشد)، و
+    ردیفِ هرِ پروسهٔ دیگر فقط تا `SNAPSHOT_STALE_SECONDS` اعتبار دارد تا عددِ «مرده» زنده نشود.
+    """
+    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=SNAPSHOT_STALE_SECONDS)
+    rows = list(
+        (
+            await session.execute(
+                select(RuntimeCounterSnapshot.process_key, RuntimeCounterSnapshot.counters,
+                       RuntimeCounterSnapshot.updated_at)
+            )
+        ).all()
+    )
+    own = process_key()
+    own_live = local_counters()
+    totals: dict[str, int] = dict(own_live)
+    live = 1  # خودِ اینِ پروسه همیشه شمرده می‌شود (سهمش از حافظه است)
+    stale = 0
+    for key, payload, updated_at in rows:
+        if key == own:
+            continue
+        moment = updated_at
+        if moment is not None and moment.tzinfo is None:
+            moment = moment.replace(tzinfo=datetime.timezone.utc)
+        if moment is not None and moment < cutoff:
+            stale += 1
+            continue
+        try:
+            values = json.loads(payload or "{}")
+        except (TypeError, ValueError):
+            stale += 1
+            continue
+        live += 1
+        for name, value in (values or {}).items():
+            if isinstance(value, int):
+                totals[name] = totals.get(name, 0) + value
+    return totals, live, stale
+
+
+def counters_lines(counters: dict[str, int] | None = None) -> list[tuple[str, int]]:
+    snapshot = dict(counters) if counters is not None else local_counters()
     return [
-        (_COUNTER_LABELS.get(name, name), value)
+        (_COUNTER_LABELS.get(name, name), int(value))
         for name, value in sorted(snapshot.items())
         if name.startswith(_COUNTER_PREFIXES)
     ]
@@ -204,4 +279,8 @@ async def ai_lines(session: AsyncSession) -> dict[str, object]:
 
 
 async def snapshot(session: AsyncSession) -> dict[str, object]:
-    return {"ai": await ai_lines(session), "db": db_pool_lines(), "system": system_lines(), "counters": counters_lines()}
+    counters, processes, stale_rows = await aggregate_counters(session)
+    return {
+        "ai": await ai_lines(session), "db": db_pool_lines(), "system": system_lines(),
+        "counters": counters_lines(counters), "processes": processes, "stale_processes": stale_rows,
+    }
