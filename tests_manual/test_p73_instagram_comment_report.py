@@ -405,10 +405,12 @@ async def test_no_connection_and_other_shop_callbacks(main_dp) -> None:
 
 
 def test_keyboard_and_window_constants() -> None:
-    report = {"window": "7d", "page": 0, "pages": 3}
+    # پ۷۷ دو دکمهٔ پایینِ همین صفحه را افزود (فهرستِ «جواب نده» + فایلِ اکسلِ همان بازه).
+    report = {"window": "7d", "page": 0, "pages": 3, "items": []}
     flat = callbacks(keyboards.instagram_comments_keyboard(report))
     assert flat == [
-        "ig_cmt:24h:0", "ig_cmt:7d:0", "ig_cmt:30d:0", "noop", "ig_cmt:7d:1", "ig_cmt:7d:0", "ig_screen",
+        "ig_cmt:24h:0", "ig_cmt:7d:0", "ig_cmt:30d:0", "noop", "ig_cmt:7d:1", "ig_cmt:7d:0",
+        "ig_blklist", "ig_cmt_x:7d", "ig_screen",
     ], flat
     assert all(len(item.encode("utf-8")) <= 64 for item in flat), flat
     assert instagram_service.COMMENT_WINDOW_KEYS == {"24h", "7d", "30d"}

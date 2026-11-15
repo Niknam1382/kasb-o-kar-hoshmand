@@ -2681,6 +2681,7 @@ COMMENT_REASON_LABELS: dict[str, str] = {
     "account_off": "اتصالِ اینستاگرام غیرفعال بود",
     "comments_off": "پاسخِ خودکار به کامنت خاموش بود",
     "muted": "کانال موقتاً خاموش بود",
+    "sender_blocked": "این حساب در فهرستِ «جواب نده» است",
     "shop_inactive": "فروشگاه یا حالتِ نگهداری خاموش بود",
     "no_owner": "صاحبِ فروشگاه پیدا نشد",
     "moderation_block": "نگهبانِ محتوا کامنت را مسدود کرد",
@@ -2747,6 +2748,53 @@ def instagram_comments_text(report: dict) -> str:
         lines += ["", INSTAGRAM_COMMENTS_LIST.format(page=fa_number(report["page"] + 1), pages=fa_number(report["pages"]))]
         lines += [instagram_comment_line(first + offset, row) for offset, row in enumerate(report["items"])]
     lines += ["", INSTAGRAM_COMMENTS_NOTE]
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------ پ۷۷ · «به این حساب جواب نده» + فایلِ اکسل
+INSTAGRAM_BLOCKS_BUTTON = "🚫 حساب‌هایِ جواب‌نده"
+INSTAGRAM_EXPORT_BUTTON = "📥 فایلِ اکسلِ کامنت‌ها"
+INSTAGRAM_EXPORT_FILENAME = "کامنت-های-اینستاگرام.xlsx"
+INSTAGRAM_BLOCKS_TITLE = "🚫 حساب‌هایی که ربات به آن‌ها جواب نمی‌دهد"
+INSTAGRAM_BLOCKS_EMPTY = (
+    "فهرست خالی است. از «🗨 گزارشِ کامنت‌ها» می‌توانی رویِ هر کامنت بزنی تا آن حساب در این فهرست "
+    "بماند؛ هر وقت هم خواستی از همین‌جا آزادش می‌کنی."
+)
+INSTAGRAM_BLOCKS_LIST = "• {name} — افزوده‌شده در {when}"
+INSTAGRAM_BLOCKS_NOTE = (
+    "• این فهرست فقط به پاسخِ خودکارِ کامنت‌ها دست می‌زند: کامنت خوانده و در گزارش ثبت می‌شود، "
+    "ولی پاسخی نمی‌رود و هزینه‌ای هم نمی‌سازد. دایرکت و پرداختِ سفارش عوض نمی‌شوند."
+)
+INSTAGRAM_BLOCKS_ADD_ASK = (
+    "نامِ کاربری را بنویس (بدونِ @ هم قبول می‌شود). برایِ بی‌خیال شدن «خالی» را بزن."
+)
+INSTAGRAM_BLOCK_ADDED = "به فهرستِ «جواب نده» افزوده شد."
+INSTAGRAM_BLOCK_EXISTS = "این حساب از پیش در فهرست است."
+INSTAGRAM_BLOCK_REMOVED = "از فهرستِ «جواب نده» برداشته شد."
+INSTAGRAM_BLOCK_INVALID = "آن نامِ کاربری قابلِ ذخیره نیست."
+INSTAGRAM_BLOCKS_ADD_CANCELLED = "افزودن لغو شد؛ چیزی عوض نشد."
+INSTAGRAM_BLOCK_FULL = "فهرست پر است (سقفِ هر فروشگاه دویست حساب است)."
+INSTAGRAM_BLOCK_NO_USER = "این کامنت نامِ کاربری ندارد؛ پس نمی‌توان آن را مسدود کرد."
+INSTAGRAM_EXPORT_EMPTY = "در این بازه کامنتی نبود که فایلش ساخته شود."
+INSTAGRAM_EXPORT_READY = "فایلِ کامنت‌هایِ {label} آماده شد ({count} ردیف)."
+INSTAGRAM_EXPORT_TRUNCATED = "• بازه بزرگ‌تر از سقفِ فایل بود؛ فقط {limit} ردیفِ جدیدتر در فایل است."
+INSTAGRAM_BLOCK_BACK_BUTTON = "⬅️ بازگشت به گزارشِ کامنت‌ها"
+
+
+def instagram_blocks_text(rows: list) -> str:
+    from app.utils.jalali import format_jalali_datetime
+
+    lines = [INSTAGRAM_BLOCKS_TITLE, ""]
+    if not rows:
+        lines.append(INSTAGRAM_BLOCKS_EMPTY)
+    else:
+        for row in rows:
+            lines.append(
+                INSTAGRAM_BLOCKS_LIST.format(
+                    name="@" + (row.username or ""), when=format_jalali_datetime(row.created_at)
+                )
+            )
+    lines += ["", INSTAGRAM_BLOCKS_NOTE]
     return "\n".join(lines)
 
 

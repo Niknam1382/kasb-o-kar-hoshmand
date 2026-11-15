@@ -11,7 +11,16 @@ from openpyxl.worksheet.worksheet import Worksheet
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Campaign, Customer, OrderConsultation, OrderType, Product, ShopOwner, WalletTransaction
+from app.database.models import (
+    Campaign,
+    Customer,
+    InstagramCommentEvent,
+    OrderConsultation,
+    OrderType,
+    Product,
+    ShopOwner,
+    WalletTransaction,
+)
 from app.services import accounting_service
 from app.utils.jalali import format_jalali_date, format_jalali_datetime
 from app.utils.validators import fa_number
@@ -490,3 +499,68 @@ async def build_wallet_ledger_workbook(session: AsyncSession, limit: int = MAX_L
     _plain_sheet(wb, "توضیحات", ["مورد", "مقدار"], [["محدوده", note], ["تعدادِ ردیف‌هایِ این فایل", len(rows)]], money_cols=(2,), tab_index=1)
 
     return _workbook_bytes(wb)
+
+
+# ------------------------------------------------------------------ پ۷۷ · اکسلِ رویدادهایِ کامنت
+IG_COMMENTS_MAX_ROWS = 500
+_IG_OUTCOME_LABELS = {
+    "received": "در انتظار",
+    "replied": "جواب رفت",
+    "skipped": "جواب نرفت",
+    "failed": "بی‌نتیجه",
+}
+
+
+async def build_ig_comments_workbook(
+    session: AsyncSession, shop_bot_id: int, *, days: int, window_label: str, limit: int = IG_COMMENTS_MAX_ROWS
+) -> tuple[bytes, int, bool]:
+    """اکسلِ کامنت‌هایِ این فروشگاه در بازهٔ `days` روزه ⇒ (فایل، تعدادِ ردیف، بریده‌شدن).
+
+    فقط‌خواندنی است (نه ردیفی ساخته می‌شود نه عوض) و هیچ ستونی جز آنچه در پنل دیده می‌شود ندارد:
+    نامِ کاربری و متنِ کامنت دادهٔ خودِ کامنت‌کننده است که در پنلِ همین فروشگاه نمایش داده می‌شود.
+    """
+    from app.bots.main_bot import texts
+
+    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)
+    fetched = list(
+        (
+            await session.execute(
+                select(InstagramCommentEvent)
+                .where(InstagramCommentEvent.shop_bot_id == shop_bot_id, InstagramCommentEvent.created_at >= since)
+                .order_by(InstagramCommentEvent.created_at.desc(), InstagramCommentEvent.id.desc())
+                .limit(limit + 1)
+            )
+        ).scalars().all()
+    )
+    truncated = len(fetched) > limit
+    rows = [
+        [
+            _fmt(row.created_at),
+            _fmt(row.comment_created_at) if row.comment_created_at else "",
+            row.username or "",
+            (row.text or "").replace("\r", " ").replace("\n", " ")[:1000],
+            _IG_OUTCOME_LABELS.get(row.outcome, row.outcome),
+            texts.comment_reason_label(row.reason),
+            row.ai_tokens if row.ai_tokens is not None else "",
+            row.cost_toman if row.cost_toman is not None else "",
+        ]
+        for row in fetched[:limit]
+    ]
+    wb = Workbook()
+    _plain_sheet(
+        wb,
+        "کامنت‌ها",
+        ["زمانِ دیدن (تهران)", "زمانِ کامنت (تهران)", "نامِ کاربری", "متنِ کامنت", "نتیجه", "دلیلِ جواب‌نرفتن", "توکن", "هزینه (تومان)"],
+        rows,
+        first=True,
+        money_cols=(8,),
+        tab_index=0,
+    )
+    notes = [
+        ["بازه", f"{window_label} از {fa_number(days)} روزِ گذشته"],
+        ["تعدادِ ردیف‌هایِ این فایل", len(rows)],
+        ["محدوده", "همهٔ کامنت‌هایِ بازه" if not truncated else f"فقط {fa_number(limit)} کامنتِ جدیدتر (بازه بزرگ‌تر است)"],
+        ["راهنما", "«هزینه» همان مبلغی است که در همان لحظه از کیف‌پولِ خودت کم شده، نه تخمینِ جدا."],
+    ]
+    _plain_sheet(wb, "توضیحات", ["مورد", "مقدار"], notes, money_cols=(2,), tab_index=1)
+    return _workbook_bytes(wb), len(rows), truncated

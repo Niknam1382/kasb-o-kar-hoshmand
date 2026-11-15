@@ -19,16 +19,18 @@ import logging
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bots.main_bot import keyboards, texts
 from app.bots.main_bot.handlers.owner_common import panel_keyboard, require_shop_bot, require_shop_bot_cb, safe_edit
 from app.bots.main_bot.states import InstagramStates
-from app.database.models import ShopBot
-from app.services import instagram_service, shop_bot_service, shop_owner_service
+from app.database.models import InstagramCommentEvent, ShopBot
+from app.services import excel_export_service, instagram_service, shop_bot_service, shop_owner_service
 from app.services.admin_settings_service import get_admin_settings
 from app.utils.text_limits import clip
+from app.utils.validators import fa_number
 
 logger = logging.getLogger(__name__)
 
@@ -196,9 +198,156 @@ async def cb_comments_report(callback: CallbackQuery, session: AsyncSession) -> 
         await callback.answer(texts.INSTAGRAM_COMMENTS_INVALID, show_alert=True)
         return
     report = await instagram_service.comment_report(session, shop_bot.id, window=window, page=int(raw_page))
+    blocked = frozenset(
+        row.username or "" for row in await instagram_service.list_comment_blocks(session, shop_bot.id)
+    )
     await session.commit()
     await callback.answer()
-    await safe_edit(callback, texts.instagram_comments_text(report), keyboards.instagram_comments_keyboard(report))
+    await safe_edit(
+        callback, texts.instagram_comments_text(report), keyboards.instagram_comments_keyboard(report, blocked=blocked)
+    )
+
+
+# ------------------------------------------------------------------ پ۷۷ · «به این حساب جواب نده» + فایلِ اکسل
+async def _blocked_names(session: AsyncSession, shop_bot_id: int) -> frozenset[str]:
+    return frozenset(row.username or "" for row in await instagram_service.list_comment_blocks(session, shop_bot_id))
+
+
+async def _blocks_screen(callback: CallbackQuery, shop_bot: ShopBot, session: AsyncSession) -> None:
+    rows = await instagram_service.list_comment_blocks(session, shop_bot.id)
+    await session.commit()
+    await safe_edit(callback, texts.instagram_blocks_text(rows), keyboards.instagram_blocks_keyboard(rows))
+
+
+@router.callback_query(F.data == "ig_blklist")
+async def cb_blocks_list(callback: CallbackQuery, session: AsyncSession) -> None:
+    """پ۷۷: فهرستِ حساب‌هایی که رباتِ همین فروشگاه به آن‌ها جواب نمی‌دهد (فقط‌خواندنی تا دکمه‌ها زده شوند)."""
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    await _blocks_screen(callback, shop_bot, session)
+
+
+@router.callback_query(F.data.startswith("ig_blk:"))
+async def cb_block_sender(callback: CallbackQuery, session: AsyncSession) -> None:
+    """مسدود کردنِ از رویِ همان ردیفِ گزارش ⇒ فقط نامِ کاربریِ آن کامنت ذخیره می‌شود (idempotent)."""
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    raw_id = (callback.data or "").split(":", 1)[1]
+    if not raw_id.isascii() or not raw_id.isdigit():
+        await callback.answer(texts.INSTAGRAM_BLOCK_INVALID, show_alert=True)
+        return
+    event_row = (
+        await session.execute(
+            select(InstagramCommentEvent).where(
+                InstagramCommentEvent.id == int(raw_id), InstagramCommentEvent.shop_bot_id == shop_bot.id
+            )
+        )
+    ).scalar_one_or_none()
+    if event_row is None:
+        await callback.answer(texts.INSTAGRAM_COMMENTS_INVALID, show_alert=True)
+        return
+    if not (event_row.username or "").strip():
+        await callback.answer(texts.INSTAGRAM_BLOCK_NO_USER, show_alert=True)
+        return
+    _, status = await instagram_service.block_comment_sender(
+        session, shop_bot.id, event_row.username, actor_telegram_id=callback.from_user.id
+    )
+    await session.commit()
+    toast = {
+        "added": texts.INSTAGRAM_BLOCK_ADDED,
+        "exists": texts.INSTAGRAM_BLOCK_EXISTS,
+        "full": texts.INSTAGRAM_BLOCK_FULL,
+    }.get(status, texts.INSTAGRAM_BLOCK_INVALID)
+    await callback.answer(text=toast, show_alert=status == "full")
+    await _blocks_screen(callback, shop_bot, session)
+
+
+@router.callback_query(F.data.startswith("ig_unblk:"))
+async def cb_unblock_sender(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    raw_id = (callback.data or "").split(":", 1)[1]
+    if not raw_id.isascii() or not raw_id.isdigit():
+        await callback.answer(texts.INSTAGRAM_BLOCK_INVALID, show_alert=True)
+        return
+    removed = await instagram_service.unblock_comment_sender(
+        session, shop_bot.id, int(raw_id), actor_telegram_id=callback.from_user.id
+    )
+    await session.commit()
+    if removed is None:
+        await callback.answer(text=texts.INSTAGRAM_BLOCK_INVALID, show_alert=True)
+        return
+    await callback.answer(text=texts.INSTAGRAM_BLOCK_REMOVED)
+    await _blocks_screen(callback, shop_bot, session)
+
+
+@router.callback_query(F.data == "ig_blk_add")
+async def cb_block_add(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await state.clear()
+    await state.set_state(InstagramStates.waiting_block_username)
+    await callback.answer()
+    await callback.message.answer(texts.INSTAGRAM_BLOCKS_ADD_ASK)
+
+
+@router.message(InstagramStates.waiting_block_username, F.text)
+async def save_block_username(message: Message, state: FSMContext, session: AsyncSession) -> None:
+    owner = await _current_owner(message, session)
+    shop_bot = await shop_bot_service.get_by_owner(session, owner) if owner else None
+    await state.clear()
+    if shop_bot is None:
+        await message.answer(texts.SHOP_BOT_NOT_SET_UP)
+        return
+    if (message.text or "").strip() in CLEAR_WORDS:
+        await message.answer(texts.INSTAGRAM_BLOCKS_ADD_CANCELLED)
+        return
+    _, status = await instagram_service.block_comment_sender(
+        session, shop_bot.id, message.text, actor_telegram_id=message.from_user.id
+    )
+    await session.commit()
+    await message.answer(
+        {
+            "added": texts.INSTAGRAM_BLOCK_ADDED,
+            "exists": texts.INSTAGRAM_BLOCK_EXISTS,
+            "full": texts.INSTAGRAM_BLOCK_FULL,
+        }.get(status, texts.INSTAGRAM_BLOCK_INVALID)
+    )
+    rows = await instagram_service.list_comment_blocks(session, shop_bot.id)
+    await session.commit()
+    await message.answer(texts.instagram_blocks_text(rows), reply_markup=keyboards.instagram_blocks_keyboard(rows))
+
+
+@router.callback_query(F.data.startswith("ig_cmt_x:"))
+async def cb_comments_export(callback: CallbackQuery, session: AsyncSession) -> None:
+    """پ۷۷ · فایلِ اکسلِ همان بازه از گزارشِ کامنت‌ها (فقط‌خواندنی؛ سقفِ ردیف دارد)."""
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    window = (callback.data or "").split(":", 1)[1]
+    if window not in instagram_service.COMMENT_WINDOW_KEYS:
+        await callback.answer(texts.INSTAGRAM_COMMENTS_INVALID, show_alert=True)
+        return
+    days = next(d for key, d, _label in instagram_service.COMMENT_WINDOWS if key == window)
+    content, count, truncated = await excel_export_service.build_ig_comments_workbook(
+        session, shop_bot.id, days=days, window_label=texts.comment_window_label(window)
+    )
+    await session.commit()
+    if not count:
+        await callback.answer(text=texts.INSTAGRAM_EXPORT_EMPTY, show_alert=True)
+        return
+    await callback.answer()
+    caption = texts.INSTAGRAM_EXPORT_READY.format(label=texts.comment_window_label(window), count=fa_number(count))
+    if truncated:
+        caption += "\n" + texts.INSTAGRAM_EXPORT_TRUNCATED.format(limit=fa_number(excel_export_service.IG_COMMENTS_MAX_ROWS))
+    await callback.message.answer_document(
+        BufferedInputFile(content, filename=texts.INSTAGRAM_EXPORT_FILENAME), caption=caption
+    )
 
 
 @router.callback_query(F.data == "ig_back")

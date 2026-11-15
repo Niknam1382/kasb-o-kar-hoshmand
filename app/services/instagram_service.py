@@ -47,6 +47,7 @@ from app.database.models import (
     ConversationMessage,
     Customer,
     InstagramAccount,
+    InstagramCommentBlock,
     InstagramCommentEvent,
     OrderConsultation,
     OrderStatus,
@@ -407,6 +408,106 @@ async def comment_report(
         "tokens": int(tokens), "cost": int(cost), "reasons": reasons,
         "items": items, "page": page, "pages": pages, "page_size": page_size,
     }
+
+
+# ------------------------------------------------------------------ پ۷۷ · «به این حساب جواب نده»
+# حلقهٔ چهارمِ اینستاگرام: فروشگاه‌دار می‌تواند یکِ نامِ کاربری را برایِ همیشه از پاسخ‌گوییِ
+# کامنت‌ها خارج کند. در این فهرست فقط نامِ کاربری می‌ماند (نه متن، نه شناسهٔ کامنت) و درِ آن
+# *پیش ازِ هر فراخوانیِ AI* بررسی می‌شود، پس حسابِ مسدود هیچ هزینه‌ای نمی‌سازد.
+COMMENT_BLOCK_REASON = "sender_blocked"
+COMMENT_BLOCK_MAX = 200  # سقفِ فهرست per-فروشگاه (دی‌ان‌اسِ بی‌نهایتِ ورودی، حافظه/کوئری می‌بلعد)
+_USERNAME_STRIP_CHARS = " \t\n\r._-"
+
+
+def normalize_comment_username(raw: str | None) -> str:
+    """نامِ کاربری را برایِ مقایسه یکدست می‌کند: «@Ali.Rezaee_» ⇒ «ali.rezaee».
+
+    اینستاگرام نامِ کاربری را case-insensitive می‌شمارد و «.» مرزِ خوانایی است، پس بدونِ این
+    یکدست‌سازی «Ali» و «ali» دو حسابِ جدا به‌نظر می‌رسند. نتیجهٔ خالی یعنی «قابلِ ذخیره نیست».
+    """
+    name = (raw or "").strip().lstrip("@").strip().lower()
+    name = name.strip(_USERNAME_STRIP_CHARS)
+    if not name:
+        return ""
+    return name[:64]
+
+
+async def list_comment_blocks(session: AsyncSession, shop_bot_id: int) -> list[InstagramCommentBlock]:
+    return list(
+        (
+            await session.execute(
+                select(InstagramCommentBlock)
+                .where(InstagramCommentBlock.shop_bot_id == shop_bot_id)
+                .order_by(InstagramCommentBlock.created_at.desc(), InstagramCommentBlock.id.desc())
+            )
+        ).scalars().all()
+    )
+
+
+async def comment_sender_is_blocked(session: AsyncSession, shop_bot_id: int, username: str | None) -> bool:
+    name = normalize_comment_username(username)
+    if not name:
+        return False
+    found = (
+        await session.execute(
+            select(InstagramCommentBlock.id).where(
+                InstagramCommentBlock.shop_bot_id == shop_bot_id, InstagramCommentBlock.username == name
+            ).limit(1)
+        )
+    ).first()
+    return found is not None
+
+
+async def block_comment_sender(
+    session: AsyncSession, shop_bot_id: int, username: str | None, *, actor_telegram_id: int
+) -> tuple[InstagramCommentBlock | None, str]:
+    """⇒ (ردیف، "added"|"exists"|"invalid"|"full"). idempotent: دو بار زدنِ همان نام خطا نمی‌سازد."""
+    name = normalize_comment_username(username)
+    if not name:
+        return None, "invalid"
+    rows = await list_comment_blocks(session, shop_bot_id)
+    existing = next((row for row in rows if row.username == name), None)
+    if existing is not None:
+        return existing, "exists"
+    if len(rows) >= COMMENT_BLOCK_MAX:
+        return None, "full"
+    row = InstagramCommentBlock(shop_bot_id=shop_bot_id, username=name)
+    session.add(row)
+    await session.flush()
+    await audit_log_service.log(
+        session,
+        AuditEventType.INSTAGRAM_TOGGLED,
+        shop_bot_id=shop_bot_id,
+        actor_telegram_id=actor_telegram_id,
+        details=f"پ۷۷: «@{name}» به فهرستِ جواب‌نده‌ها افزوده شد",
+    )
+    return row, "added"
+
+
+async def unblock_comment_sender(
+    session: AsyncSession, shop_bot_id: int, block_id: int, *, actor_telegram_id: int
+) -> InstagramCommentBlock | None:
+    """برداشتنِ یکِ حساب از فهرست؛ مالکیتِ ردیف چک می‌شود (کال‌بکِ دستکاری‌شده به فروشگاهِ دیگر نمی‌رسد)."""
+    row = (
+        await session.execute(
+            select(InstagramCommentBlock).where(
+                InstagramCommentBlock.id == block_id, InstagramCommentBlock.shop_bot_id == shop_bot_id
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    name = row.username
+    await session.delete(row)
+    await session.flush()
+    await audit_log_service.log(
+        session,
+        AuditEventType.INSTAGRAM_TOGGLED,
+        shop_bot_id=shop_bot_id,
+        actor_telegram_id=actor_telegram_id,
+        details=f"پ۷۷: «@{name}» از فهرستِ جواب‌نده‌ها برداشته شد",
+    )
+    return row
 
 
 # ============================================================================= ۲ — آدرس‌ها و توکنِ وضعیت
@@ -1100,6 +1201,11 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
         return
     if is_muted(account):
         mark_comment(row, COMMENT_SKIPPED, reason="muted")
+        await session.commit()
+        return
+    # پ۷۷: فهرستِ «به این حساب جواب نده» — پیش ازِ هر پرس‌وجویِ حساب/صاحب و هر خرجِ AI.
+    if await comment_sender_is_blocked(session, account.shop_bot_id, event.username):
+        mark_comment(row, COMMENT_SKIPPED, reason=COMMENT_BLOCK_REASON)
         await session.commit()
         return
     shop_bot = await shop_bot_service.get_by_id(session, account.shop_bot_id)

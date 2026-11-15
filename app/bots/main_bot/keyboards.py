@@ -1953,8 +1953,12 @@ def instagram_mute_keyboard(account) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def instagram_comments_keyboard(report) -> InlineKeyboardMarkup:
-    """پ۷۳: پنجرهٔ بازه + صفحه‌گردانی + تازه‌سازی + بازگشت (هیچ فعلِ مالی رویِ این صفحه نیست)."""
+def instagram_comments_keyboard(report, *, blocked: frozenset[str] = frozenset()) -> InlineKeyboardMarkup:
+    """پ۷۳: پنجرهٔ بازه + صفحه‌گردانی + تازه‌سازی + بازگشت (هیچ فعلِ مالی رویِ این صفحه نیست).
+
+    پ۷۷: ردیفِ هر کامنتِ بدونِ مسدودسازی یکِ دکمهٔ «🚫» می‌گیرد (حساب در فهرستِ جواب‌نده می‌ماند)
+    و دو دکمهٔ پایینِ صفحه هم همان فهرست و فایلِ اکسلِ همان بازه را باز می‌کنند.
+    """
     from app.services.instagram_service import COMMENT_WINDOWS
 
     window, page = report["window"], report["page"]
@@ -1967,12 +1971,41 @@ def instagram_comments_keyboard(report) -> InlineKeyboardMarkup:
             for key, _days, label in COMMENT_WINDOWS
         ]
     ]
+    block_buttons = [
+        InlineKeyboardButton(
+            text="🚫 " + clip("@" + (row.username or ""), 22),
+            callback_data=f"ig_blk:{row.id}",
+        )
+        for row in report["items"]
+        if getattr(row, "username", "") and (row.username or "").strip().lower() not in blocked
+    ]
+    for start in range(0, len(block_buttons), 2):
+        rows.append(block_buttons[start : start + 2])
     pagination = _pagination_row(page, report["pages"], f"ig_cmt:{window}")
     if pagination:
         rows.append(pagination)
     rows.append([InlineKeyboardButton(text="🔄 تازه‌سازی", callback_data=f"ig_cmt:{window}:{page}")])
+    rows.append(
+        [
+            InlineKeyboardButton(text=texts.INSTAGRAM_BLOCKS_BUTTON, callback_data="ig_blklist"),
+            InlineKeyboardButton(text=texts.INSTAGRAM_EXPORT_BUTTON, callback_data=f"ig_cmt_x:{window}"),
+        ]
+    )
     rows.append([InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def instagram_blocks_keyboard(rows: list) -> InlineKeyboardMarkup:
+    """پ۷۷: آزاد کردنِ تک‌تکِ حساب‌ها + افزودنِ دستیِ نامی که کامنتش دیگر نمی‌رسد."""
+    buttons = [
+        InlineKeyboardButton(text="✅ آزاد کردنِ " + clip("@" + (row.username or ""), 22), callback_data=f"ig_unblk:{row.id}")
+        for row in rows
+    ]
+    kb = [buttons[start : start + 1] for start in range(0, len(buttons), 1)]
+    kb.append([InlineKeyboardButton(text="✍️ افزودنِ نامِ کاربری", callback_data="ig_blk_add")])
+    kb.append([InlineKeyboardButton(text=texts.INSTAGRAM_COMMENTS_BUTTON, callback_data="ig_cmt:7d:0")])
+    kb.append([InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
 
 
 def admin_stats_keyboard(has_range: bool = False) -> InlineKeyboardMarkup:

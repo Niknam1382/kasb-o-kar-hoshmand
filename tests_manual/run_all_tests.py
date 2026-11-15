@@ -180,6 +180,7 @@ TEST_FILES = [
     "test_p74_product_categories.py",
     "test_p75_gap_clusters.py",
     "test_p76_recurring_broadcasts.py",
+    "test_p77_instagram_comment_blocks.py",
 ]
 
 

@@ -48,6 +48,7 @@ class InstagramStates(StatesGroup):
 
     waiting_greeting = State()
     waiting_instructions = State()  # پ۶۰: متنِ هوشمندسازیِ اینستاگرامِ خودِ فروشگاه
+    waiting_block_username = State()  # پ۷۷: افزودنِ دستیِ حسابِ «جواب نده»
 
 
 class ProductStates(StatesGroup):

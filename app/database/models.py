@@ -821,6 +821,26 @@ class InstagramCommentEvent(Base):
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+class InstagramCommentBlock(Base):
+    """پ۷۷ · «به این حساب جواب نده» (حلقهٔ چهارمِ اینستاگرام، خواستهٔ مالک ۱۱-۱۲).
+
+    چرا جدول و نه ستون: فهرست در هر فروشگاه یکتاست و باید افزوده/برداشته شود بدونِ دست‌زدن به
+    اتصال یا به توکن‌ها؛ و درِ پاسخگویی باید پیش ازِ هر فراخوانیِ AI همین‌جا پرس‌وجو شود.
+    فقط نامِ کاربری نگه داشته می‌شود (نه متنِ کامنت) ⇒ دادهٔ شخصیِ تازه‌ای انبار نمی‌شود.
+    """
+
+    __tablename__ = "instagram_comment_blocks"
+    __table_args__ = (
+        UniqueConstraint("shop_bot_id", "username", name="uq_ig_block_shop_username"),
+        Index("ix_ig_comment_blocks_shop_created", "shop_bot_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    shop_bot_id: Mapped[int] = mapped_column(ForeignKey("shop_bots.id"), nullable=False)
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 
