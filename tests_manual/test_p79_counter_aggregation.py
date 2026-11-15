@@ -132,9 +132,8 @@ async def test_doctor_uses_raw_names_and_reports_scope() -> None:
         snapshot = await capacity_service.snapshot(session)
     keys = {finding.key for finding in findings}
     assert "webhook_rejected" in keys, f"پیش ازِ پ۷۹ این یافته هرگز شلیک نمی‌کرد: {sorted(keys)}"
-    assert "counters.scope" in keys, sorted(keys)
-    scope = next(f for f in findings if f.key == "counters.scope")
-    assert "۱ پروسه" in scope.title, scope.title
+    # پ۷۹-الف: «چند پروسه» یافته نیست (وگرنه سرورِ سالم هر ساعت اخطارِ بی‌معنی می‌فرستد) — فقط در پنل
+    assert "counters.scope" not in keys, sorted(keys)
     assert snapshot["processes"] >= 1 and snapshot["stale_processes"] == 0, snapshot
     body = texts.capacity_text(snapshot)
     assert "از شروعِ این پروسه" in body, body[-400:]
