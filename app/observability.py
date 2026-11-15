@@ -217,6 +217,20 @@ def reset_counters() -> None:
     _counters.clear()
 
 
+_peer_summary: dict[str, int] = {}
+
+
+def set_peer_summary(processes: int, stale: int) -> None:
+    """پ۸۱ · لایهٔ اولِ فقط‌خواندنی: هرِ ضربانِ شمارنده، خلاصهٔ «چند پروسه زنده است» را اینجا می‌گذارد
+    تا `/metrics` بدونِ هیچ کوئریِ تازه در مسیرِ HTTP آن را گزارش کند."""
+    _peer_summary["processes"] = int(processes)
+    _peer_summary["stale"] = int(stale)
+
+
+def peer_summary() -> dict[str, int]:
+    return dict(_peer_summary)
+
+
 def render_prometheus() -> str:
     """متنِ سادهٔ /metrics — بدونِ وابستگیِ client-library."""
     lines = [
@@ -224,6 +238,13 @@ def render_prometheus() -> str:
         "# TYPE kasbokar_uptime_seconds gauge",
         f"kasbokar_uptime_seconds {time.time() - _started_at:.1f}",
     ]
+    summary = peer_summary()
+    if summary:
+        lines.append("# HELP kasbokar_runtime_processes پروسه‌هایی که شمارنده‌هایشان در جمعِ عملیاتی است")
+        lines.append("# TYPE kasbokar_runtime_processes gauge")
+        lines.append(f"kasbokar_runtime_processes {summary.get('processes', 0)}")
+        lines.append("# TYPE kasbokar_runtime_stale_processes gauge")
+        lines.append(f"kasbokar_runtime_stale_processes {summary.get('stale', 0)}")
     for name, value in sorted(_counters.items()):
         metric = "kasbokar_" + re.sub(r"[^a-zA-Z0-9_]", "_", name)
         lines.append(f"# TYPE {metric} counter")

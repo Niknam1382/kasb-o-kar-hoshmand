@@ -27,7 +27,8 @@ import os
 import shutil
 from dataclasses import dataclass
 
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import observability
@@ -153,7 +154,7 @@ def local_counters() -> dict[str, int]:
     return {name: value for name, value in observability.snapshot().items() if name.startswith(_COUNTER_PREFIXES)}
 
 
-async def publish_counters(session: AsyncSession) -> None:
+async def publish_counters(session: AsyncSession) -> dict[str, object]:
     """ضربانِ اینِ پروسه: یکِ upsert رویِ ردیفِ خودش (نه به‌ازایِ هرِ پیام ⇒ بارِ ناچیز)."""
     global _counter_started_at
     if _counter_started_at is None:
@@ -168,6 +169,9 @@ async def publish_counters(session: AsyncSession) -> None:
         set_={"counters": statement.excluded.counters, "hostname": statement.excluded.hostname,
               "updated_at": func.now()},
     ))
+    totals, processes, stale_rows = await aggregate_counters(session)
+    observability.set_peer_summary(processes, stale_rows)
+    return {"processes": processes, "stale": stale_rows, "totals": totals}
 
 
 async def aggregate_counters(session: AsyncSession) -> tuple[dict[str, int], int, int]:
