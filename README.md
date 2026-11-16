@@ -92,8 +92,8 @@ docker compose run --rm bot alembic upgrade head
 docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
-مجموعاً **۱۶۵ فایلِ تست (۱۷۳ فایلِ Python در `tests_manual/`) و ۱٬۰۵۱ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۶۵/۱۶۵ فایل · ۱٬۰۵۱ تست · `SUITE_EXIT=0`**
-(۲۰۲۶-۱۱-۱۶، پس ازِ پ۸۳ و پ۸۴؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۷۱ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
+مجموعاً **۱۶۹ فایلِ تست (۱۷۷ فایلِ Python در `tests_manual/`) و ۱٬۰۶۶ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۶۹/۱۶۹ فایل · ۱٬۰۶۶ تست · `SUITE_EXIT=0`**
+(۲۰۲۶-۱۱-۱۶، پس ازِ پ۹۵؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۷۴ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
 (عددِ کوئری/کارِ هر پیام) و `tests_manual/load_simulation.py`. فقط یه فایل:
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
 `kasbokar_test` اجرا می‌شود تا تنظیماتِ پنلِ تو پاک نشود). جزئیات و چک‌لیستِ تستِ دستیِ تلگرام: `docs/testing-guide.md`.
