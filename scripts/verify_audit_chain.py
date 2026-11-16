@@ -22,11 +22,14 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import select  # noqa: E402
 
-from app.database.models import AuditLogEntry  # noqa: E402
+from app.database.models import AuditEventType, AuditLogEntry  # noqa: E402
 from app.database.session import session_scope  # noqa: E402
 from app.services.audit_log_service import GENESIS, compute_hash  # noqa: E402
 
 MAX_REPORTED = 10
+# همان پیشوندی که `scripts/data_retention_apply.py` در مُهرِ سرِ زنجیره می‌نویسد (پ۱۰۲).
+# عمداً اینجا تکرار شده تا importِ متقابلِ دو اسکریپت لازم نشود؛ تستِ پ۱۰۲ همسانیِ آن‌ها را می‌سنجد.
+AUDIT_SEAL_PREFIX = "audit_head_prev="
 
 
 async def verify(limit: int | None) -> int:
@@ -35,8 +38,14 @@ async def verify(limit: int | None) -> int:
         if limit:
             query = query.limit(limit)
         rows = list((await session.execute(query)).scalars().all())
+        seals = {
+            part.split("=", 1)[1]
+            for (text,) in (await session.execute(select(AuditLogEntry.details).where(AuditLogEntry.event_type == AuditEventType.RETENTION_APPLIED))).all()
+            for part in (text or "").split()
+            if part.startswith(AUDIT_SEAL_PREFIX)
+        }
 
-    checked = legacy = branch = 0
+    checked = legacy = branch = trimmed = 0
     broken: list[str] = []
     hashes_seen: dict[str, int] = {}
     last_hashed: AuditLogEntry | None = None
@@ -48,7 +57,11 @@ async def verify(limit: int | None) -> int:
         checked += 1
         expected_prev = last_hashed.row_hash if last_hashed is not None else GENESIS
         if row.prev_hash != expected_prev:
-            if row.prev_hash in hashes_seen:
+            if last_hashed is None and (row.prev_hash or "") in seals:
+                # پ۱۰۲: ابتدایِ زنجیره با سیاستِ نگهداری بریده شده و مُهرِ آن در همین جدول هست ⇒ سرِ تازه
+                # از اینجا اعتبار می‌گیرد؛ حذفِ بی‌مُهر به‌جایِ این خط در broken می‌افتد.
+                trimmed += 1
+            elif row.prev_hash in hashes_seen:
                 branch += 1  # هم‌زمانی: دو ردیف «پیشین» یکسانی دیده‌اند؛ پیوند به ردیفِ واقعیِ دیگری می‌رسد
             else:
                 broken.append(f"id={row.id}: prev_hash به هیچ ردیفِ معتبری نمی‌رسد")
@@ -58,9 +71,10 @@ async def verify(limit: int | None) -> int:
         last_hashed = row
 
     linked = checked - branch - len(broken)
+    head_note = f" · {trimmed} سرِ بریده با مُهرِ نگهداری" if trimmed else ""
     print(
         f"بازبینیِ زنجیرهٔ ممیزی: {checked} ردیفِ هش‌دار · {legacy} ردیفِ قدیمی (پیش از P20) · "
-        f"{linked} پیوندِ درست · {branch} پیوندِ ناهمسایه (هم‌زمانی)"
+        f"{linked} پیوندِ درست · {branch} پیوندِ ناهمسایه (هم‌زمانی){head_note}"
     )
     for line in broken[:MAX_REPORTED]:
         print("  ❌", line)

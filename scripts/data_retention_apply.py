@@ -57,13 +57,14 @@ BACKUP_ENV = "RETENTION_BACKUP_CONFIRMED"
 CHUNK = 5_000  # سقفِ ردیف در هر DELETE ⇒ قفلِ کوتاه‌مدت، نه قفلِ طولانی رویِ جدولِ بزرگ
 
 # (کلیدِ گزینه، برچسبِ فارسی، مدل، ستونِ زمان، پنجرهٔ پیش‌فرضِ روز)
-# پیش‌فرض‌ها محافظه‌کارانه‌اند و عمداً بلند: اسنادِ مالی و ممیزی زود پاک نمی‌شوند.
+# عددها = تصمیمِ مالکِ محصول (پ۹۹/پ۱۰۲): مالی ۷۳۰ · ممیزی ۱۸۲۵ · بقیه ۳۶۵ · شمارنده ۷.
 TABLES: tuple[tuple[str, str, object, object, int], ...] = (
-    ("payments", "رویدادهایِ پرداخت", PaymentEventLog, PaymentEventLog.created_at, 365),
-    # دفترِ ممیزی زنجیرهٔ هش دارد (prev_hash/row_hash) ⇒ پاک‌کردنِ ردیف‌هایِ قدیمیِ آن، ابتدا و انتهایِ
-    # زنجیره را گره‌می‌زند. پیش‌فرض: ۰ = اصلاً دست نزن؛ اگر روزی خواستی، با --audit-days N صریح بخواه.
-    ("audit", "دفترِ ممیزی", AuditLogEntry, AuditLogEntry.created_at, 0),
-    ("ig", "رویدادِ کامنتِ اینستاگرام", InstagramCommentEvent, InstagramCommentEvent.created_at, 180),
+    ("payments", "رویدادهایِ پرداخت", PaymentEventLog, PaymentEventLog.created_at, 730),
+    # پ۱۰۲ · این جدول زنجیرهٔ هش دارد، پس پیش ازِ حذفِ ردیف‌هایِ کهنه یکِ «مُهرِ سرِ زنجیره» نوشته می‌شود
+    # (ردیفِ retention_applied با hashِ آخرین ردیفِ حذفی) تا `scripts/verify_audit_chain.py` سرِ بریده را
+    # بپذیرد و حذفِ بی‌مُهر را رد کند. `--audit-days 0` یعنی اصلاً دست نزن.
+    ("audit", "دفترِ ممیزی", AuditLogEntry, AuditLogEntry.created_at, 1825),
+    ("ig", "رویدادِ کامنتِ اینستاگرام", InstagramCommentEvent, InstagramCommentEvent.created_at, 365),
     ("counters", "ردیفِ شمارندهٔ پروسه‌ها", RuntimeCounterSnapshot, RuntimeCounterSnapshot.updated_at, 7),
     ("chat", "پیام‌هایِ گفتگویِ مشتری", ConversationMessage, ConversationMessage.created_at, 365),
 )
@@ -104,6 +105,30 @@ async def _delete_chunked(session, model, column, cutoff) -> int:
         await session.commit()
 
 
+SEAL_PREFIX = "audit_head_prev="
+
+
+async def _seal_audit_head(session, cutoff) -> str | None:
+    """پ۱۰۲ · مُهرِ سرِ زنجیره پیش ازِ حذفِ ردیف‌هایِ کهنهٔ ممیزی.
+
+    برگشت: متنِ مُهر (`audit_head_prev=<hash> audit_first_alive_id=<id>`) یا None اگر ردیفِ هش‌داری
+    برایِ حذف نیست. مُهر خودش یکِ ردیفِ ممیزی است و داخلِ زنجیره می‌نشیند؛ پس حذفِ ابتدایِ زنجیره
+    بدونِ مُهر، در `verify_audit_chain` به‌عنوانِ شکست دیده می‌شود (نه به‌عنوانِ «پنجرهٔ کوتاه»).
+    """
+    last_deleted = (
+        await session.execute(
+            select(AuditLogEntry.row_hash)
+            .where(AuditLogEntry.created_at < cutoff, AuditLogEntry.row_hash.is_not(None))
+            .order_by(AuditLogEntry.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not last_deleted:
+        return None
+    first_alive = (await session.execute(select(func.min(AuditLogEntry.id)).where(AuditLogEntry.created_at >= cutoff))).scalar_one()
+    return f"{SEAL_PREFIX}{last_deleted} audit_first_alive_id={first_alive}"
+
+
 async def run(windows: dict[str, int], *, apply: bool, confirm: str, backup_ok: bool, include_chat: bool) -> int:
     targets = _targets(windows, include_chat=include_chat)
     if not targets:
@@ -128,6 +153,10 @@ async def run(windows: dict[str, int], *, apply: bool, confirm: str, backup_ok: 
                 old, everything = await _count(session, model, column, cutoff)
                 print(f"  • {label}: {fa_grouped(old)} ردیف از {fa_grouped(everything)} بیرونِ پنجره است (dry-run).")
                 continue
+            if key == "audit":
+                seal = await _seal_audit_head(session, cutoff)
+                if seal:
+                    await audit_log_service.log(session, AuditEventType.RETENTION_APPLIED, details=seal)
             went = await _delete_chunked(session, model, column, cutoff)
             total_deleted += went
             report.append(f"{key}={went}")
