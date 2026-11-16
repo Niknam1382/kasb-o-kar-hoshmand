@@ -850,3 +850,17 @@ BOM و خنثی‌سازیِ فرمول دست‌نخورده‌اند.
 • ردیف‌هایِ `runtime_counter_snapshots` که بیش از ۷ روز ضربان ندهند خودکار حذف می‌شوند
   (`capacity_service.SNAPSHOT_RETENTION_DAYS`). اگر بعداً خواستی این را عوض کنی، قاعدهٔ ایمنی این است:
   مقدارِ نگهداری باید از پنجرهٔ اعتبار (۱۵۰ ثانیه) بزرگ‌تر بماند — در تست پین شده است.
+
+
+## 🌐 `/ops/status` — وضعیتِ عملیاتی به شکلِ JSON (پ۸۷ · ۲۰۲۶-۱۱-۱۶)
+برایِ Prometheus/Grafana یا اسکریپتِ مانیتورینگ لازم نیست متنِ `/metrics` پارس شود:
+
+```
+curl -H "x-metrics-token: $METRICS_TOKEN" http://127.0.0.1:8000/ops/status
+```
+
+چه می‌دهد: `ok`، `processes` و `stale_processes`، `counters` (جمعِ همهٔ پروسه‌ها)، `db_pool`،
+`system`، `ai`، `thresholds` و `findings` با کلید/شدت/عنوانِ هر یافته.
+چه چیزی نمی‌دهد: هیچ رازی — نه توکنِ ربات، نه کلیدِ AI، نه merchant_id، نه خودِ `METRICS_TOKEN`.
+احراز همان `METRICS_TOKEN` است؛ اگر در `.env` خالی باشد این مسیر ۴۰۴ می‌دهد. پنلِ وبِ تعاملی
+(لاگین و WebSocket) هنوز ساخته نشده است.

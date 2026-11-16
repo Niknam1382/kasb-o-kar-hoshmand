@@ -611,3 +611,10 @@ poller + core، سهمِ هرِ پروسه یک‌چهارم می‌شود و ه
 `deployment-playbook.md`، `user-guide.md`، `admin-guide.md`، `plain-report-fa.md` و سه سندِ اینستاگرام
 دوباره اجرا کن (PDFها در `docs/` نسخه‌بندی می‌شوند؛ `docs/` در `.dockerignore` است، پس با buildِ ربات
 در ایمیج نمی‌آید).
+
+
+### پ۸۷ · `/ops/status` برایِ مانیتورینگِ یکپارچه
+همان اپِ `/health` حالا یکِ JSONِ فقط‌خواندنی هم می‌دهد:
+`curl -H "x-metrics-token: …" http://127.0.0.1:8000/ops/status`. بدونِ `METRICS_TOKEN` این مسیر ۴۰۴ است،
+پس در reverse-proxy هم چیزی برایِ عموم باز نمی‌شود. برایِ هشدارِ «worker خوابیده» کافی است رویِ
+`stale_processes > 0` یا `processes < تعدادِ سرویس‌ها` شرط بگذاری.
