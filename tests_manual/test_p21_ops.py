@@ -2,7 +2,7 @@
 تست: P21-B — اپِ سلامت در حالتِ polling، پاک‌سازیِ صفِ اعلان، و تنظیمِ دیتابیس
 
 پوشش:
-۱. `build_health_app()` فقط `/health` و `/metrics` را دارد: هیچ مسیرِ `/webhook/*` یا
+۱. `build_health_app()` فقط `/health`، `/metrics` و `/ops/status` را دارد: هیچ مسیرِ `/webhook/*` یا
    `/payment/*` در آن سرویس نمی‌شود (این دلیلِ اصلیِ ساختِ اپِ جداست، نه تنظیف).
 ۲. `/health`: با دیتابیسِ سالم و باتِ مقداردهی‌شده ۲۰۰، بدونِ بات ۵۰۳ ⇒ لودبالانسر گول نمی‌خورد.
 ۳. `prune_aged`: ردیف‌هایِ کهنهٔ `sent` می‌روند، `failed` تا ۹۰ روز می‌مانند، و `pending`
@@ -81,8 +81,10 @@ async def test_health_app_exposes_only_two_routes() -> None:
 
     health_app = app_main.build_health_app()
     paths = _paths(health_app.routes)
-    assert paths == {"/health", "/metrics"}, f"اپِ سلامت باید فقط این دو مسیر را داشته باشد؛ دیده شد: {sorted(paths)}"
-    assert {"/health", "/metrics"} <= _paths(app_main.app.routes), "اپِ اصلی هم همان دو مسیر را دارد"
+    # پ۸۷: مسیرِ سومِ فقط‌خواندنی (/ops/status) افزوده شد — ادعا بی‌تغییر می‌ماند: هیچ وب‌هوکی اینجا
+    # سرویس نمی‌شود و `/docs` همچنان ۴۰۴ است. (تغییرِ رفتاریِ عمدی، ثبت‌شده در docs/PROGRESS.md)
+    assert paths == {"/health", "/metrics", "/ops/status"}, f"اپِ سلامت باید فقط این سه مسیر را داشته باشد؛ دیده شد: {sorted(paths)}"
+    assert {"/health", "/metrics", "/ops/status"} <= _paths(app_main.app.routes), "اپِ اصلی هم همان سه مسیر را دارد"
     assert {"/webhook/main", "/webhook/shop/{shop_bot_id}"} <= _paths(app_main.app.routes), "وب‌هوک‌هایِ اپِ اصلی نباید رفته باشند"
 
     # رفتارِ واقعی (نه فقط جدولِ مسیر): در حالتِ polling هم آپدیتِ جعلی قابلِ تزریق نیست

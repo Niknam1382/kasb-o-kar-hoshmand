@@ -186,6 +186,7 @@ TEST_FILES = [
     "test_p80_concise_prompts.py",
     "test_p81_metrics_peer_summary.py",
     "test_p84_comment_erasure.py",
+    "test_p87_ops_endpoint.py",
 ]
 
 
