@@ -114,13 +114,6 @@ async def count_inactive(
     return len((await session.execute(query)).all())
 
 
-async def count_active(session: AsyncSession, *, allowed_owner_ids: list[int] | None = None) -> int:
-    if allowed_owner_ids is not None and not allowed_owner_ids:
-        return 0
-    query = select(ShopOwner.id).where(ShopOwner.is_deleted.is_(False))
-    if allowed_owner_ids is not None:
-        query = query.where(ShopOwner.id.in_(allowed_owner_ids))
-    return len((await session.execute(query)).all())
 
 
 async def get(session: AsyncSession, owner_id: int, *, include_deleted: bool = False) -> ShopOwner | None:

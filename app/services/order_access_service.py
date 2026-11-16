@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services import ai_debt_service, shop_bot_service, shop_owner_service
+from app.services import ai_debt_service, shop_owner_service
 from app.services.admin_settings_service import get_admin_settings
 from app.services.commission_receivable_service import open_totals_by_owner
 
@@ -56,11 +56,6 @@ async def state_for_shop_bot(session: AsyncSession, shop_bot) -> str:
     return await evaluate(session, owner, await get_admin_settings(session))
 
 
-async def state_for_bot(session: AsyncSession, bot) -> str:
-    shop_bot = await shop_bot_service.get_by_bot(session, bot)
-    if shop_bot is None:
-        return NO_CREDIT
-    return await state_for_shop_bot(session, shop_bot)
 
 
 def chat_continues(state: str) -> bool:

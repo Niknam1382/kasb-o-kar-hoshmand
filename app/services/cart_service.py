@@ -48,9 +48,6 @@ async def get_items_with_products(session: AsyncSession, cart_id: int) -> list[t
     return list(result.all())
 
 
-async def count_items(session: AsyncSession, cart_id: int) -> int:
-    items = await get_items_with_products(session, cart_id)
-    return sum(item.quantity for item, _product in items)
 
 
 def available_stock(product: Product) -> int | None:

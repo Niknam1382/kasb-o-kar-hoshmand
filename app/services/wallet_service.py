@@ -286,8 +286,6 @@ def compute_cost_per_1k_tokens_from_formula(admin_settings) -> int:
     return max(1, round(raw_toman * admin_settings.wallet_markup_multiplier))
 
 
-async def get_balance(owner: ShopOwner) -> int:
-    return owner.wallet_balance_toman
 
 
 async def get_recent_transactions(session: AsyncSession, owner_id: int, limit: int = 15) -> list[WalletTransaction]:

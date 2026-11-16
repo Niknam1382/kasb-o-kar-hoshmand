@@ -32,8 +32,6 @@ def is_bale(bot: Bot | None) -> bool:
     return platform_of(bot) == BALE
 
 
-def is_instagram(bot: Bot | None) -> bool:
-    return platform_of(bot) == INSTAGRAM
 
 
 def of_event(event) -> str:

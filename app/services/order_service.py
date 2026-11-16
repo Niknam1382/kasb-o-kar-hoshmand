@@ -425,8 +425,6 @@ async def get_recent_summaries(session: AsyncSession, shop_bot_id: int, since: d
     return [row[0] for row in result.all()]
 
 
-async def get_recent_for_owner_notification(session: AsyncSession, order_id: int) -> OrderConsultation | None:
-    return await session.get(OrderConsultation, order_id)
 
 
 # سفارش‌هایِ «باز» = هنوز به نتیجه‌یِ نهایی نرسیده‌ن؛ تا وقتی هستن تغییرِ مودِ کسب‌وکار مسدوده (A3، قاعده‌یِ ۸).

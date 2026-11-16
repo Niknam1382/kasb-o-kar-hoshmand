@@ -190,9 +190,6 @@ async def get_rules(session: AsyncSession, shop_bot_id: int | None = None, *, ac
     return rows
 
 
-async def get_active_rules(session: AsyncSession) -> list[ModerationRule]:
-    result = await session.execute(select(ModerationRule).where(ModerationRule.is_active.is_(True)))
-    return list(result.scalars().all())
 
 
 async def get_all_rules(session: AsyncSession) -> list[ModerationRule]:

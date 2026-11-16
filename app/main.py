@@ -560,6 +560,54 @@ def _denied() -> Response:
     return Response(status_code=403)
 
 
+async def _ops_status_json(request: Request) -> dict:
+    """پ۸۷ · لایهٔ اولِ «پنلِ عملیاتیِ وب»: فقط‌خواندنی، احرازِ همان `METRICS_TOKEN`، بدونِ هیچ نوشتن.
+
+    هیچ رازی بیرون نمی‌رود: نه توکن، نه آدرسِ درگاه، نه متنِ پیام‌ها. فقط شمارنده/درصد/کلیدِ یافته‌ها.
+    """
+    from app.services import capacity_service, server_doctor
+
+    async with session_scope() as session:
+        snapshot = await capacity_service.snapshot(session)
+        findings = await server_doctor.inspect(session)
+        limits = await server_doctor.thresholds(session)
+    return {
+        "ok": not any(f.severity == server_doctor.ERROR for f in findings),
+        "processes": snapshot["processes"],
+        "stale_processes": snapshot["stale_processes"],
+        "counters": {label: value for label, value in snapshot["counters"]},
+        "db_pool": {k: snapshot["db"][k] for k in ("size", "checked_out", "capacity", "percent")},
+        "system": {
+            "cores": snapshot["system"]["cores"],
+            "load1": snapshot["system"]["load1"],
+            "load_percent": snapshot["system"]["load_percent"],
+            "memory_used_percent": snapshot["system"]["memory_used_percent"],
+            "disk_used_percent": snapshot["system"]["disk_used_percent"],
+        },
+        "ai": {
+            "total_capacity": snapshot["ai"].get("total_capacity"),
+            "inflight": snapshot["ai"].get("inflight"),
+            "keys": len(snapshot["ai"].get("keys", []) or []),
+            "pressure_percent": snapshot["ai"].get("pressure_percent"),
+        },
+        "thresholds": limits,
+        "findings": [
+            {"key": f.key, "severity": f.severity, "title": f.title} for f in findings
+        ],
+    }
+
+
+@observability_router.get("/ops/status")
+async def ops_status_endpoint(request: Request) -> Response:
+    """جمعِ وضعیتِ عملیاتی در یکِ JSON (برایِ داشبورد/مانیتورینگ). بدونِ `METRICS_TOKEN` ⇒ ۴۰۴."""
+    if not settings.metrics_token:
+        return Response(status_code=404)
+    provided = request.headers.get("x-metrics-token") or ""
+    if not _secrets_equal(provided, settings.metrics_token):
+        return _denied()
+    return JSONResponse(await _ops_status_json(request))
+
+
 @observability_router.get("/metrics")
 async def metrics_endpoint(request: Request) -> Response:
     """شمارنده‌هایِ in-process به شکلِ متنِ Prometheus. با METRICS_TOKEN="" اصلاً وجود ندارد."""

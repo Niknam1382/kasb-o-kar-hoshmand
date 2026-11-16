@@ -29,7 +29,6 @@ def shop_welcome_consultation(support_enabled: bool = False) -> str:
     return f"{SHOP_WELCOME_CONSULTATION}\n\nاگر خواستی با خودِ مجموعه صحبت کنی، دکمهٔ «📞 ارتباط با پشتیبانی» پایینِ صفحه است."
 MENU_REPLY = "منوی فروشگاه 👇"
 STALE_BUTTON_REPLY = "این دکمه مالِ نسخه‌یِ قبلیِ منو بود. منویِ تازه رو برات فرستادم 👇"
-SERVICES_EMPTY = "این کسب‌وکار فعلاً خدمات یا بسته‌ای ثبت نکرده. سوالت رو همین‌جا بپرس."
 SUPPORT_UNAVAILABLE = "پشتیبانیِ مستقیم برایِ این فروشگاه فعال نیست. سوالت رو همین‌جا بپرس."
 
 
@@ -67,7 +66,6 @@ RATE_LIMITED = "لطفاً کمی آروم‌تر پیام بده 🙏 چند ل
 # B4: مشتریِ بلاک‌شده — فقط همین یک پیامِ ادبی، بدونِ هیچ دلیلِ فنی و بدونِ هزینه‌یِ AI/سفارش/پرداخت.
 CUSTOMER_BLOCKED_NOTICE = "🙏 دسترسیِ شما به این ربات محدود شده است. برایِ پیگیری با پشتیبانیِ فروشگاه تماس بگیرید."
 
-AI_NOT_CONFIGURED = "این فروشگاه هنوز کامل راه‌اندازی نشده. لطفاً بعداً دوباره امتحان کن."
 
 AI_ERROR_REPLY = "الان نتونستم جوابت رو بدم 🙏 لطفاً چند لحظه‌ی دیگه دوباره پیام بده."
 
@@ -146,7 +144,6 @@ PRODUCTS_BROWSE_CATEGORY_LINE = "🏷 دسته: {name}"
 PRODUCTS_BROWSE_CATEGORY_EMPTY = "در این دسته فعلاً محصولِ فعالی نیست؛ «🏷 همه» را بزن."
 CART_EMPTY = "سبدِ خریدت الان خالیه."
 ITEM_OUT_OF_STOCK = "متاسفانه این محصول الان موجودی نداره."
-ITEM_ADDED_PARTIAL_STOCK = "فقط {added} تا از این محصول موجود بود — همون تعداد به سبدت اضافه شد."
 
 
 def item_added_to_cart(product_name: str) -> str:
@@ -351,7 +348,6 @@ MY_ORDER_STALE = "این سفارش پیدا نشد یا دیگه در دستر�
 MY_ORDER_CANNOT_CANCEL = "این سفارش دیگه قابلِ لغو نیست (فقط قبل از پرداخت می‌شه لغو کرد)."
 MY_ORDER_CANCELLED = "🚫 سفارش لغو شد و رزروِ کالا آزاد شد."
 MY_ORDER_INVOICE_UNAVAILABLE = "برایِ این سفارش فاکتوری صادر نمی‌شه."
-MY_ORDER_DIGITAL_AGAIN = "📥 دریافتِ دوباره"
 
 
 def customer_status_label(status) -> str:

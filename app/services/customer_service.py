@@ -25,12 +25,6 @@ async def get_by_shop_bot_and_telegram_id(
     return result.scalar_one_or_none()
 
 
-async def get_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> list[Customer]:
-    """همه‌ی مشتری‌هایِ یه فروشگاهِ مشخص — برایِ پیامِ همگانیِ فروشگاه‌دار به
-    مشتری‌هاش (panel.py). فقط telegram_id لازمه برای ارسال، ولی کلِ ردیف
-    برمی‌گردونه چون شمارشِ preview هم از همین لیست محاسبه می‌شه."""
-    result = await session.execute(select(Customer).where(Customer.shop_bot_id == shop_bot_id))
-    return list(result.scalars().all())
 
 
 async def recipients_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> list[tuple[int, str]]:

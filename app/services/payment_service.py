@@ -72,11 +72,6 @@ async def get_history_by_owner(session: AsyncSession, shop_owner_id: int, limit:
     return list(result.scalars().all())
 
 
-async def get_pending_payments(session: AsyncSession, limit: int = 20) -> list[Payment]:
-    result = await session.execute(
-        select(Payment).where(Payment.status == PaymentStatus.PENDING).order_by(Payment.id.asc()).limit(limit)
-    )
-    return list(result.scalars().all())
 
 
 PENDING_QUEUE_PAGE_SIZE = 10

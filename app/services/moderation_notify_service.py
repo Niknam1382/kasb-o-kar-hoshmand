@@ -19,7 +19,6 @@ from app.bots.main_bot import keyboards, texts as main_texts
 from app.bots.shop_bot import texts as shop_texts
 from app.config import settings
 from app.database.models import Customer, ModerationReport, ShopBot, ShopOwner
-from app.services import crm_service
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +95,3 @@ def _deep_links(shop_bot: ShopBot, customer_id: int | None) -> tuple[str | None,
     return f"crm_conv:{customer_id}:0", f"crm_card:{customer_id}"
 
 
-async def block_customer(session: AsyncSession, customer: Customer) -> None:
-    """موردِ ۳۱: «مسدود» باید واقعاً مسدود کند — همان ستون و همان میدل‌وری که «👥 مشتری‌ها» می‌زند."""
-    await crm_service.set_blocked(session, customer, True)

@@ -72,12 +72,3 @@ def fee_for_subtotal(method: ShippingMethod, subtotal_toman: int) -> int:
     return max(0, method.fee_toman)
 
 
-def describe_method(method: ShippingMethod, format_toman) -> str:
-    parts = [method.name]
-    fee = "رایگان" if method.fee_toman == 0 else format_toman(method.fee_toman)
-    parts.append(fee)
-    if method.free_over_toman is not None:
-        parts.append(f"رایگان بالایِ {format_toman(method.free_over_toman)}")
-    if method.eta_text:
-        parts.append(method.eta_text)
-    return " · ".join(parts)

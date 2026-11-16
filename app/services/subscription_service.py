@@ -23,8 +23,6 @@ async def get_latest_subscription_by_owner_id(session: AsyncSession, shop_owner_
     return result.scalar_one_or_none()
 
 
-async def has_ever_had_subscription(session: AsyncSession, owner: ShopOwner) -> bool:
-    return await get_latest_subscription(session, owner) is not None
 
 
 async def activate_trial(session: AsyncSession, owner: ShopOwner) -> Subscription:

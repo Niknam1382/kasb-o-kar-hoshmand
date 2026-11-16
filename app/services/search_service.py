@@ -91,9 +91,3 @@ def filter_conditions(
     return [or_(*conditions)] if conditions else [or_(False)]
 
 
-def require_term(term: str | None) -> str:
-    """نرمال‌سازی + ردِ عبارتِ خالی؛ هندلرها با این، «جست‌وجویِ بی‌نهایه» را از همان اول می‌بندند."""
-    normalized = normalize_term(term)
-    if not normalized:
-        raise ValueError("عبارتِ جست‌وجو خالی است")
-    return normalized

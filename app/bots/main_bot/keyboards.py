@@ -121,12 +121,6 @@ def reg_cancel_confirm_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def request_phone_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📱 ارسال شماره تماس", request_contact=True)]],
-        resize_keyboard=True,
-        one_time_keyboard=True,
-    )
 
 
 def channels_gate_keyboard(channels, check_callback_data: str) -> InlineKeyboardMarkup:
@@ -877,13 +871,6 @@ def doctor_thresholds_keyboard(limits) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def doctor_threshold_detail_keyboard(key: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ بازگشت به آستانه‌ها", callback_data="doctor_thr_open")],
-            [InlineKeyboardButton(text="🩺 بازگشت به عیب‌یاب", callback_data="doctor_refresh")],
-        ]
-    )
 
 
 def mandatory_channels_list_keyboard(channels) -> InlineKeyboardMarkup:
@@ -2229,15 +2216,6 @@ def inactive_restore_confirm_keyboard(owner_id: int) -> InlineKeyboardMarkup:
     return yes_no_keyboard(f"inact_restore_yes:{owner_id}", f"inact_view:{owner_id}")
 
 
-# ------------------------------------------------------------------ پ۷۰ · مصرفِ AI: فیلترِ فروشگاه + پنلِ فروشگاه‌دار
-def ai_usage_shop_filter_keyboard(window: str, page: int, shop_username: str) -> InlineKeyboardMarkup:
-    """پ۷۰: وقتی فهرستِ ادمین رویِ یکِ فروشگاه فیلتر است، «پاک‌کردنِ فیلتر» هم همین‌جا باشد."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=texts.AI_USAGE_SHOP_ALL_BUTTON, callback_data="ai_usage_shop:0")],
-            [InlineKeyboardButton(text="📊 فهرستِ بی‌فیلتر", callback_data=f"ai_usage:{window}:{page}")],
-        ]
-    )
 
 
 def owner_ai_usage_windows_row(window: str) -> list[InlineKeyboardButton]:

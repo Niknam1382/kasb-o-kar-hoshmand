@@ -225,8 +225,3 @@ async def recent_audit(session: AsyncSession, shop_bot_id: int | None, limit: in
     return out
 
 
-def extend_allowed(data: dict[str, Any]) -> tuple[bool, str | None]:
-    """تمدیدِ روز فقط رویِ حسابی معنا دارد که بسته نشده باشد (`None` ⇒ آزاد)."""
-    if data["is_deleted"]:
-        return False, "deleted"
-    return True, None

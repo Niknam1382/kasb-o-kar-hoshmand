@@ -85,8 +85,6 @@ def compose(owner_text: str | None, admin_text: str | None, limit: int = BIO_LIM
     return admin[:limit]
 
 
-def expected_bio(shop_bot: ShopBot, admin_settings) -> str:
-    return compose(shop_bot.branding_owner_text, getattr(admin_settings, "branding_text", None))
 
 
 def interval_of(admin_settings) -> int:
