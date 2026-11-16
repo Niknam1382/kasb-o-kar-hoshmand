@@ -248,7 +248,13 @@ find "$D" -name '*.dump.gz' -mtime +14 -delete
 ( crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/kasb-backup.sh >> /var/log/kasb-backup.log 2>&1" ) | crontab -
 ```
 
-- **بکاپ رویِ همان دیسک، بکاپ نیست.** یکِ نسخه را بیرون ببر (Object Storage، FTP، یا `rsync` به سرورِ دیگر).
+- **نگهداریِ داده (پ۹۹) خودکار نیست و عمداً این‌طور مانده:** اگر خواستی، بعد ازِ یکِ بکاپِ تأییدشده با
+  عددهایِ خودت اجرا کن و *اول* dry-run بگیر:
+  `docker compose run --rm bot python3 scripts/data_retention_apply.py --payments-days 365 --ig-days 180 --counters-days 7`
+  سپس برایِ حذف: `-e RETENTION_BACKUP_CONFIRMED=1` + `--apply --confirm delete-retention-rows`.
+  پنجرهٔ دفترِ ممیزی پیش‌فرض ۰ است چون `scripts/verify_audit_chain.py` زنجیرهٔ هش را با حذفِ ردیف
+  میانی می‌شکند؛ اگر روزی باز کردیش، بلافاصله همان اسکریپتِ اعتبارسنجی زنجیره را هم اجرا کن.
+  - **بکاپ رویِ همان دیسک، بکاپ نیست.** یکِ نسخه را بیرون ببر (Object Storage، FTP، یا `rsync` به سرورِ دیگر).
 - **حجمِ واقعیِ بکاپِ همین نصب (MEASURED):** ۱۳۰ تا ۱۸۰ کیلوبایت فشرده با ۳ فروشگاه‌دار. برایِ دیتابیسِ ~۱ گیگی ≈ ۲۵۰ مگابایت ⇒ ۱۴ نسخه ≈ ۳٫۵ گیگ.
 - **تمرینِ بازگردانی (ماهی یک‌بار، ۱۰ دقیقه):** رویِ یک دایرکتوریِ کپی‌شده از پروژه، `docker compose down` (بدونِ `-v`)، حجمِ `postgres_data` را **بردار** (کپی، نه حذف)، یک DBِ خالی بساز، `pg_restore -U postgres -d kasbokar فایل.dump`، بعد `docker compose up -d` و `verify_audit_chain.py`. اگر این را یک‌بار انجام ندهی، روزِ فاجعه نمی‌دانی درست کار می‌کند یا نه.
 - **`docker compose down -v` حجمِ دیتابیس را پاک می‌کند.** فقط با بکاپِ تأییدشده.

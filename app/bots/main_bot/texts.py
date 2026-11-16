@@ -3558,6 +3558,7 @@ _AUDIT_EVENT_LABELS = {
     "instagram_toggled": "🟣 تغییرِ سوییچِ اینستاگرام",
     "instagram_connected": "🟣 اتصالِ اکانت اینستاگرام",
     "instagram_unbound": "🟣 حذفِ اتصالِ اینستاگرام",
+    "retention_applied": "🗓 اجرایِ سیاستِ نگهداریِ داده (پاک‌سازیِ ردیف‌هایِ کهنه)",
 }
 
 

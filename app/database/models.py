@@ -238,6 +238,8 @@ class AuditEventType(str, enum.Enum):
     INSTAGRAM_TOGGLED = "instagram_toggled"
     INSTAGRAM_CONNECTED = "instagram_connected"
     INSTAGRAM_UNBOUND = "instagram_unbound"
+    # پ۹۹: اجرایِ سیاستِ نگهداری (تعدادِ ردیفِ پاک‌شده در details ثبت می‌شود).
+    RETENTION_APPLIED = "retention_applied"
 
 
 class AdminRoleType(str, enum.Enum):
@@ -1365,7 +1367,7 @@ class PaymentEventLog(Base):
     reference: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     raw: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # د(ز): شناسه‌یِ همبستگی — کدام فروشگاه و کدام گروه/سفارش، تا لاگِ پرداخت قابلِ ردیابی باشد.
+    # (د): شناسه‌یِ همبستگی — کدام فروشگاه و کدام گروه/سفارش، تا لاگِ پرداخت قابلِ ردیابی باشد.
     shop_bot_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     group_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

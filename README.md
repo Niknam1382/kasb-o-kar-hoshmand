@@ -92,7 +92,7 @@ docker compose run --rm bot alembic upgrade head
 docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
-مجموعاً **۱۶۹ فایلِ تست (۱۷۷ فایلِ Python در `tests_manual/`) و ۱٬۰۶۷ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۶۹/۱۶۹ فایل · ۱٬۰۶۷ تست · `SUITE_EXIT=0`**
+مجموعاً **۱۷۱ فایلِ تست (۱۷۹ فایلِ Python در `tests_manual/`) و ۱٬۰۷۵ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۷۱/۱۷۱ فایل · ۱٬۰۷۵ تست · `SUITE_EXIT=0`** (۲۰۲۶-۱۱-۱۷)
 (۲۰۲۶-۱۱-۱۶، پس ازِ پ۹۵؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۷۵ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
 (عددِ کوئری/کارِ هر پیام) و `tests_manual/load_simulation.py`. فقط یه فایل:
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
@@ -117,7 +117,7 @@ app/
     shop_bot/               # رباتِ فروشگاه: handlers/customer.py (چتِ AI، سفارش، سبد، ...)
   services/                 # منطقِ کسب‌وکار (۱۰۳ فایل، بدونِ وابستگی به aiogram)
   utils/                    # رمزنگاری، اعتبارسنجی، تاریخِ شمسی، ...
-migrations/                 # Alembic (head: f8c3a1d6b240 — تک‌head، مایگریشن‌ها فقط افزودنی)
+migrations/                 # Alembic (head: b7d1e4a9c260 — تک‌head، مایگریشن‌ها فقط افزودنی)
 tests_manual/               # تست‌هایِ end-to-end با FakeSession + harness.py / shop_setup.py
 scripts/                    # check_gates.py → check_refs / check_attrs / lint_names / check_callbacks / check_text_hygiene
 docs/                       # راهنماها و changelogها

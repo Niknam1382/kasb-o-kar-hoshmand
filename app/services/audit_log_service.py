@@ -109,6 +109,7 @@ FILTER_GROUPS: dict[str, tuple[str, ...]] = {
         AuditEventType.TIME_FREEZE_CHANGED.value,
         AuditEventType.JOBS_PAUSE_CHANGED.value,
         AuditEventType.BRANDING_TEXT_CHANGED.value,
+        AuditEventType.RETENTION_APPLIED.value,  # پ۹۹ · اجرایِ سیاستِ نگهداریِ داده
     ),
     "roles": (AuditEventType.OPERATOR_ADMIN_GRANTED.value, AuditEventType.OPERATOR_ADMIN_REVOKED.value),
     "brand": (AuditEventType.BOT_BIO_TAMPERED.value, AuditEventType.MODERATION_MATCH.value),
