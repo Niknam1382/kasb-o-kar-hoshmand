@@ -20,6 +20,8 @@ sys.path.insert(0, ".")
 sys.path.insert(0, "tests_manual")
 
 from app import main as app_main  # noqa: E402
+from app.database.session import engine  # noqa: E402
+from app.services import http_guard  # noqa: E402
 from app.config import settings  # noqa: E402
 from harness import reset_database  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
@@ -60,6 +62,7 @@ def _basic(secret: str) -> bytes:
 
 
 async def test_auth_gate() -> None:
+    http_guard.reset()
     app = app_main.build_health_app()
     previous = settings.metrics_token
     try:
@@ -81,6 +84,7 @@ async def test_auth_gate() -> None:
 
 
 async def test_panel_is_readonly_persian_and_secret_free() -> None:
+    http_guard.reset()
     await reset_database()
     await seed_usable_shop(OWNER_TG_ID, SHOP_BOT_TG_ID, initial_balance_toman=50_000)
     app = app_main.build_health_app()
@@ -104,9 +108,34 @@ async def test_panel_is_readonly_persian_and_secret_free() -> None:
     print("PASS test_panel_is_readonly_persian_and_secret_free")
 
 
+async def test_brute_force_is_rate_limited() -> None:
+    """پ۹۶ · تلاشِ ناموفقِ بی‌پایانِ رمز، صفحه را باز نمی‌کند: بعد ازِ سقف ⇒ ۴۲۹ + Retry-After."""
+    http_guard.reset()
+    app = app_main.build_health_app()
+    previous = settings.metrics_token
+    limit = app_main.OPS_AUTH_FAIL_LIMIT_PER_MINUTE
+    try:
+        settings.metrics_token = TOKEN
+        bad = (b"authorization", f"Basic {_basic('guessed')}".encode())
+        for _ in range(limit):
+            assert (await _call(app, "/panel", [bad]))[0] == 401
+        status, headers, _ = await _call(app, "/panel", [bad])
+        assert status == 429, status
+        assert b"retry-after" in {k.lower() for k in headers}, headers
+        # رمزِ درست حتی در همان دقیقه کار می‌کند (سقف مالِ تلاشِ *ناموفق* است، نه موفق)
+        good = (b"authorization", f"Basic {_basic(TOKEN)}".encode())
+        assert (await _call(app, "/panel", [good]))[0] == 200, "سقفِ تلاشِ ناموفق نباید رمزِ درست را هم بخورد"
+    finally:
+        settings.metrics_token = previous
+        http_guard.reset()
+    print("PASS test_brute_force_is_rate_limited")
+
+
 async def main() -> None:
     await test_auth_gate()
     await test_panel_is_readonly_persian_and_secret_free()
+    await test_brute_force_is_rate_limited()
+    await engine.dispose()  # پ۹۶: اتصال‌ها قبلِ بسته‌شدنِ loop برگردند تا warningِ greenlet ساخته نشود
 
 
 if __name__ == "__main__":

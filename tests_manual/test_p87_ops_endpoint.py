@@ -21,6 +21,8 @@ sys.path.insert(0, "tests_manual")
 
 from app import main as app_main  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.database.session import engine  # noqa: E402
+from app.services import http_guard  # noqa: E402
 from harness import reset_database  # noqa: E402
 from shop_setup import seed_usable_shop  # noqa: E402
 
@@ -84,6 +86,7 @@ async def test_route_is_registered_on_both_apps() -> None:
 
 
 async def test_auth_is_the_same_token_and_hides_the_route_when_unset() -> None:
+    http_guard.reset()
     health_app = app_main.build_health_app()
     previous = settings.metrics_token
     try:
@@ -127,6 +130,7 @@ async def test_payload_is_machine_readable_and_secret_free() -> None:
 
 
 async def main() -> None:
+    await engine.dispose()  # پ۹۶: بی‌صدا کردنِ نویزِ بستنِ استخر در پایانِ پروسه
     await test_route_is_registered_on_both_apps()
     await test_auth_is_the_same_token_and_hides_the_route_when_unset()
     await test_payload_is_machine_readable_and_secret_free()

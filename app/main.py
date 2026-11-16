@@ -534,6 +534,27 @@ async def webhook_shop(shop_bot_id: int, request: Request) -> Response:
 
 
 
+OPS_AUTH_FAIL_LIMIT_PER_MINUTE = 12  # پ۹۶ · سقفِ تلاشِ ناموفقِ احرازِ `/panel` و `/ops/status` به‌ازایِ هر IP
+
+
+def _ops_auth_denied(request: Request, *, challenge: dict[str, str] | None = None) -> Response:
+    """شمارشِ تلاشِ ناموفقِ هر IP و رد کردن؛ بعد ازِ سقف، ۴۲۹ (همان الگویِ گیتِ وب‌هوک)."""
+    key = (_client_ip(request), "ops-auth")
+    if not http_guard.allow(key, OPS_AUTH_FAIL_LIMIT_PER_MINUTE):
+        observability.count("webhook.rate_limited")
+        logger.warning("سقفِ تلاشِ ناموفقِ احرازِ پنلِ عملیاتی از IP=%s رد شد.", _client_ip(request))
+        return Response(status_code=429, headers={"Retry-After": "60"}, media_type="text/plain; charset=utf-8")
+    observability.count("metrics.denied")
+    if challenge is None:
+        return _denied()
+    return Response(
+        status_code=401,
+        content="نیازمندِ رمزِ پنلِ عملیاتی (METRICS_TOKEN)",
+        headers=challenge,
+        media_type="text/plain; charset=utf-8",
+    )
+
+
 def _client_ip(request: Request) -> str:
     """IPِ واقعیِ فرستنده. پشتِ reverse-proxy باید TRUST_PROXY_HEADERS=true شود، وگرنه
     IPِ هر درخواست همانِ پراکسی است و سقفِ مشترک همه را با هم رد می‌کند."""
@@ -561,7 +582,7 @@ def _denied() -> Response:
     return Response(status_code=403)
 
 
-async def _ops_status_json(request: Request) -> dict:
+async def _ops_status_json() -> dict:
     """پ۸۷ · لایهٔ اولِ «پنلِ عملیاتیِ وب»: فقط‌خواندنی، احرازِ همان `METRICS_TOKEN`، بدونِ هیچ نوشتن.
 
     هیچ رازی بیرون نمی‌رود: نه توکن، نه آدرسِ درگاه، نه متنِ پیام‌ها. فقط شمارنده/درصد/کلیدِ یافته‌ها.
@@ -676,13 +697,8 @@ async def ops_panel(request: Request) -> Response:
             decoded = ""
         _user, _, password = decoded.partition(":")
     if not password or not _secrets_equal(password, settings.metrics_token):
-        return Response(
-            status_code=401,
-            content="نیازمندِ رمزِ پنلِ عملیاتی (METRICS_TOKEN)",
-            headers={"WWW-Authenticate": 'Basic realm="ops", charset="UTF-8"'},
-            media_type="text/plain; charset=utf-8",
-        )
-    data = await _ops_status_json(request)
+        return _ops_auth_denied(request, challenge={"WWW-Authenticate": 'Basic realm="ops", charset="UTF-8"'})
+    data = await _ops_status_json()
     return HTMLResponse(_ops_html(data), media_type="text/html; charset=utf-8")
 
 @observability_router.get("/ops/status")
@@ -692,8 +708,8 @@ async def ops_status_endpoint(request: Request) -> Response:
         return Response(status_code=404)
     provided = request.headers.get("x-metrics-token") or ""
     if not _secrets_equal(provided, settings.metrics_token):
-        return _denied()
-    return JSONResponse(await _ops_status_json(request))
+        return _ops_auth_denied(request)
+    return JSONResponse(await _ops_status_json())
 
 
 @observability_router.get("/metrics")
