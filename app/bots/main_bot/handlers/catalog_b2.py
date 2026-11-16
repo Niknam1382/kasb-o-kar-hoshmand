@@ -20,7 +20,7 @@ from app.bots.main_bot.handlers.owner_common import require_shop_bot_cb, safe_ed
 from app.bots.main_bot.states import DigitalProductStates, ShippingStates
 from app.database.models import ShopBot, TenantMode
 from app.services import digital_service, product_service, shipping_service
-from app.utils.validators import parse_nonneg_int, parse_price_toman
+from app.utils.validators import fa_number, parse_nonneg_int, parse_price_toman
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,67 @@ async def _show_products(callback_or_message, session: AsyncSession, shop_bot: S
 
 
 # ===========================================================================
+# ===========================================================================
+# پ۹۷ · بایگانیِ نرمِ محصول‌هایِ دیجیتال (صفر حذفِ داده، برگشت‌پذیر)
+# ===========================================================================
+@router.callback_query(F.data == "product_archive_digital")
+async def cb_archive_digital(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    if not _sales(shop_bot):
+        await callback.answer(texts.DG_ONLY_SALES, show_alert=True)
+        return
+    pending = await product_service.count_digital(session, shop_bot.id, retired=False)
+    archived = await product_service.count_digital(session, shop_bot.id, retired=True)
+    await session.commit()
+    if not pending:
+        if not archived:
+            await callback.answer(texts.DG_ARCHIVE_NONE, show_alert=True)
+            return
+        # همه بایگانی‌اند ⇒ «بله» کاری ندارد؛ صفحه فقط راهِ برگشت را نشان می‌دهد (وگرنه undo دیدنی نمی‌شد).
+        await callback.answer()
+        await callback.message.answer(
+            texts.DG_ARCHIVE_ALL.format(count=fa_number(archived)),
+            reply_markup=keyboards.dg_archive_confirm_keyboard(archived, pending=0),
+        )
+        return
+    await callback.answer()
+    await callback.message.answer(
+        chr(10).join((texts.DG_ARCHIVE_ASK.format(count=fa_number(pending)), texts.DG_ARCHIVE_UNDO_NOTE)),
+        reply_markup=keyboards.dg_archive_confirm_keyboard(archived),
+    )
+
+
+@router.callback_query(F.data == "product_archive_digital_yes")
+async def cb_archive_digital_yes(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    count = await product_service.retire_digital(session, shop_bot.id)
+    await session.commit()
+    await callback.answer(
+        texts.DG_ARCHIVE_DONE.format(count=fa_number(count)) if count else texts.DG_ARCHIVE_NONE, show_alert=True
+    )
+
+
+@router.callback_query(F.data == "product_archive_digital_no")
+async def cb_archive_digital_no(callback: CallbackQuery, session: AsyncSession) -> None:
+    if await require_shop_bot_cb(callback, session) is None:
+        return
+    await callback.answer(texts.DG_ARCHIVE_CONFIRM_NO.replace("⬅️ ", ""))
+
+
+@router.callback_query(F.data == "product_archive_digital_undo")
+async def cb_archive_digital_undo(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    count = await product_service.unretire_digital(session, shop_bot.id)
+    await session.commit()
+    await callback.answer(texts.DG_UNARCHIVE_DONE.format(count=fa_number(count)) if count else texts.DG_UNARCHIVE_NONE, show_alert=True)
+
+
 # افزودنِ محصولِ دیجیتال
 # ===========================================================================
 @router.callback_query(F.data == "product_add_digital")

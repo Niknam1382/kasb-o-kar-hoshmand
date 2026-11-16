@@ -191,6 +191,7 @@ TEST_FILES = [
     "test_p91_ops_panel.py",
     "test_p94_purge_guards.py",
     "test_p95_prompt_parity.py",
+    "test_p97_digital_archive.py",
 ]
 
 

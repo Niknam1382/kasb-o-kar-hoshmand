@@ -1,9 +1,13 @@
 from __future__ import annotations
 
-from sqlalchemy import select, update
+import datetime
+
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Product
+
+_KIND_DIGITAL = "digital"  # همان مقدارِ `digital_service.KIND_DIGITAL` (بدونِ importِ متقابل)
 
 
 async def create_product(
@@ -65,8 +69,59 @@ async def create_digital_product(
 
 
 async def get_active_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> list[Product]:
-    result = await session.execute(select(Product).where(Product.shop_bot_id == shop_bot_id, Product.is_active.is_(True)).order_by(Product.id))
+    result = await session.execute(
+        select(Product)
+        .where(
+            Product.shop_bot_id == shop_bot_id,
+            Product.is_active.is_(True),
+            Product.retired_at.is_(None),
+        )
+        .order_by(Product.id)
+    )
     return list(result.scalars().all())
+
+
+async def count_digital(session: AsyncSession, shop_bot_id: int, *, retired: bool | None = None) -> int:
+    """چند محصولِ دیجیتال (بایگانی‌شده یا نه) اینِ فروشگاه دارد — برایِ صفحهٔ تاییدِ بایگانی."""
+    scope = [Product.shop_bot_id == shop_bot_id, Product.kind == _KIND_DIGITAL]
+    if retired is True:
+        scope.append(Product.retired_at.is_not(None))
+    elif retired is False:
+        scope.append(Product.retired_at.is_(None))
+    return (await session.execute(select(func.count()).select_from(Product).where(*scope))).scalar_one()
+
+
+async def retire_digital(session: AsyncSession, shop_bot_id: int, *, now=None) -> int:
+    """پ۹۷ · بایگانیِ همهٔ محصول‌هایِ دیجیتالِ همینِ فروشگاه ⇒ صفر حذفِ داده، فقط `retired_at`.
+
+    کدها، سفارش‌ها و مسیرِ تحویل دست‌نخورده‌اند؛ اگر بعداً پشیمان شدی `unretire_digital` برمی‌گرداندشان.
+    """
+    moment = now or datetime.datetime.now(datetime.timezone.utc)
+    result = await session.execute(
+        update(Product)
+        .where(
+            Product.shop_bot_id == shop_bot_id,
+            Product.kind == _KIND_DIGITAL,
+            Product.retired_at.is_(None),
+        )
+        .values(retired_at=moment)
+    )
+    await session.flush()
+    return int(result.rowcount or 0)
+
+
+async def unretire_digital(session: AsyncSession, shop_bot_id: int) -> int:
+    result = await session.execute(
+        update(Product)
+        .where(
+            Product.shop_bot_id == shop_bot_id,
+            Product.kind == _KIND_DIGITAL,
+            Product.retired_at.is_not(None),
+        )
+        .values(retired_at=None)
+    )
+    await session.flush()
+    return int(result.rowcount or 0)
 
 
 async def lock_for_update(session: AsyncSession, product_id: int) -> Product | None:

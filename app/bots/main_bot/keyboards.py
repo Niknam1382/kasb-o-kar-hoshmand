@@ -253,6 +253,7 @@ def products_list_keyboard(products, page: int = 0, sales_mode: bool = True) -> 
                     InlineKeyboardButton(text="🚚 روش‌هایِ ارسال", callback_data="shipping_list"),
                     InlineKeyboardButton(text="📥 افزودن گروهی از اکسل", callback_data="product_bulk_import"),
                     InlineKeyboardButton(text=texts.CATEGORY_BUTTON, callback_data="category_list"),
+                    InlineKeyboardButton(text=texts.DG_ARCHIVE_BUTTON, callback_data="product_archive_digital"),
                 ],
                 max_label=26,
             )
@@ -2268,3 +2269,21 @@ def instagram_erase_confirm_keyboard(row) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=texts.INSTAGRAM_ERASE_CANCEL_BUTTON, callback_data="ig_blk_erase_no")],
         ]
     )
+
+
+def dg_archive_confirm_keyboard(archived: int, *, pending: int = 1) -> InlineKeyboardMarkup:
+    """پ۹۷ · تاییدِ بایگانیِ محصول‌هایِ دیجیتال + (اگر چیزی بایگانی شده) بازگرداندن.
+
+    `pending=0` یعنی همه بایگانی‌اند ⇒ دکمهٔ «بله» چیزی برایِ انجام ندارد و فقط گرهٔ بازگشت می‌ماند.
+    """
+    rows = []
+    if pending:
+        rows.append(
+            [
+                InlineKeyboardButton(text=texts.DG_ARCHIVE_CONFIRM_YES, callback_data="product_archive_digital_yes"),
+                InlineKeyboardButton(text=texts.DG_ARCHIVE_CONFIRM_NO, callback_data="product_archive_digital_no"),
+            ]
+        )
+    if archived:
+        rows.append([InlineKeyboardButton(text=f"{texts.DG_UNARCHIVE_BUTTON} ({fa_number(archived)})", callback_data="product_archive_digital_undo")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)

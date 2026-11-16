@@ -950,6 +950,9 @@ class Product(Base, CreatedAtMixin):
     # فازِ ۱ · P1-S3 (B2): نوعِ محصول. physical|digital (String، نه enumِ PostgreSQL).
     # تغییرِ نوعِ محصولِ ساخته‌شده ممنوعه (فقط کپی)؛ مقدارِ پیش‌فرض physical = رفتارِ قبلی.
     kind: Mapped[str] = mapped_column(String(16), default="physical", server_default="physical", nullable=False)
+    # پ۹۷ · بایگانیِ نرم: هیچ ردیفی پاک نمی‌شود، فقط از فهرست/کاتالوگ/پرامپت بیرون می‌رود.
+    # NULL ⇒ فعالِ معمولی. برگشت = `unretire_*` (یکِ UPDATE).
+    retired_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # فیزیکی (همه اختیاری؛ فقط برایِ پاسخ‌گوییِ AI و نمایش)
     weight_grams: Mapped[int | None] = mapped_column(Integer, nullable=True)
     delivery_note: Mapped[str | None] = mapped_column(Text, nullable=True)

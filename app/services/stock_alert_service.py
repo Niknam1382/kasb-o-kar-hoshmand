@@ -38,7 +38,12 @@ def available_stock(product: Product) -> int:
 async def low_stock_rows(session: AsyncSession, shop_bot_id: int, threshold: int) -> list[Product]:
     result = await session.execute(
         select(Product)
-        .where(Product.shop_bot_id == shop_bot_id, Product.is_active.is_(True), Product.stock_quantity.is_not(None))
+        .where(
+            Product.shop_bot_id == shop_bot_id,
+            Product.is_active.is_(True),
+            Product.retired_at.is_(None),
+            Product.stock_quantity.is_not(None),
+        )
         .order_by(Product.stock_quantity.asc(), Product.id)
     )
     return [product for product in result.scalars().all() if available_stock(product) <= threshold]
