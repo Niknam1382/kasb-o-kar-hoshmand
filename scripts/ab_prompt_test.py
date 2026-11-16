@@ -101,9 +101,7 @@ async def _collect(shop_bot_id: int) -> dict:
             "bot_tools": prompt_defaults.build_bot_tools(shop_bot.tenant_mode, bool(shop_bot.support_enabled), shop_texts),
             "admin_settings": admin_settings,
         }
-        ai = await ai_pool_service.build_ai_service(session, admin_settings, "chat")
         await session.commit()  # قاعدهٔ ۷: آزادکردنِ اتصال پیش ازِ شبکه
-    args["ai"] = ai
     return args
 
 
@@ -150,7 +148,9 @@ async def run(shop_bot_id: int, *, limit: int, order: str, out_path: str, dry_ru
         print("\nنمونهٔ پرامپتِ B (اولِ ۴۰۰ نویسه):\n" + prompts["B"][:400])
         return 0
 
-    ai = args["ai"]
+    async with session_scope() as session:
+        fresh_settings = await admin_settings_service.get_admin_settings(session)
+        ai = await ai_pool_service.build_ai_service(session, fresh_settings, "chat")
     if ai is None:
         print("هیچ کلیدِ AI تنظیم نشده ⇒ اجرایِ واقعی ممکن نیست. (dry-run کار می‌کند.)")
         return 1
