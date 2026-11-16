@@ -92,7 +92,7 @@ docker compose run --rm bot alembic upgrade head
 docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
-مجموعاً **۱۷۱ فایلِ تست (۱۷۹ فایلِ Python در `tests_manual/`) و ۱٬۰۷۵ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۷۱/۱۷۱ فایل · ۱٬۰۷۵ تست · `SUITE_EXIT=0`** (۲۰۲۶-۱۱-۱۷)
+مجموعاً **۱۷۶ فایلِ تست** (۱۸۴ فایلِ Python در `tests_manual/`) با **۱٬۰۹۲ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۷۶/۱۷۶ · ۱٬۰۹۲ · `SUITE_EXIT=0`** (۲۰۲۶-۱۱-۱۷، پس ازِ پ۱۰۰–پ۱۰۷)
 (۲۰۲۶-۱۱-۱۶، پس ازِ پ۹۵؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۷۵ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
 (عددِ کوئری/کارِ هر پیام) و `tests_manual/load_simulation.py`. فقط یه فایل:
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
