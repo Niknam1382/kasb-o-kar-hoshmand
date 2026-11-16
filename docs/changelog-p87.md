@@ -4,7 +4,7 @@
 • مسیرِ **فقط‌خواندنی** `GET /ops/status` رویِ همان اپی که `/health` و `/metrics` را سرویس می‌کند:
   یکِ JSON با `ok`, `processes`, `stale_processes`, `counters`, `db_pool`, `system`, `ai`,
   `thresholds`, `findings[{key,severity,title}]`.
-• احراز = **همان** `METRICS_TOKEN` (هдрِ `x-metrics-token`)؛ با کلیدِ خالی مسیر ۴۰۴ می‌دهد (یعنی
+• احراز = **همان** `METRICS_TOKEN` (کلید در هدرِ `x-metrics-token`)؛ با کلیدِ خالی مسیر ۴۰۴ می‌دهد (یعنی
   وجود ندارد)، با کلیدِ غلط ۴۰۳. درِ تازه‌ای برایِ نوشتن باز نشده و هیچ وب‌هوکی از این اپ سرویس نمی‌شود.
 • هیچ رازی در پاسخ نیست: نه `encrypted_token`، نه `webhook_secret`، نه `merchant_id`، نه `api_key`،
   نه خودِ کلیدِ متریک — همه در تست چک می‌شود.

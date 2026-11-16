@@ -138,6 +138,26 @@ async def test_erase_is_normalized_scoped_and_harmless_elsewhere() -> None:
     print("PASS test_erase_is_normalized_scoped_and_harmless_elsewhere")
 
 
+# ============================================================================= ۲-ب — چندپاسه
+async def test_erase_loops_past_one_scan_batch() -> None:
+    await _seed()
+    original = instagram_service.ERASE_SCAN_LIMIT
+    instagram_service.ERASE_SCAN_LIMIT = 2  # پاس‌هایِ کوچک تا حلقه واقعاً بچرخد
+    try:
+        await _add_events(IDS["shop_a"], (("m1", "many"), ("m2", "many"), ("m3", "@Many"), ("m4", "other")))
+        async with session_scope() as session:
+            counted = await instagram_service.comment_sender_event_count(session, IDS["shop_a"], "many")
+        assert counted == 3, counted
+        async with session_scope() as session:
+            events, _blocks = await instagram_service.erase_comment_sender_data(session, IDS["shop_a"], "many", actor_telegram_id=OWNER_A)
+            await session.commit()
+        assert events == 3, events
+        assert [row.comment_id for row in await _event_rows(IDS["shop_a"])] == ["m4"], await _event_rows(IDS["shop_a"])
+    finally:
+        instagram_service.ERASE_SCAN_LIMIT = original
+    print("PASS test_erase_loops_past_one_scan_batch")
+
+
 async def test_erase_without_name_is_noop() -> None:
     await _seed()
     async with session_scope() as session:
@@ -218,6 +238,7 @@ async def main() -> None:
     global DP
     await test_erase_is_normalized_scoped_and_harmless_elsewhere()
     await test_erase_without_name_is_noop()
+    await test_erase_loops_past_one_scan_batch()
     DP = build_test_dispatchers()[0]
     await test_panel_requires_confirmation_and_reports_counts()
     test_keyboard_shape_and_texts()

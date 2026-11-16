@@ -83,8 +83,8 @@ async def test_health_app_exposes_only_two_routes() -> None:
     paths = _paths(health_app.routes)
     # پ۸۷: مسیرِ سومِ فقط‌خواندنی (/ops/status) افزوده شد — ادعا بی‌تغییر می‌ماند: هیچ وب‌هوکی اینجا
     # سرویس نمی‌شود و `/docs` همچنان ۴۰۴ است. (تغییرِ رفتاریِ عمدی، ثبت‌شده در docs/PROGRESS.md)
-    assert paths == {"/health", "/metrics", "/ops/status"}, f"اپِ سلامت باید فقط این سه مسیر را داشته باشد؛ دیده شد: {sorted(paths)}"
-    assert {"/health", "/metrics", "/ops/status"} <= _paths(app_main.app.routes), "اپِ اصلی هم همان سه مسیر را دارد"
+    assert paths == {"/health", "/metrics", "/ops/status", "/panel"}, f"اپِ سلامت باید فقط این سه مسیر را داشته باشد؛ دیده شد: {sorted(paths)}"
+    assert {"/health", "/metrics", "/ops/status", "/panel"} <= _paths(app_main.app.routes), "اپِ اصلی هم همان چهار مسیر را دارد"
     assert {"/webhook/main", "/webhook/shop/{shop_bot_id}"} <= _paths(app_main.app.routes), "وب‌هوک‌هایِ اپِ اصلی نباید رفته باشند"
 
     # رفتارِ واقعی (نه فقط جدولِ مسیر): در حالتِ polling هم آپدیتِ جعلی قابلِ تزریق نیست

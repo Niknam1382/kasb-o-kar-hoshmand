@@ -300,3 +300,51 @@ async def snapshot(session: AsyncSession) -> dict[str, object]:
         "ai": await ai_lines(session), "db": db_pool_lines(), "system": system_lines(),
         "counters": counters_lines(counters), "processes": processes, "stale_processes": stale_rows,
     }
+
+
+async def channel_summary(session: AsyncSession, limit: int = 12) -> dict[str, object]:
+    """پ۹۱ · خلاصهٔ فقط‌خواندنیِ کانال‌ها برایِ پنلِ وب: چندِ فروشگاه فعال، چندتایشان اینستاگرام/بله دارند.
+
+    هیچ رازی (توکن، کلید، merchant_id) و هیچ دادهٔ مشتری‌ای در خروجی نیست؛ فقط نامِ کاربریِ ربات و
+    وضعیت‌ها. `limit` نگهبانِ حجمِ صفحه است، نه سقفِ داده.
+    """
+    from app.database.models import InstagramAccount, ShopBot
+
+    rows = list(
+        (
+            await session.execute(
+                select(ShopBot.id, ShopBot.bot_username, ShopBot.tenant_mode, ShopBot.is_active)
+                .order_by(ShopBot.id)
+                .limit(limit)
+            )
+        ).all()
+    )
+    shops = [
+        {
+            "id": int(shop_id),
+            "bot_username": username,
+            "tenant_mode": (mode.value if hasattr(mode, "value") else str(mode)),
+            "status": "فعال" if active else "غیرفعال",
+        }
+        for shop_id, username, mode, active in rows
+    ]
+    total_active = (
+        await session.execute(select(func.count()).select_from(ShopBot).where(ShopBot.is_active.is_(True)))
+    ).scalar_one()
+    ig = (await session.execute(select(func.count()).select_from(InstagramAccount))).scalar_one()
+    # «چند فروشگاه کانالِ بله دارند» از رویِ *وجودِ* کلید خوانده می‌شود، نه مقدارش (رمزنگاری مهم نیست)
+    bale = (
+        await session.execute(
+            select(func.count())
+            .select_from(ShopBot)
+            .where(ShopBot.bale_provider_token.is_not(None), ShopBot.bale_provider_token != "")
+        )
+    ).scalar_one()
+    return {
+        "shops": shops,
+        "total_active_shops": int(total_active),
+        "instagram_connections": int(ig),
+        "bale_connections": int(bale),
+        "shown": len(shops),
+        "limit": limit,
+    }

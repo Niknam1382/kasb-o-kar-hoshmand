@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import hmac
 import json
 import logging
@@ -591,11 +592,98 @@ async def _ops_status_json(request: Request) -> dict:
             "pressure_percent": snapshot["ai"].get("pressure_percent"),
         },
         "thresholds": limits,
+        "channels": await capacity_service.channel_summary(session),
         "findings": [
             {"key": f.key, "severity": f.severity, "title": f.title} for f in findings
         ],
     }
 
+
+def _ops_html(data: dict, note: str = "") -> str:
+    """پ۹۱ · پنلِ فقط‌خواندنیِ عملیاتی در HTML (بدونِ وابستگیِ تازه، بدونِ هیچ دادهٔ مشتری)."""
+
+    def esc(value: object) -> str:
+        return html.escape(str(value), quote=True)
+
+    def rows(pairs) -> str:
+        return "".join(f"<tr><th>{esc(k)}</th><td>{esc(v)}</td></tr>" for k, v in pairs)
+
+    findings = data.get("findings") or []
+    finding_html = (
+        "".join(
+            f'<li class="{esc(item["severity"])}"><b>{esc(item["title"])}</b> <code>{esc(item["key"])}</code></li>'
+            for item in findings
+        )
+        or "<li>هیچ یافته‌ای نیست.</li>"
+    )
+    counters = "".join(f"<tr><th>{esc(label)}</th><td>{esc(value)}</td></tr>" for label, value in (data.get("counters") or {}).items())
+    system = data.get("system") or {}
+    ai = data.get("ai") or {}
+    db = data.get("db_pool") or {}
+    status_line = "✅ بدونِ هشدارِ قرمز" if data.get("ok") else "🔴 حداقل یکِ یافتهٔ قرمز"
+    return (
+        "<!doctype html><html lang=fa dir=rtl><head><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<meta http-equiv=refresh content=30><title>پنلِ عملیاتی</title>"
+        "<style>body{font-family:system-ui,Tahoma;margin:1.2rem;background:#f6f7f9;color:#1f2933;max-width:60rem}"
+        "h1{font-size:1.25rem}h2{font-size:1rem;margin-top:1.4rem;border-bottom:1px solid #d7dbe0;padding-bottom:.2rem}"
+        "table{border-collapse:collapse;width:100%;background:#fff}th,td{border:1px solid #d7dbe0;padding:.35rem .5rem;text-align:right}"
+        "th{background:#eef1f4;font-weight:600;width:40%}ul{padding-inline-start:1.1rem}li{margin:.2rem 0}"
+        "li.error{color:#b00020}li.warn{color:#a05a00}li.info{color:#33556b}.note{color:#5a6572;font-size:.85rem}"
+        "</style></head><body>"
+        f"<h1>پنلِ عملیاتیِ «کسب‌وکار هوشمند» — {esc(status_line)}</h1>"
+        + (f"<p class=note>{esc(note)}</p>" if note else "")
+        + f"<h2>پروسه‌ها</h2><table>{rows([('پروسه‌هایِ زنده در جمع', data.get('processes')), ('پروسه‌هایِ بی‌ضربان', data.get('stale_processes'))])}</table>"
+        f"<h2>سیستم</h2><table>{rows([('هسته‌ها', system.get('cores')), ('بار ۱ دقیقه', system.get('load1')), ('درصدِ بار', system.get('load_percent')), ('درصدِ رم', system.get('memory_used_percent')), ('درصدِ دیسک', system.get('disk_used_percent'))])}</table>"
+        f"<h2>دیتابیس</h2><table>{rows([('اندازهٔ استخر', db.get('size')), ('در حالِ استفاده', db.get('checked_out')), ('ظرفیت', db.get('capacity')), ('درصدِ استخر', db.get('percent'))])}</table>"
+        f"<h2>هوشِ مصنوعی</h2><table>{rows([('تعدادِ کلید', ai.get('keys')), ('سقفِ کل', ai.get('total_capacity')), ('در حالِ انجام', ai.get('inflight')), ('فشار (٪)', ai.get('pressure_percent'))])}</table>"
+        f"<h2>یافته‌ها ({len(findings)})</h2><ul>{finding_html}</ul>"
+        f"<h2>آستانه‌هایِ موثر</h2><table>{rows(sorted((data.get('thresholds') or {}).items()))}</table>"
+        "<h2>کانال‌ها و فروشگاه‌ها</h2>"
+        + ("<table><tr><th>فروشگاه</th><th>مود</th><th>حالت</th></tr>"
+           + "".join(
+               f"<tr><td>{esc(row.get('bot_username', ''))}</td><td>{esc(row.get('tenant_mode', ''))}</td>"
+               f"<td>{esc(row.get('status', ''))}</td></tr>" for row in (data.get("channels") or {}).get("shops", [])
+           )
+           + "</table>"
+           if (data.get("channels") or {}).get("shops")
+           else "<p class=note>هیچِ فروشگاهی ثبت نشده است.</p>")
+        + f"<h2>شمارنده‌ها</h2><table>{counters}</table>"
+        "<p class=note>این صفحه فقط‌خواندنی است: نه دکمه‌ای، نه فرمی، نه دادهٔ مشتری. اعدادِ سیستم به همان شکلِ خامِ سرویس نشان داده می‌شوند (برایِ چشمِ آدم، نه مشتریِ نهایی). کلیدِ همین صفحه همان METRICS_TOKEN است.</p>"
+        "</body></html>"
+    )
+
+
+@observability_router.get("/panel")
+async def ops_panel(request: Request) -> Response:
+    """پ۹۱ · همانِ `/ops/status` به شکلِ HTMLِ فقط‌خواندنی برایِ چشمِ آدم.
+
+    احراز: HTTP Basic با رمزِ `METRICS_TOKEN` (نامِ کاربر مهم نیست). بدونِ کلیدِ تنظیم‌شده مسیر ۴۰۴
+    است؛ با کلیدِ غلط ۴۰۱ + `WWW-Authenticate` تا مرورگر دوباره بپرسد. هیچ دادهٔ مشتری، هیچ رازِ
+    دیگری و هیچ فرمِ نوشتنی در این صفحه نیست.
+    """
+    if not settings.metrics_token:
+        return Response(status_code=404)
+    provided = request.headers.get("authorization") or ""
+    scheme, _, encoded = provided.partition(" ")
+    password = ""
+    if scheme.lower() == "basic" and encoded:
+        import base64
+
+        try:
+            decoded = base64.b64decode(encoded).decode("utf-8", errors="replace")
+        except (ValueError, TypeError):
+            decoded = ""
+        _user, _, password = decoded.partition(":")
+    if not password or not _secrets_equal(password, settings.metrics_token):
+        return Response(
+            status_code=401,
+            content="نیازمندِ رمزِ پنلِ عملیاتی (METRICS_TOKEN)",
+            headers={"WWW-Authenticate": 'Basic realm="ops", charset="UTF-8"'},
+            media_type="text/plain; charset=utf-8",
+        )
+    data = await _ops_status_json(request)
+    return HTMLResponse(_ops_html(data), media_type="text/html; charset=utf-8")
 
 @observability_router.get("/ops/status")
 async def ops_status_endpoint(request: Request) -> Response:

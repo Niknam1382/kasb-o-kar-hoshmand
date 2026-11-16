@@ -135,16 +135,10 @@ def can_transition(from_status, to_status) -> bool:
     return t in TRANSITIONS.get(f, frozenset())
 
 
-def is_open(status) -> bool:
-    return value_of(status) in OPEN
 
 
-def is_paid_or_later(status) -> bool:
-    return value_of(status) in PAID_OR_LATER
 
 
-def is_deliverable(status) -> bool:
-    return value_of(status) in DELIVERABLE
 
 
 def next_step(status) -> str | None:

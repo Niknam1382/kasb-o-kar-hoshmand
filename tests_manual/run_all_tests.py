@@ -188,6 +188,8 @@ TEST_FILES = [
     "test_p84_comment_erasure.py",
     "test_p87_ops_endpoint.py",
     "test_p90_ops_measurements.py",
+    "test_p91_ops_panel.py",
+    "test_p94_purge_guards.py",
 ]
 
 

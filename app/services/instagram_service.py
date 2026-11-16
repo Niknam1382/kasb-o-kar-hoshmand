@@ -510,7 +510,8 @@ async def unblock_comment_sender(
     return row
 
 
-ERASE_SCAN_LIMIT = 5000  # سقفِ ردیف‌هایی که برایِ یکِ نامِ کاربری نگاه می‌شوند (عملیاتِ ادمین، نه مسیرِ داغ)
+ERASE_SCAN_LIMIT = 5000
+ERASE_MAX_PASSES = 40  # سقفِ پاس‌ها ⇒ حداکثر ۲۰۰٬۰۰۰ ردیف در یکِ درخواست (بیش از این یعنی دادهٔ غیرعادی)  # سقفِ ردیف‌هایی که برایِ یکِ نامِ کاربری نگاه می‌شوند (عملیاتِ ادمین، نه مسیرِ داغ)
 
 
 async def comment_sender_event_count(session: AsyncSession, shop_bot_id: int, username: str) -> int:
@@ -518,17 +519,31 @@ async def comment_sender_event_count(session: AsyncSession, shop_bot_id: int, us
     name = normalize_comment_username(username)
     if not name:
         return 0
-    rows = list(
-        (
-            await session.execute(
-                select(InstagramCommentEvent.username).where(
-                    InstagramCommentEvent.shop_bot_id == shop_bot_id,
-                    InstagramCommentEvent.username.is_not(None),
-                ).limit(ERASE_SCAN_LIMIT)
-            )
-        ).scalars().all()
-    )
-    return sum(1 for raw in rows if normalize_comment_username(raw) == name)
+    total = 0
+    after_id = 0
+    # همان چندپاسهٔ erase، این‌جا برایِ شمارش ⇒ عددِ صفحهٔ تایید با عددِ پاک‌شده می‌خواند.
+    for _pass in range(ERASE_MAX_PASSES):
+        rows = list(
+            (
+                await session.execute(
+                    select(InstagramCommentEvent.id, InstagramCommentEvent.username)
+                    .where(
+                        InstagramCommentEvent.shop_bot_id == shop_bot_id,
+                        InstagramCommentEvent.username.is_not(None),
+                        InstagramCommentEvent.id > after_id,
+                    )
+                    .order_by(InstagramCommentEvent.id)
+                    .limit(ERASE_SCAN_LIMIT)
+                )
+            ).all()
+        )
+        if not rows:
+            break
+        total += sum(1 for row_id, raw in rows if normalize_comment_username(raw) == name)
+        after_id = rows[-1][0]
+        if len(rows) < ERASE_SCAN_LIMIT:
+            break
+    return total
 
 
 async def erase_comment_sender_data(
@@ -543,22 +558,30 @@ async def erase_comment_sender_data(
     name = normalize_comment_username(username)
     if not name:
         return 0, 0
-    ids = [
-        row_id
-        for row_id, raw in (
-            await session.execute(
-                select(InstagramCommentEvent.id, InstagramCommentEvent.username).where(
-                    InstagramCommentEvent.shop_bot_id == shop_bot_id,
-                    InstagramCommentEvent.username.is_not(None),
-                ).limit(ERASE_SCAN_LIMIT)
-            )
-        ).all()
-        if normalize_comment_username(raw) == name
-    ]
     events = 0
-    if ids:
+    # چندپاسه: اگر حسابی بیشتر از ERASE_SCAN_LIMIT کامنت داشته باشد، پاسِ بعدی ادامه می‌دهد تا
+    # همه چیز برود. سقفِ ERASE_MAX_PASSES فقط نگهبانِ حلقهٔ بی‌پایان است (نه محدودِکردنِ نتیجه).
+    for _pass in range(ERASE_MAX_PASSES):
+        ids = [
+            row_id
+            for row_id, raw in (
+                await session.execute(
+                    select(InstagramCommentEvent.id, InstagramCommentEvent.username).where(
+                        InstagramCommentEvent.shop_bot_id == shop_bot_id,
+                        InstagramCommentEvent.username.is_not(None),
+                    )
+                    .order_by(InstagramCommentEvent.id)
+                    .limit(ERASE_SCAN_LIMIT)
+                )
+            ).all()
+            if normalize_comment_username(raw) == name
+        ]
+        if not ids:
+            break
         result = await session.execute(sa_delete(InstagramCommentEvent).where(InstagramCommentEvent.id.in_(ids)))
-        events = int(result.rowcount or 0)
+        events += int(result.rowcount or 0)
+        if len(ids) < ERASE_SCAN_LIMIT:
+            break
     blocked = (
         await session.execute(
             sa_delete(InstagramCommentBlock).where(
