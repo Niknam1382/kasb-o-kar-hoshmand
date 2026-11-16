@@ -9,7 +9,7 @@
 
 | مورد | وضعیتِ تازه | شاهد/تست |
 |---|---|---|
-| **P0-1** رمزنگاریِ `webhook_secret_token` | ✅ رفع‌شد: ستون `EncryptedToken(512)` (مایگریشن `b2e6f9c1d4a8`) + `shop_bot_service.reencrypt_secrets()` در بوت‌اپ که ردیف‌هایِ قدیمیِ ساده‌متن را بازمهندس می‌کند | `tests_manual/test_p20_security_observability.py` |
+| **P0-1** رمزنگاریِ `webhook_secret_token` | ✅ رفع‌شد: ستون `EncryptedToken(512)` (مایگریشن `b2e6f9c1d4a8`) + `shop_bot_service.reencrypt_secrets()` در بوت‌آپ که ردیف‌هایِ قدیمیِ ساده‌متن را بازمهندس می‌کند | `tests_manual/test_p20_security_observability.py` |
 | **P0-2** PHASE 20 (لاگ/معیار/ممیزی) | ✅ سه جزءِ اصلی: `app/observability.py` (scrubbingِ secrets در هر لاگ، correlation-id، شمارنده‌ها، `/metrics` با توکن، لاگِ JSON با `JSON_LOGS=true`) + زنجیرهٔ هشِ `audit_log_entries` با `scripts/verify_audit_chain.py` + صندوقِ خروجیِ اعلان‌ها. **باقی‌مانده:** پنلِ جست‌وجویِ لاگ (فیلترِ دسته/بازه و خروجیِ CSV از P21-E
    اضافه شدند؛ «جست‌وجویِ آزاد» و نمایِ وبِ لاگ هنوز نیست) | همان فایلِ تست + `test_p20_money_integrity.py` + `test_p21_access.py` |
 | **P1-1** rate-limit رویِ webhook | ✅ رفع‌شد: `app/services/http_guard.py` (پنجرهٔ لغزان per `(ip,path)`) رویِ هر چهار endpoint + `/payment/zarinpal/callback`، ۴۲۹ِ فارسی با `Retry-After`، و `TRUST_PROXY_HEADERS` برایِ پشتِ proxy | `test_p20_security_observability.py` |
@@ -20,42 +20,28 @@
 
 ## P0 — بلاکرهایِ «آمادهٔ تولید نیست»
 
-1. **P0-1 · رمزنگاریِ `shop_bots.webhook_secret_token`** (HIGH در `SECURITY_AUDIT_REPORT.md`)
-   - شاهد: `app/database/models.py:520` (`String(64)`، plaintext)؛ خواندن فقط از حافظه
-     (`app/services/bot_manager.py:47,51`) ⇒ هیچ query مبتنی بر مقایسه‌یِ تساوی ندارد.
-   - اثر: دسترسی به دیتابیس = امکانِ ساختنِ آپدیتِ جعلی برایِ هر رباتِ فروشگاهی در حالتِ webhook.
-   - طرحِ رفع (دو مرحله، هر دو افزودنی و reversible):
-     ۱) مایگریشنِ پهن‌کردن: `ALTER COLUMN webhook_secret_token TYPE varchar(255)`
-        (بدونِ حذف/تغییرِ داده) + تغییرِ مدل به `EncryptedToken(255)`؛
-     ۲) یک دورِ «بازنویسی» در بوت‌اپ (`shop_bot_service.reencrypt_secrets`) که هر ردیف را
-        می‌خواند (plaintext پذیرفته می‌شود) و دوباره می‌نویسد ⇒ بعدِ یک ری‌استارت همه رمزند.
-   - چرا الان نشد: در همین محیط امکانِ تستِ واقعیِ webhook (HTTPS + ثبتِ webhook در تلگرام/بله)
-     نبود و این مسیرِ ترافیکِ زندهٔ همهٔ ربات‌هاست؛ ریسکِ قطعی بدونِ تستِ end-to-end رد شد.
-     زمان‌بندیِ پیشنهادی: با `RUN_MODE=polling` در استیجینگ + یک رباتِ تستیِ webhook.
+1. **P0-1 · رمزنگاریِ `shop_bots.webhook_secret_token`** — ✅ **بسته‌شده (بازبینیِ ۲۰۲۶-۱۱-۱۷)**
+   - آنچه هست: ستون `EncryptedToken(512)` در `app/database/models.py:665` + مایگریشنِ پهن‌کردنِ
+     `b2e6f9c1d4a8_p20_security_secrets_and_audit_chain` + `shop_bot_service.reencrypt_secrets()` در
+     بوت‌آپ (`app/main.py:103`) که ردیف‌هایِ خامِ پیش‌ازِ رمزنگاری را یک‌بار بازنویسی می‌کند و ایدمپوتنت است.
+   - شواهدِ اجرا (MEASURED · دیتابیسِ توسعه): `character_maximum_length = 512` · هر ۲ ردیفِ موجود
+     `length = 140` با پیشوندِ Fernet `gAAAAA` (متنِ سکرت چاپ نشده).
+   - شواهدِ تست: `test_p20_security_observability.py::test_webhook_secret_is_encrypted_and_legacy_rows_are_rewritten`
+     ⇒ ردیفِ تازه رمزی · ردیفِ `plaintext-legacy-secret` بعد ازِ بوت‌آپ رمزی می‌شود ولی خواندنش همان مقدار
+     را شفاف می‌دهد · اجرایِ دوم = صفر نوشتن.
+   - تنها چیزی که هنوز **NOT RUN** است: ثبتِ واقعیِ webhook در تلگرام/بله رویِ سرورِ تولید با این سکرت
+     (این محیط HTTPSِ عمومی ندارد) ⇒ ادعایِ end-to-end نمی‌کنیم؛ ادعا فقط «رمزنگاریِ در حالِ سکون + نبودِ
+     query مبتنی بر تساوی رویِ ستون» است.
 
-2. **P0-2 · PHASE 20 (لاگِ ساخت‌یافته/معیارها/پنلِ خوانشِ لاگ) انجام نشده.**
-   - وضعیتِ فعلی (MEASURED از کد): لاگِ متنیِ stdlib با `LOG_LEVEL` + چرخشِ لاگِ Docker،
-     `audit_log_entries` (DB، فقط‌افزودنی از سمتِ کد)، `wallet_transactions` (دفتر، حالا
-     فقط‌افزودنی + ایدپوتنت)، `payment_event_logs` (+correlation id)، `bot_error_events`،
-     و `admin_alert_service` (هشدارِ تراتل‌شده به ادمین). یعنی ۳ از ۵ دستهٔ PHASE 20 عملاً
-     وجود دارند؛ **ساختارِ JSON واحدِ schema، انتشارِ correlation id در همهٔ مسیرها،
-     متریک‌ها، لایهٔ متمرکزِ scrubbing و پنلِ جست‌وجو/خروجیِ لاگ نیست.**
-   - چرا الان نشد: پیادهٔ درستِ آن (۱۵ تستِ خواسته‌شده + رویدادکاتالوگ + پنل) بزرگ‌تر از
-     آن است که در این نشست با حفظِ قاعدهٔ «تغییرِ گسترده نکن» تمام شود؛ نصفه‌کاره‌سازیِ
-     مسیرِ مالی خطرناک‌تر از نیامدنش است.
-   - طرحِ رفعِ مرحله‌ای (هر مرحله مستقل و قابلِ تست):
-     ۱) `app/observability.py`: `log_event(category, event_type, **fields)` با schema ثابتِ JSON،
-        scrubberِ متمرکز (deny-listِ کلیدها + regexِ توکن/URLِ حاوی‌سکرت + سقفِ طول فیلد) — بدونِ dependencyِ تازه؛
-     ۲) تولیدِ `correlation_id` در همان نقطهٔ ورودها (webhook/polling/job) و ذخیره‌اش در
-        `payment_event_logs` (ستون موجود) و `audit_log_entries.details`؛
-     ۳) رویدادهایِ `event_type` در یک dictِ مرکزی + هم‌نام‌سازیِ با `AuditEventType`؛
-     ۴) پنلِ خوانش: دکمهٔ «📜 گزارشِ ممیزی» (هست) + فیلترِ event/کاربر/تاریخ + خروجیِ CSV
-        با خنثی‌سازیِ فرمول (الگو در `excel_export_service._workbook_bytes` موجود است)؛
-     ۵) زنجیرهٔ هشِ ساده رویِ `audit_log_entries` (`prev_hash = sha256(row_hash || prev_hash)`)
-        با یک ستونِ افزودنی و دستورِ `python -m app.scripts.verify_audit_chain` برایِ gap-detection.
-   - تخمینِ کار: ۲–۳ نشستِ جدا. تا انجام نشود، `PRODUCTION_READINESS_REPORT.md` را «NOT READY» نگه می‌دارد.
-
-## P1 — قبل از رشدِ کاربر
+2. **P0-2 · PHASE 20 (لاگِ ساخت‌یافته / معیارها / پنلِ خوانشِ لاگ)** — ✅ **بسته‌شده**
+   - `app/observability.py: JsonFormatter` + `settings.json_logs` (پیکربندی) +
+     `observability.install(level=…, as_json=…)` در `app/main.py:58`.
+   - معیارها: `/metrics` پشتِ `METRICS_TOKEN` (پ۸۱: دو gaugeِ شمارندهٔ چندپروسه‌ای) + شمارنده‌هایِ
+     `kasbokar_runtime_processes` / `stale_processes` از ردیف‌هایِ ضربان (پ۷۹).
+   - خوانشِ لاگ از پنل: مسیرهایِ `logs_view` / `logs_live` در پنلِ ادمین (۵۷ ارجاع در `app/bots/main_bot/handlers/`)
+     + زنجیرهٔ هشِ ممیزی با `scripts/verify_audit_chain.py` (پ۱۰۲: مُهرِ سرِ زنجیره هنگامِ حذفِ کهنه‌ها).
+   - چیزی که همچنان باز است در همین دسته: **جمع‌آوریِ متمرکز** (Prometheus/Loki) در بیرونِ کد و
+     نگهبانِ externalِ rate-limit رویِ proxy — این‌ها تصمیمِ عملیاتیِ استقرارند، نه کسریِ کد.
 
 3. **P1-1 · rate-limit رویِ endpointهایِ webhook/callback** (HIGH/OPEN). هیچ محدودِ درخواستی
    در `app/main.py` نیست؛ فقط هشدارهایِ ادمین تراتل‌اند. طرح: token-bucketِ in-process
@@ -193,7 +179,7 @@
    گلوگاهِ باقی‌مانده باشد (الان نیست: AI زودتر می‌شکند).
 7. **P2-7 (تازه) · ریسکِ stateless نبودن برایِ چندپروسه‌سازی.** `scheduler.run_periodic_tasks`
    در هر نسخه اجرا می‌شود؛ کش‌هایِ in-process (`admin_alert_service`، `PooledAiService._circuit_states`،
-   `rate_limiter`) در هر نسخه جدااند؛ `set_webhook` در بوت‌اپ با دو نسخه می‌جنگد. تا این سه جمع
+   `rate_limiter`) در هر نسخه جدااند؛ `set_webhook` در بوت‌آپ با دو نسخه می‌جنگد. تا این سه جمع
    نشوند، «۲× اپ پشتِ LB» در سندِ سخت‌افزار **توصیهٔ executable نیست**.
 8. **P2-8 · در حالتِ polling هیچ endpointِ سلامت/متریکی نبود.** ✅ **بسته شد (P21-B/O2):**
    `build_health_app()` در `app/main.py:440` کنارِ polling یک uvicorn مستقل بالا می‌آورد که **فقط**
