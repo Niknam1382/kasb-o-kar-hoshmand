@@ -1989,3 +1989,18 @@ MEASURED رویِ دیتابیسِ توسعه: طولِ ستون ۵۱۲، هر �
 ستون در مدل `EncryptedToken(512)` · مایگریشنِ پهن‌کردن در P20 · `reencrypt_secrets()` در بوت‌آپ
 (ایدِمپوتنت، با تستِ موجودِ پ۲۰ شاملِ «ردیفِ خامِ قدیمی رمزی می‌شود»). جدولِ HIGH حالا ۴ FIXED / ۰ OPEN.
 NOT RUN: ثبتِ واقعیِ webhook رویِ تولید. تفصیل: `docs/changelog-p103.md`.
+
+## ۹۴) پ۱۰۴ — قطعه‌هایِ کم‌خطرِ پ۵۰ + کشفِ نشتِ اتصالِ `/ops/status` (۲۰۲۶-۱۱-۱۷)
+سه کار: الف) `channel_summary` هرِ فروشگاه را با کانال‌هایش (📸 / 🟢 / 🎧) و `total_shops`/`truncated`
+برمی‌گرداند و `/panel` + `/ops/status` همان را فقط‌خواندنی نشان می‌دهند (کوئریِ ثابت، بدونِ راز) ·
+ب) `scripts/two_process_probe.py` با `multiprocessing/spawn` و قفلِ `LOADTEST_DB_CONFIRM=1` ·
+پ) پ۵۰ بزرگ‌تر (پنلِ نوشتنی، WebSocket، بارسنجیِ HTTPِ واقعی) عمداً ساخته نشد تا چیزی نصفه نماند.
+MEASURED (`kasbokar_load`): قفلِ polling با ۳ پروسه ⇒ **۱ برنده** (۷٬۱۱۸ ms) · جمعِ شمارنده‌ها
+انتظِار ۶۳ = خوانده ۶۳ با ۳ پروسه · مالی ۲×۸ ⇒ موفق ۱۰ / رد ۶، موجودی ۱۰٬۰۰۰ ← ۰، ردیفِ دفتر = ۱۰،
+p50 ۷ ms / p95 ۱۷ ms.
+**یافتهٔ اصلی:** `_ops_status_json` بعد ازِ `session_scope()` رویِ سشنِ بسته `channel_summary` را صدا
+می‌زد ⇒ هر درخواستِ `/ops/status` یا `/panel` یکِ اتصالِ «idle in transaction» نشت می‌داد (با استخرِ ۲۵،
+حدودِ ۲۵ بازدیدِ داشبورد = اتمامِ استخر و خطایِ `pool_timeout` رویِ وب‌هوک) و همان اتصال‌ها علتِ واقعیِ
+`greenlet is being finalized` بودند که پ۹۶ و پ۱۰۱ نتوانسته بودند پیدا کنند. پس ازِ رفع: **۰** نشتِ اتصال و
+**۰** warning در سه فایلِ HTTP (MEASURED) · نگهبانِ تستی: `test_ops_requests_leave_no_idle_in_transaction_connection`.
+تست: `test_p104_two_process_panel.py` ⇒ ۴/۴. تفصیل: `docs/changelog-p104.md`.

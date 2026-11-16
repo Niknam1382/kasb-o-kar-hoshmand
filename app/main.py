@@ -593,6 +593,12 @@ async def _ops_status_json() -> dict:
         snapshot = await capacity_service.snapshot(session)
         findings = await server_doctor.inspect(session)
         limits = await server_doctor.thresholds(session)
+        # پ۱۰۴ · این هم **داخلِ** همان scope: وقتی `channel_summary` بعد ازِ بسته‌شدنِ scope صدا زده
+        # می‌شد، SQLAlchemy رویِ آن سشنِ بسته‌شده یکِ اتصالِ تازه از استخر می‌گرفت و تراکنش باز
+        # می‌گذاشت ⇒ هر درخواستِ `/ops/status` و `/panel` یکِ اتصالِ «idle in transaction» نشت می‌داد
+        # (با ۲۵ اتصالِ استخر، بعد ازِ ~۲۵ بازدیدِ داشبورد pollingِ ۳۰ ثانیه‌ای استخر تمام می‌شود) و
+        # همان چیزی بود که در پ۹۶ به‌عنوانِ نویزِ `greenlet is being finalized` بی‌علت مانده بود.
+        channels = await capacity_service.channel_summary(session)
     return {
         "ok": not any(f.severity == server_doctor.ERROR for f in findings),
         "processes": snapshot["processes"],
@@ -613,7 +619,7 @@ async def _ops_status_json() -> dict:
             "pressure_percent": snapshot["ai"].get("pressure_percent"),
         },
         "thresholds": limits,
-        "channels": await capacity_service.channel_summary(session),
+        "channels": channels,
         "findings": [
             {"key": f.key, "severity": f.severity, "title": f.title} for f in findings
         ],
@@ -641,6 +647,7 @@ def _ops_html(data: dict, note: str = "") -> str:
     system = data.get("system") or {}
     ai = data.get("ai") or {}
     db = data.get("db_pool") or {}
+    channels = data.get("channels") or {}
     status_line = "✅ بدونِ هشدارِ قرمز" if data.get("ok") else "🔴 حداقل یکِ یافتهٔ قرمز"
     return (
         "<!doctype html><html lang=fa dir=rtl><head><meta charset=utf-8>"
@@ -661,13 +668,23 @@ def _ops_html(data: dict, note: str = "") -> str:
         f"<h2>یافته‌ها ({len(findings)})</h2><ul>{finding_html}</ul>"
         f"<h2>آستانه‌هایِ موثر</h2><table>{rows(sorted((data.get('thresholds') or {}).items()))}</table>"
         "<h2>کانال‌ها و فروشگاه‌ها</h2>"
-        + ("<table><tr><th>فروشگاه</th><th>مود</th><th>حالت</th></tr>"
+        + (f"<p class=note>نمایش {esc(channels.get('shown'))} از {esc(channels.get('total_shops'))} فروشگاه"
+           + (" (صفحه کوتاه شده؛ `limit` را بالا ببر)" if channels.get("truncated") else "")
+           + "</p>"
+           if channels.get("shops")
+           else "")
+        + ("<table><tr><th>فروشگاه</th><th>مود</th><th>حالت</th><th>کانال‌ها</th></tr>"
            + "".join(
                f"<tr><td>{esc(row.get('bot_username', ''))}</td><td>{esc(row.get('tenant_mode', ''))}</td>"
-               f"<td>{esc(row.get('status', ''))}</td></tr>" for row in (data.get("channels") or {}).get("shops", [])
+               f"<td>{esc(row.get('status', ''))}</td>"
+               f"<td>{'📸 اینستاگرام ' if row.get('instagram') else ''}"
+               f"{'🟢 بله ' if row.get('bale') else ''}"
+               f"{'🎧 پشتیبانی' if row.get('support') else ''}"
+               f"{'' if (row.get('instagram') or row.get('bale') or row.get('support')) else '— فقط تلگرام'}</td></tr>"
+               for row in channels.get("shops", [])
            )
            + "</table>"
-           if (data.get("channels") or {}).get("shops")
+           if channels.get("shops")
            else "<p class=note>هیچِ فروشگاهی ثبت نشده است.</p>")
         + f"<h2>شمارنده‌ها</h2><table>{counters}</table>"
         "<p class=note>این صفحه فقط‌خواندنی است: نه دکمه‌ای، نه فرمی، نه دادهٔ مشتری. اعدادِ سیستم به همان شکلِ خامِ سرویس نشان داده می‌شوند (برایِ چشمِ آدم، نه مشتریِ نهایی). کلیدِ همین صفحه همان METRICS_TOKEN است.</p>"

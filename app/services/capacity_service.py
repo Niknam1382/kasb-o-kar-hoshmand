@@ -314,13 +314,31 @@ async def channel_summary(session: AsyncSession, limit: int = 12) -> dict[str, o
 
     هیچ رازی (توکن، کلید، merchant_id) و هیچ دادهٔ مشتری‌ای در خروجی نیست؛ فقط نامِ کاربریِ ربات و
     وضعیت‌ها. `limit` نگهبانِ حجمِ صفحه است، نه سقفِ داده.
+
+    پ۱۰۴ (قطعهٔ «پنلِ چندکاناله، فقط‌خواندنی»): هرِ ردیفِ فروشگاه حالا **دو کانالِ دیگرش** را هم می‌گوید
+    (📸 اینستاگرام / 🟢 بله) و آیا پشتیبانی روشن است — همه از همان یکِ SELECT با دو زیرکوئریِ EXISTS،
+    پس هیچ N+1 در مسیرِ صفحه نیست و هیچ نوشتنی انجام نمی‌شود.
     """
     from app.database.models import InstagramAccount, ShopBot
 
+    has_instagram = (
+        select(InstagramAccount.id)
+        .where(InstagramAccount.shop_bot_id == ShopBot.id)
+        .exists()
+        .label("has_instagram")
+    )
     rows = list(
         (
             await session.execute(
-                select(ShopBot.id, ShopBot.bot_username, ShopBot.tenant_mode, ShopBot.is_active)
+                select(
+                    ShopBot.id,
+                    ShopBot.bot_username,
+                    ShopBot.tenant_mode,
+                    ShopBot.is_active,
+                    has_instagram,
+                    ShopBot.support_enabled,
+                    ShopBot.bale_provider_token,
+                )
                 .order_by(ShopBot.id)
                 .limit(limit)
             )
@@ -332,12 +350,16 @@ async def channel_summary(session: AsyncSession, limit: int = 12) -> dict[str, o
             "bot_username": username,
             "tenant_mode": (mode.value if hasattr(mode, "value") else str(mode)),
             "status": "فعال" if active else "غیرفعال",
+            "instagram": bool(ig_flag),
+            "bale": bool(token),
+            "support": bool(support),
         }
-        for shop_id, username, mode, active in rows
+        for shop_id, username, mode, active, ig_flag, support, token in rows
     ]
     total_active = (
         await session.execute(select(func.count()).select_from(ShopBot).where(ShopBot.is_active.is_(True)))
     ).scalar_one()
+    total_all = (await session.execute(select(func.count()).select_from(ShopBot))).scalar_one()
     ig = (await session.execute(select(func.count()).select_from(InstagramAccount))).scalar_one()
     # «چند فروشگاه کانالِ بله دارند» از رویِ *وجودِ* کلید خوانده می‌شود، نه مقدارش (رمزنگاری مهم نیست)
     bale = (
@@ -350,6 +372,8 @@ async def channel_summary(session: AsyncSession, limit: int = 12) -> dict[str, o
     return {
         "shops": shops,
         "total_active_shops": int(total_active),
+        "total_shops": int(total_all),
+        "truncated": int(total_all) > len(shops),
         "instagram_connections": int(ig),
         "bale_connections": int(bale),
         "shown": len(shops),

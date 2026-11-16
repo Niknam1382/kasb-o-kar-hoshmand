@@ -39,3 +39,11 @@
 
 ## تست
 `tests_manual/test_p101_settings_cache_snapshot.py` ⇒ ۴/۴ (ثبت‌شده در `run_all_tests.py`).
+
+## تصحیحِ پس ازِ پ۱۰۴ (۲۰۲۶-۱۱-۱۷)
+این فایل نوشت «علتِ نهایی شناسایی‌نشده». حالا شناسایی شد و با پ۱۰۱ ربطی نداشت: `_ops_status_json` بعد ازِ
+`async with session_scope()` رویِ سشنِ بسته‌شده `channel_summary(session)` را صدا می‌زد ⇒ هر درخواستِ
+`/ops/status` یا `/panel` یکِ اتصالِ «idle in transaction» نشت می‌داد که در پایانِ پروسه GC می‌شد و همان
+دو warning را می‌ساخت. پس ازِ رفع (داخلِ بردنِ فراخوانیِ داخلِ scope)، سه فایلِ
+`test_p87` / `test_p90` / `test_p91` ⇒ **صفر** `greenlet is being finalized` و **صفر** `non-checked-in`
+(MEASURED، ۲۰۲۶-۱۱-۱۷). تفصیل و نگهبانِ تستی: `docs/changelog-p104.md`.

@@ -275,6 +275,14 @@ docker compose logs --since 2m bot | grep -iE "error|traceback" || echo "تمی�
 docker compose exec bot python3 scripts/verify_audit_chain.py
 ```
 
+- **سنجهٔ دو پروسه‌ای (پ۱۰۴) قبلِ رفتن رویِ `--scale` یا چند‌worker:** این سه را رویِ دیتابیسِ جدا اجرا کن،
+  نه رویِ تولید:
+  `docker compose run --rm -e DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/kasbokar_load -e LOADTEST_DB_CONFIRM=1 bot python3 scripts/two_process_probe.py --parts lock,counters,money --processes 2 --attempts 8`
+  سه خطِ MEASURED باید این‌طور باشند: «قفلِ polling … **۱ برنده**»، «جمعِ شمارنده‌ها: انتظِار N = خوانده‌شده N»،
+  «رقابتِ مالی … موجودیِ نهایی ≥ ۰ و ردیفِ دفتر = تعدادِ موفق». اگر «برنده» بیشتر از یک شد، دو پروسه یکِ
+  ربات را poll می‌کنند ⇒ هر پیامِ مشتری **دو بار** از کیف‌پول کم می‌شود؛ جلویِ `--scale` را بگیر.
+  این سنجه به‌طورِ پیش‌فرض رویِ `kasbokar` اجرا **نمی‌شود** (قفلِ `LOADTEST_DB_CONFIRM`) و هیچ پیام/AI/پرداختِ
+  واقعی نمی‌فرستد.
 - مایگریشن‌هایِ این پروژه **افزوندنی**‌اند (هیچ ستونی حذف نمی‌شود، `server_default` دارد) ⇒ کدِ قدیمی رویِ شمایِ جدید معمولاً کار می‌کند؛ ولی **downgrade در این پروژه تمرین نشده (NOT PRACTICED)**. راهِ برگشتِ مطمئن: `git checkout` نسخهٔ قبل + build + up؛ اگر دادهٔ تازه‌ای نوشته شد که نسخهٔ قبل نمی‌فهمد، از بکاپِ همان‌روز برگردان.
 - تغییرِ تنظیماتِ پنل (کلیدها، توکنِ بله، مدل‌ها) **بدونِ ری‌استارت** اعمال می‌شود. تغییرِ `RUN_MODE` یا `AUTH_MODE` نه ⇒ `docker compose up -d --force-recreate bot`.
 - اگر فقط `.env` عوض کردی: `docker compose up -d` کافی است (بدونِ build).
