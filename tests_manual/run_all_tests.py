@@ -194,6 +194,7 @@ TEST_FILES = [
     "test_p97_digital_archive.py",
     "test_p99_retention_apply.py",
     "test_p100_ab_kit.py",
+    "test_p101_settings_cache_snapshot.py",
 ]
 
 

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     db_pool_size: int = 25
     db_max_overflow: int = 0
     db_pool_timeout: int = 15
+    # پ۱۰۱: `null` یعنی هر اتصال موقعِ برگشتن بسته می‌شود (NullPool). در تولید خالی بگذار؛
+    # سوئیتِ تست این را `null` می‌گذارد تا اتصالِ رهاشده در پایانِ پروسه GC نشود و نویزِ
+    # `greenlet is being finalized` / `non-checked-in connection` پدیدار نشود.
+    db_pool_class: str = ""
     ai_max_concurrent_calls: int = 40
     # P47: این عدد دیگر «سقفِ هرِ کلید» نیست؛ سقفِ کلِ پلتفرم است. سقفِ خودِ هرِ کلید در
     # پنلِ ادمین (بخشِ «کلیدهایِ AI») نوشته می‌شود و کلیدهایی که عددی ننوشته‌اند این

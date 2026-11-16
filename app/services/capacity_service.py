@@ -124,8 +124,14 @@ def system_lines() -> dict[str, object]:
 
 
 def db_pool_lines() -> dict[str, object]:
-    """وضعیتِ استخرِ SQLAlchemy — بدونِ هیچ کوئری (فقط شمارنده‌هایِ درونِ استخر)."""
+    """وضعیتِ استخرِ SQLAlchemy — بدونِ هیچ کوئری (فقط شمارنده‌هایِ درونِ استخر).
+
+    پ۱۰۱: استخرِ بدونِ اندازه (مثلِ `NullPool` که سوئیتِ تست و بعضی استقرارها انتخاب می‌کنند)
+    `checkedout()` ندارد ⇒ نباید با AttributeError بمیرد؛ در آن حالت «بدونِ استخر» گزارش می‌شود.
+    """
     pool = engine.sync_engine.pool
+    if not hasattr(pool, "checkedout"):
+        return {"size": 0, "checked_out": 0, "overflow": 0, "capacity": 1, "percent": 0.0, "mode": "null"}
     size = int(getattr(pool, "size", lambda: 0)())
     checked_out = int(pool.checkedout())
     overflow = int(pool.overflow())
@@ -136,6 +142,7 @@ def db_pool_lines() -> dict[str, object]:
         "overflow": overflow,
         "capacity": capacity,
         "percent": min(100.0, checked_out / capacity * 100.0),
+        "mode": "pool",
     }
 
 

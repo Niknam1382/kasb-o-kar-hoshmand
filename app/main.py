@@ -598,7 +598,7 @@ async def _ops_status_json() -> dict:
         "processes": snapshot["processes"],
         "stale_processes": snapshot["stale_processes"],
         "counters": {label: value for label, value in snapshot["counters"]},
-        "db_pool": {k: snapshot["db"][k] for k in ("size", "checked_out", "capacity", "percent")},
+        "db_pool": {k: snapshot["db"][k] for k in ("size", "checked_out", "capacity", "percent", "mode")},
         "system": {
             "cores": snapshot["system"]["cores"],
             "load1": snapshot["system"]["load1"],

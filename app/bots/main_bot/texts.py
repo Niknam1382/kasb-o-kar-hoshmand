@@ -1767,10 +1767,13 @@ def capacity_text(snapshot: dict) -> str:
             f"🎙 صوت — {fa_number(voice['count'])} کلید · {fa_number(voice['inflight'])} درخواستِ در حالِ اجرا "
             f"از {fa_number(voice['sum_caps'])}"
         )
-    lines.append(
-        f"\n🗄 دیتابیس — {fa_number(db['checked_out'])} اتصالِ در کار از {fa_number(db['capacity'])} "
-        f"({fa_percent(db['percent'])}) · اتصال‌هایِ اضافه {fa_number(db['overflow'])}"
-    )
+    if db.get("mode") == "null":
+        lines.append("\n🗄 دیتابیس — بدونِ استخر (هر اتصال موقعِ برگشت بسته می‌شود)")
+    else:
+        lines.append(
+            f"\n🗄 دیتابیس — {fa_number(db['checked_out'])} اتصالِ در کار از {fa_number(db['capacity'])} "
+            f"({fa_percent(db['percent'])}) · اتصال‌هایِ اضافه {fa_number(db['overflow'])}"
+        )
     load1 = system["load1"]
     if load1 is None:
         lines.append("\n🖥 سرور — بارِ میانگین در این محیط خوانده نشد")

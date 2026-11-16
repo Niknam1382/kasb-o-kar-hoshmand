@@ -85,10 +85,21 @@ async def cached_admin_settings(session: AsyncSession) -> AdminSettings:
     if _cached_row is not None and (now - _cached_at) < READ_CACHE_TTL_SECONDS:
         return _cached_row
     settings_row = await get_admin_settings(session)
-    session.sync_session.expunge(settings_row)
-    _cached_row = settings_row
+    _cached_row = _value_snapshot(settings_row)
     _cached_at = now
-    return settings_row
+    return _cached_row
+
+
+def _value_snapshot(row: AdminSettings) -> AdminSettings:
+    """کپیِ **مقادیر** در یکِ شیءِ تازه که هیچ سشن/اتصالی ندارد.
+
+    چرا این‌طور (پ۱۰۱): نسخهٔ قبلی خودِ ردیفِ ORM را با `expunge` از سشن بیرون می‌آورد و در کش
+    می‌گذاشت. آن شیء هنوز state‌ای داشت که به اتصالِ سشنِ بسته‌شده برمی‌گشت ⇒ در مسیرهایِ HTTPِ
+    چندسشنی `SAWarning: non-checked-in connection` و `greenlet is being finalized` می‌دیدیم
+    (exit را خراب نمی‌کرد، ولی نویزِ واقعی بود و محکم‌ترینِ نشانهٔ نگهداشتنِ ORMِ مرده). با کپیِ
+    مقدار، کش دیگر هیچ ارجاعی به اتصال ندارد و خواندنِ فیلدها هم هیچ IO نمی‌زند.
+    """
+    return AdminSettings(**{column.key: getattr(row, column.key) for column in row.__table__.columns})
 
 
 async def update_setting(session: AsyncSession, field_name: str, value: Any) -> AdminSettings:
