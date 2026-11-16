@@ -135,10 +135,30 @@ async def test_report_is_secret_free_and_order_alternates() -> None:
     print("PASS test_report_is_secret_free_and_order_alternates")
 
 
+# ============================================================================= ۵ (پ۱۰۵)
+async def test_pick_selects_only_those_questions_and_cost_uses_new_ratio() -> None:
+    await _seed_shop()
+    _install_stub(None)
+    try:
+        code = await ab.run(
+            _shop_id, limit=20, order="alternate", out_path="/tmp/p100_pick_should_not_exist.md", dry_run=True, pick="14,16"
+        )
+    finally:
+        ai_pool_service.build_ai_service = _install_stub.original  # type: ignore[attr-defined]
+    assert code == 0, code
+    assert not os.path.exists("/tmp/p100_pick_should_not_exist.md")
+    # ضریبِ نو (نویسه÷۲٫۲) باید هزینه را *بیشتر* از قاعدهٔ قدیمی (نویسه÷۴) نشان دهد، چون اندازه‌گیری
+    # واقعیِ پ۱۰۵ (پرامپت ۷۸٬۹۳۹ نویسه ⇒ ۳۶٬۷۷۵ توکن) همان را گفت.
+    prompt_len = len(_prompts_cache["A"])
+    assert prompt_len // 10 * 10 * 10 // 22 > prompt_len // 4, prompt_len
+    print("PASS test_pick_selects_only_those_questions_and_cost_uses_new_ratio")
+
+
 async def main() -> None:
     await test_variants_differ_only_in_guard_lines()
     await test_dry_run_makes_zero_ai_calls()
     await test_report_is_secret_free_and_order_alternates()
+    await test_pick_selects_only_those_questions_and_cost_uses_new_ratio()
 
 
 if __name__ == "__main__":

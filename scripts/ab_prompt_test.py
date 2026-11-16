@@ -125,20 +125,28 @@ def _prompts(args: dict) -> dict[str, str]:
     return out
 
 
-async def run(shop_bot_id: int, *, limit: int, order: str, out_path: str, dry_run: bool) -> int:
+async def run(shop_bot_id: int, *, limit: int, order: str, out_path: str, dry_run: bool, pick: str = "") -> int:
     args = await _collect(shop_bot_id)
     prompts = _prompts(args)
-    questions = QUESTIONS[: max(1, min(limit, len(QUESTIONS)))]
+    if pick:
+        indexes = sorted({int(part) for part in pick.split(",") if part.strip().isdigit()})
+        questions = tuple(QUESTIONS[index - 1] for index in indexes if 1 <= index <= len(QUESTIONS))
+        if not questions:
+            raise SystemExit(f"هیچ سوالِ معتبری در --pick={pick} نبود (شماره‌ها ۱ تا {len(QUESTIONS)})")
+    else:
+        questions = QUESTIONS[: max(1, min(limit, len(QUESTIONS)))]
     sizes = {label: len(text) for label, text in prompts.items()}
 
     print(f"پرامپتِ A (نگهبانِ مفصّل): {sizes['A']} نویسه")
     print(f"پرامپتِ B (نگهبانِ کوتاه، پ۸۰): {sizes['B']} نویسه · تفاوت: {sizes['B'] - sizes['A']}")
     print(f"سوال‌ها: {len(questions)} · جمعِ فراخوانی‌ها: {len(questions) * len(VARIANTS)}")
-    per_call = (sizes["A"] + sizes["B"]) // 2 // 4
+    # پ۱۰۵ · ضریبِ تازه: با فارسی، سرویس‌دهنده ≈ ۲٫۲ نویسه به‌ازایِ هرِ توکن داد (MEASURED:
+    # پرامپتِ ۷۸٬۹۳۹ نویسه‌ای ⇒ ۳۶٬۷۷۵ توکنِ اعلام‌شده). قاعدهٔ قدیمیِ «نویسه÷۴» هزینه را نصف نشان می‌داد.
+    per_call = (sizes["A"] + sizes["B"]) // 2 * 10 // 22
     print(
-        f"هزینه (ESTIMATED، قاعدهٔ نویسه÷۴): هر فراخوانی ≈ {per_call} توکنِ ورودی × {len(questions) * len(VARIANTS)} "
-        f"≈ {per_call * len(questions) * len(VARIANTS)} — اگر گران است با `--limit 4` شروع کن "
-        f"یا رویِ فروشگاهِ کم‌محصول‌تر اجرا کن (این عدد با تعدادِ محصولِ فروشگاه خطی بالا می‌رود)."
+        f"هزینه (ESTIMATED با ضریبِ تازهٔ نویسه÷۲٫۲): هر فراخوانی ≈ {per_call} توکن × "
+        f"{len(questions) * len(VARIANTS)} ≈ {per_call * len(questions) * len(VARIANTS)} توکن — اگر گران است"
+        f" با `--limit 4` یا `--pick 14` (فقطِ یکِ سوالِ مشخص) شروع کن."
     )
 
     if dry_run:
@@ -243,9 +251,10 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=len(QUESTIONS), help=f"تعدادِ سوال (حداکثر {len(QUESTIONS)})")
     parser.add_argument("--order", choices=("ab", "ba", "alternate"), default="alternate")
     parser.add_argument("--out", default="ab-prompt-report.md", help="مسیرِ فایلِ گزارشِ Markdown")
+    parser.add_argument("--pick", default="", help="فقطِ شماره‌هایِ تازه‌شده، مثلِ `14,15,16` (برایِ تستِ نگهبان بدونِ هزینهٔ بیست سوال)")
     parser.add_argument("--dry-run", action="store_true", help="بدونِ هیچ فراخوانیِ AI (صفر هزینه)")
     args = parser.parse_args()
-    return asyncio.run(run(args.shop, limit=args.limit, order=args.order, out_path=args.out, dry_run=args.dry_run))
+    return asyncio.run(run(args.shop, limit=args.limit, order=args.order, out_path=args.out, dry_run=args.dry_run, pick=args.pick))
 
 
 if __name__ == "__main__":
