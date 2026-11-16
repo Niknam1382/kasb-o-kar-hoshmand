@@ -190,6 +190,7 @@ TEST_FILES = [
     "test_p90_ops_measurements.py",
     "test_p91_ops_panel.py",
     "test_p94_purge_guards.py",
+    "test_p95_prompt_parity.py",
 ]
 
 
