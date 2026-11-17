@@ -93,6 +93,7 @@ async def panel_keyboard(session: AsyncSession, tenant_mode=None) -> ReplyKeyboa
     صفحه‌ها دکمه‌ها می‌مانند و در بعضی می‌روند — همان ناهماهنگی که مالکِ محصول گزارش کرد.
     """
     from app.bots.main_bot import keyboards
+    from app.services import web_panel_service
     from app.services.admin_settings_service import get_admin_settings
 
     admin_settings = await get_admin_settings(session)
@@ -102,6 +103,9 @@ async def panel_keyboard(session: AsyncSession, tenant_mode=None) -> ReplyKeyboa
         # P49-الف: دکمهٔ «🟣 اینستاگرام» فقط با رونماییِ سراسریِ ادمین در می‌آید (از اتصالِ خودِ
         # فروشگاه مستقل است، تا فروشگاه‌دار بتواند راهنما/اتصال را همین‌جا پیدا کند).
         instagram=bool(admin_settings.instagram_enabled),
+        # پ۱۱۴: دو شرطِ مستقل — سوئیچِ سراسریِ ادمین و تنظیم‌شدنِ رازِ پنجرهٔ وب. تا هیچ‌کدام
+        # برقرار نباشد دکمه از پنل می‌رود (نه پیامِ «خاموش است» بعد ازِ زدنِ دکمه).
+        web_panel=bool(admin_settings.web_panel_enabled) and web_panel_service.enabled(),
     )
 
 

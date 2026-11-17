@@ -204,6 +204,7 @@ TEST_FILES = [
     "test_p111_shard_http.py",
     "test_p112_instagram_dm_erasure.py",
     "test_p112_bale_webhook_guards.py",
+    "test_p114_web_panel_visibility.py",
 ]
 
 

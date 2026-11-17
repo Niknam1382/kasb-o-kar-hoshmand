@@ -234,6 +234,8 @@ async def web_login(request: Request) -> Response:
         return Response(status_code=429, headers={"Retry-After": "60"}, media_type="text/plain; charset=utf-8")
     token = (request.query_params.get("t") or "")[:128]
     async with session_scope() as session:
+        if not await web_panel_service.new_logins_allowed(session):
+            return Response(status_code=404)
         row = await web_panel_service.redeem(session, token, user_agent=request.headers.get("user-agent") or "")
         row_id = row.id if row is not None else None
         max_age = web_panel_service.SESSION_TTL_SECONDS

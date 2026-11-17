@@ -1012,6 +1012,30 @@ async def cb_toggle_instagram(callback: CallbackQuery, session: AsyncSession) ->
     await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
 
 
+@super_router.callback_query(F.data == "admin_toggle_web_panel")
+async def cb_toggle_web_panel(callback: CallbackQuery, session: AsyncSession) -> None:
+    """پ۱۱۴ · خواستهٔ مالک: دکمهٔ «🌐 پنلِ وب» پیش ازِ آماده‌سازیِ قابلیت از پنلِ کاربران محو شود.
+
+    این سوئیچ فقط «دیدنی‌بودنِ دکمه» را کنترل می‌کند؛ درِ واقعیِ `/web/*` همان
+    `WEB_PANEL_SECRET` است، پس خاموش‌کردنِ سوئیچ هیچ نشستِ جاری را نمی‌بندد (برایِ بستنِ
+    نشست‌ها «🌐 ابطالِ لینک‌ها» در پنلِ خودِ فروشگاه‌دار هست).
+    """
+    admin_settings = await get_admin_settings(session)
+    admin_settings.web_panel_enabled = not admin_settings.web_panel_enabled
+    now_enabled = admin_settings.web_panel_enabled
+    await audit_log_service.log(
+        session,
+        AuditEventType.KILL_SWITCH_TOGGLED,
+        actor_telegram_id=callback.from_user.id,
+        details=f"web_panel_enabled -> {now_enabled}",
+    )
+    await session.flush()
+    await callback.answer(
+        texts.WEB_PANEL_TOGGLED_ON if now_enabled else texts.WEB_PANEL_TOGGLED_OFF
+    )
+    await callback.message.edit_reply_markup(reply_markup=keyboards.admin_settings_menu_keyboard(admin_settings))
+
+
 @super_router.callback_query(F.data == "admin_toggle_maintenance")
 async def cb_toggle_maintenance(callback: CallbackQuery, session: AsyncSession) -> None:
     admin_settings = await get_admin_settings(session)

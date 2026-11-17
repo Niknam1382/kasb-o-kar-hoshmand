@@ -36,7 +36,8 @@ async def open_web_panel(message: Message, state: FSMContext, session: AsyncSess
     shop_bot = await require_shop_bot(message, session)
     if shop_bot is None or message.from_user is None:
         return
-    if not web_panel_service.enabled():
+    if not await web_panel_service.new_logins_allowed(session):
+        # پ۱۱۴: این پیام فقط برایِ کیبوردِ قدیمیِ تلگرام می‌ماند (دکمه در پنلِ تازه دیدنی نیست).
         await message.answer(texts.WEB_PANEL_DISABLED)
         return
     if not (settings.webhook_base_url or "").strip():

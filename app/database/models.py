@@ -317,6 +317,10 @@ class AdminSettings(Base):
     # `app_id` تنها مقداری است که داخلِ آدرسِ لینکِ اتصال می‌نشیند؛ دو موردِ بعدی رازند و مثلِ
     # بقیهٔ رازها رمزنگاری‌شده ذخیره می‌شوند و فقط ماسک‌شده نمایش داده می‌شوند.
     instagram_enabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # پ۱۱۴ · خواستهٔ مالک: دکمهٔ «🌐 پنلِ وب» باید *پیش ازِ* روشن‌کردنِ قابلیت از پنلِ کاربران محو شود.
+    # دو شرطِ مستقل با هم دیدنی‌بودن را تعیین می‌کنند: این سوئیچِ سراسری (پیش‌فرض روشن، تا رفتارِ
+    # امروزِ نصب‌هایِ موجود عوض نشود) و تنظیم‌شدنِ `WEB_PANEL_SECRET` در محیط.
+    web_panel_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
     instagram_app_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     instagram_app_secret: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
     instagram_webhook_verify_token: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)

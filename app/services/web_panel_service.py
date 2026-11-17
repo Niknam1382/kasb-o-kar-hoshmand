@@ -54,6 +54,21 @@ def enabled() -> bool:
     return bool((settings.panel_secret or "").strip())
 
 
+async def new_logins_allowed(session) -> bool:
+    """پ۱۱۴: ورودِ *نو* فقط وقتی مجاز است که راز تنظیم شده باشد و سوئیچِ سراسری روشن باشد.
+
+    سوئیچِ ادمین را «پنهان» می‌کند، ولی نشست‌ها و لینک‌هایی که پیش ازِ خاموش‌کردن صادر شده‌اند
+    عمداً نمی‌میرند (صاحبِ فروشگاه وسطِ کار بی‌دروازه بیرون نمی‌افتد)؛ برایِ بستنِ فوری همان‌ها
+    «🌐 ابطالِ لینک‌ها» در پنلِ خودِ فروشگاه هست.
+    """
+    from app.services import admin_settings_service
+
+    if not enabled():
+        return False
+    row = await admin_settings_service.get_admin_settings(session)
+    return bool(getattr(row, "web_panel_enabled", True))
+
+
 def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 

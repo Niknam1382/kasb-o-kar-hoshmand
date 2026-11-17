@@ -133,7 +133,9 @@ def offer_trial_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🎁 فعال‌سازی اعتبار آزمایشی", callback_data="activate_trial")]])
 
 
-def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True, instagram: bool = False) -> ReplyKeyboardMarkup:
+def shop_owner_panel_keyboard(
+    tenant_mode=None, knowledge_gap: bool = True, instagram: bool = False, web_panel: bool = True
+) -> ReplyKeyboardMarkup:
     """منویِ فروشگاه‌دار (A4): مشاوره‌ای = بدونِ پرداختِ آنلاین/چک‌اوتِ سبد/کمپین (چیزهایِ مخصوصِ فروش).
     P42 · موردِ ۱: «🟢 هوشمندسازیِ بله» دیگر دکمهٔ منو نیست — داخلِ «🔑 ثبت/ویرایش توکن ربات»
     انتخاب می‌شود؛ آن دکمهٔ سبز ردیفِ اول را از دو به یک می‌انداخت و چینشِ دونفره را می‌شکست.
@@ -143,6 +145,8 @@ def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True, inst
     P42 · موردِ ۳۳: در مودِ مشاوره‌ای مخاطبِ «پیام به مشتری‌ها»، کاربرِ همان جلسه است نه خریدار.
     P49-الف: «🟣 اینستاگرام» فقط وقتی در می‌آید که ادمین کانال را رونمایی کرده باشد (مثلِ سوئیچِ
     «سوال‌هایِ بی‌جواب»؛ خودِ اتصال یا نبودش تاثیری در دیدنی‌بودنِ دکمه ندارد).
+    پ۱۱۴: «🌐 پنلِ وب» هم با همین الگو پنهان می‌شود (`web_panel`)، ولی دیدنی‌بودنش دو شرط دارد:
+    سوئیچِ سراسریِ ادمین و تنظیم‌شدنِ `WEB_PANEL_SECRET`.
     """
     mode_value = tenant_mode.value if hasattr(tenant_mode, "value") else tenant_mode
     consultation = mode_value == "consultation"
@@ -174,7 +178,8 @@ def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True, inst
         rows.append([texts.INSTAGRAM_BUTTON])
     rows.append(["⚙️ تنظیماتِ ربات فروشگاه"])
     # پ۱۰۹ · پنجرهٔ نوشتنیِ وب (هر دو مود؛ مود فقط مجموعهٔ فعل‌هایِ داخلِ پنل را عوض می‌کند).
-    rows.append([texts.WEB_PANEL_BUTTON])
+    if web_panel:
+        rows.append([texts.WEB_PANEL_BUTTON])
     # P22: چینشِ دونفره. قبلاً ردیف‌ها قاطی بود (سه ردیفِ تک، بعد دونفره، بعد یکِ سه‌تایی) و
     # همین منو را بی‌نظم نشان می‌داد. ترتیبِ خطیِ دکمه‌ها دست‌نخورده است ⇒ هندلرها و تست‌ها سالم‌اند.
     labels = [label for row in rows for label in row]
@@ -976,6 +981,8 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
     bale_bots_label = switch_label("رباتِ بله‌یِ فروشگاه‌ها", admin_settings.bale_shop_bots_enabled)
     # P49-الف: سوییچِ کانالِ اینستاگرام (پیش‌فرض خاموش ⇒ دکمهٔ پنل نیست و رویدادی پاسخ نمی‌رود).
     instagram_label = switch_label("کانالِ اینستاگرام", admin_settings.instagram_enabled)
+    # پ۱۱۴: دیدنی‌بودنِ دکمهٔ «🌐 پنلِ وب» در پنلِ فروشگاه‌دار.
+    web_panel_label = switch_label("پنجرهٔ نوشتنیِ وب", admin_settings.web_panel_enabled)
     sms_label = switch_label("پیامکِ احراز", admin_settings.sms_enabled)
     registrations_label = switch_label("ثبت‌نامِ کاربرانِ جدید", admin_settings.allow_new_registrations)
     topups_label = switch_label("شارژِ کیف‌پول", admin_settings.allow_wallet_topups)
@@ -993,6 +1000,8 @@ def admin_settings_menu_keyboard(admin_settings) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=bale_bots_label, callback_data="admin_toggle_bale_bots")],
         # P49-الف: همان شکلِ «admin_toggle_bale_bots» (صفحهٔ اصلی فقط سوییچ‌ها را نگه می‌دارد).
         [InlineKeyboardButton(text=instagram_label, callback_data="admin_toggle_instagram")],
+        # پ۱۱۴: پنهان/دیدنی‌کردنِ دکمهٔ «🌐 پنلِ وب» (بدونِ این، رازِ تنظیم‌شده کافی بود).
+        [InlineKeyboardButton(text=web_panel_label, callback_data="admin_toggle_web_panel")],
         [InlineKeyboardButton(text=sms_label, callback_data="admin_toggle_sms")],
         [InlineKeyboardButton(text=commission_label, callback_data="admin_toggle_commission")],
         [InlineKeyboardButton(text=zero_credit_label, callback_data="admin_toggle_zero_credit_orders")],
