@@ -54,7 +54,7 @@ async def _latest_subscriptions(session: AsyncSession) -> dict[int, Subscription
 async def select_owner_ids(session: AsyncSession, flt: str, *, allowed_owner_ids: set[int] | None = None) -> list[int]:
     """مجموعهٔ هدف. `allowed_owner_ids` (P21-F): دامنهٔ ادمینِ عملیاتی — None ⇒ همه.
 
-    عملیاتِ گروهی دقیقاً همان جایی بود که «دامنه» معنا دارد: دکمهٔ «🎁 هدیهٔ اعتبار (گروهی)» برایِ
+    عملیاتِ گروهی دقیقاً همان جایی بود که «دامنه» معنا دارد: دکمهٔ «🎁 هدیه‌یِ اعتبار (گروهی)» برایِ
     هر ادمین نمایش داده می‌شود، پس بدونِ این فیلتر یکِ ادمینِ دامنه‌دار می‌توانست به ۲۰۰۰
     فروشگاه‌دارِ کلِ پلتفرم اعتبار هدیه بدهد.
     """

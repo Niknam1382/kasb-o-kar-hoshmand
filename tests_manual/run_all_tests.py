@@ -198,6 +198,7 @@ TEST_FILES = [
     "test_p102_audit_trim_seal.py",
     "test_p104_two_process_panel.py",
     "test_p106_pdf_markers.py",
+    "test_p108_prompt_dead_buttons.py",
 ]
 
 

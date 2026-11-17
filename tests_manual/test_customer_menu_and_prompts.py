@@ -67,7 +67,12 @@ def test_prompt_resolution_order_and_defaults() -> None:
 
 def test_bot_tools_section_is_dynamic_and_optional() -> None:
     sales_tools = prompt_defaults.build_bot_tools(TenantMode.SALES, False, texts)
-    assert sales_tools == [f"«{texts.BTN_PRODUCTS}» — دیدنِ کاتالوگ", f"«{texts.BTN_CART}» — مرورِ سبد و تسویه‌حساب"]
+    # پ۱۰۸: «📦 سفارش‌هایِ من» هم در منو هست ⇒ باید در فهرستِ ابزارها باشد (تستِ همسانیِ پ۱۰۸).
+    assert sales_tools == [
+        f"«{texts.BTN_PRODUCTS}» — دیدنِ کاتالوگ",
+        f"«{texts.BTN_CART}» — مرورِ سبد و تسویه‌حساب",
+        f"«{texts.BTN_MY_ORDERS}» — سفارش‌هایِ خودت",
+    ]
     assert any(texts.BTN_SUPPORT in line for line in prompt_defaults.build_bot_tools(TenantMode.SALES, True, texts))
     # P24: در مودِ مشاوره دکمه‌ای برایِ «خدمات» وجود ندارد (کاتالوگ بسته است) ⇒ AI هم نباید
     # به دکمه‌یِ غیرموجود ارجاع بدهد؛ تنها ابزارِ این مود پشتیبانی است.

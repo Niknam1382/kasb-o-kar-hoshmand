@@ -29,6 +29,7 @@ GATES = (
     "scripts/lint_names.py",
     "scripts/check_callbacks.py",
     "scripts/check_text_hygiene.py",
+    "scripts/check_prompt_buttons.py",  # پ۱۰۸: «از دکمهٔ مشاوره استفاده کن» برایِ دکمه‌ای که وجود ندارد
 )
 TESTS_DIR = ROOT / "tests_manual"
 REGISTRY = TESTS_DIR / "run_all_tests.py"
