@@ -88,7 +88,13 @@ async def _load_active_shop_bots(
     bot_manager: ShopBotManager, main_bot: Bot, *, bale_polling_owner: bool = True
 ) -> None:
     async with session_scope() as session:
-        shop_bots = await shop_bot_service.get_all_active(session)
+        # پ۱۱۱: با شارد، *پرس‌وجو* هم شارد می‌شود (نه فقط فیلترِ درحافظهٔ `load_all`). با
+        # `SHARD_COUNT=1` آرگومان `None` می‌ماند ⇒ کوئری و خروجی دقیقاً مثلِ دیروز.
+        shard = None
+        if settings.run_mode != RunMode.WEBHOOK and app_roles.shard_count() > 1:
+            shard = (app_roles.shard_index(), app_roles.shard_count())
+        shop_bots = await shop_bot_service.get_all_active(session, shard=shard)
+        total_active = await shop_bot_service.count_active(session)
         # P19: اتصالِ بله فقط وقتی شروع می‌شود که ادمین ویژگی را رونمایی کرده باشد (پیش‌فرض پنهان).
         bale_enabled = bale_bot_service.enabled(await get_admin_settings(session))
     if bale_enabled and not bale_polling_owner:
@@ -110,10 +116,13 @@ async def _load_active_shop_bots(
     await bot_manager.load_all(shop_bots, bale_enabled=bale_enabled)
     # P45: شمارِ *ثبت‌شده* در این پروسه گزارش می‌شود، نه شمارِ ردیف‌هایِ دیتابیس؛ با شارد، هر پروسه
     # فقط بخشِ خودش را نگه می‌دارد و عددِ «همه» لاگِ چند پروسه را گمراه‌کننده می‌کرد.
+    # پ۱۱۱: چون خودِ پرس‌وجو هم شارد شد، `len(shop_bots)` دیگر «همهٔ فعال‌ها» نیست ⇒ جمعِ کلِ ردیف‌ها
+    # با یکِ COUNTِ جدا خوانده می‌شود تا خطِ «X از Y» همچنان صادق باشد (این عدد *پیش* ازِ ثبتِ ربات‌ها
+    # گرفته می‌شود، پس هیچ socketِ تازه‌ای باز نمی‌کند).
     logger.info(
         "%d از %d رباتِ فروشگاهیِ فعال در این پروسه بارگذاری شد (%s؛ اتصالِ بله: %s، ربات‌هایِ بله‌دار: %d).",
         len(bot_manager.registered_shop_bot_ids()),
-        len(shop_bots),
+        total_active or len(shop_bots),
         app_roles.describe(),
         "روشن" if bale_enabled else "خاموش",
         len(bot_manager.registered_bale_bot_ids()),

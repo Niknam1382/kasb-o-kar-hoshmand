@@ -201,6 +201,7 @@ TEST_FILES = [
     "test_p108_prompt_dead_buttons.py",
     "test_p109_web_write_panel.py",
     "test_p110_ops_websocket.py",
+    "test_p111_shard_http.py",
 ]
 
 

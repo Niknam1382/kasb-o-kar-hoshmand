@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ShopBot, ShopOwner, TenantMode
@@ -79,9 +79,34 @@ async def reencrypt_secrets(session: AsyncSession) -> int:
     return len(shop_bots)
 
 
-async def get_all_active(session: AsyncSession) -> list[ShopBot]:
-    result = await session.execute(select(ShopBot).where(ShopBot.is_active.is_(True)))
+async def get_all_active(session: AsyncSession, *, shard: tuple[int, int] | None = None) -> list[ShopBot]:
+    """همهٔ ربات‌هایِ فعال؛ با `shard=(index, count)` فقط همان دسته.
+
+    پ۱۱۱ · چرا در SQL: تا اینجا `load_all` همهٔ ردیف‌ها را می‌خواند و در *حافظه* دور می‌ریخت، یعنی
+    هر پروسهٔ poller با ۱٬۵۰۰ فروشگاه، ۱٬۵۰۰ ردیف (با رمزهایِ وبهوکِ رمزنگاری‌شده) را از دیتابیس
+    می‌کشید تا ۳۷۵تایش را نگه دارد. با سرورِ چهارشاردی این چهار برابرِ خواندنِ بی‌فایده بود.
+    همان فرمولِ `bot_manager.owns_shard`: `id % count == index` (پس پیام‌هایِ یکِ فروشگاه همیشه در
+    یکِ پروسه می‌نشینند و debounceِ درِحافظه همان‌جا درست می‌ماند). `shard=None` یا `count<=1`
+    ⇒ خروجی دقیقاً مثلِ قبل (بدونِ هیچ شرطِ تازه در کوئری).
+    """
+    statement = select(ShopBot).where(ShopBot.is_active.is_(True))
+    if shard is not None:
+        index, count = shard
+        if count > 1:
+            statement = statement.where((ShopBot.id % count) == (index % count))
+    result = await session.execute(statement)
     return list(result.scalars().all())
+
+
+async def count_active(session: AsyncSession) -> int:
+    """جمعِ ربات‌هایِ فعالِ *کل* سرویس (برایِ لاگِ صادقِ «X از Y» در دیپلویِ شاردشده — پ۱۱۱)."""
+    return int(
+        (
+            await session.execute(
+                select(func.count()).select_from(ShopBot).where(ShopBot.is_active.is_(True))
+            )
+        ).scalar_one()
+    )
 
 
 async def upsert_shop_bot(
