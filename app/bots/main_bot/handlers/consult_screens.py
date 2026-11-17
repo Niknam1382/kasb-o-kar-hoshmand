@@ -37,7 +37,6 @@ logger = logging.getLogger(__name__)
 router = Router(name="consult_screens")
 
 # مخاطبانِ هر بخش در FSM می‌مانند (همان قراردادِ CRM)، پس سقف لازم است: ۲۰۰۰ شناسه ≈ ۱۲ کیلوبایت JSON.
-AUDIENCE_LIMIT = 2_000
 _PERIODS = ("today", "week", "month30", "jmonth")
 
 
@@ -126,16 +125,18 @@ async def return_segment(callback: CallbackQuery, state: FSMContext, session: As
     if segment not in crm_service.SEGMENT_KEYS:
         await callback.answer(texts.CONSULT_RETURN_STALE, show_alert=True)
         return
-    stats, _ = await crm_service.load_stats(session, shop_bot.id, exclude_blocked=True)
-    members = crm_service.partition(stats)[segment]
-    if not members:
+    # پ۱۱۵: شمارش و سقف از crm_service.audience_for_segment می‌آید، تا با مودِ فروشگاهی یکی باشد.
+    ids, total, truncated = await crm_service.audience_for_segment(session, shop_bot.id, segment)
+    if not ids:
         await callback.answer(texts.CONSULT_RETURN_EMPTY, show_alert=True)
         return
-    ids = [int(stat.customer_id) for stat in members[:AUDIENCE_LIMIT]]
     await state.clear()
     await state.set_state(CustomerBroadcastStates.waiting_message)
     await state.update_data(broadcast_customer_ids=ids)
     await callback.answer()
-    await callback.message.answer(
-        texts.consult_return_ask(segment, len(ids)) + ("" if len(members) <= AUDIENCE_LIMIT else f"\n⚠️ فقط {AUDIENCE_LIMIT} نفرِ اول.")
+    note = (
+        texts.audience_truncated_note(crm_service.AUDIENCE_LIMIT, total)
+        if truncated
+        else ""
     )
+    await callback.message.answer(texts.consult_return_ask(segment, len(ids)) + note)

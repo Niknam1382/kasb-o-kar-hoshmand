@@ -426,16 +426,17 @@ async def crm_segment_broadcast(callback: CallbackQuery, session: AsyncSession, 
     if segment_key not in crm_service.SEGMENT_KEYS:
         await callback.answer(texts.CRM_STALE_BUTTON, show_alert=True)
         return
-    stats, _ = await crm_service.load_stats(session, shop_bot.id)
-    members = crm_service.partition(stats)[segment_key]
-    if not members:
+    # پ۱۱۵: همان مسیرِ مودِ مشاوره‌ای — شمارشِ بلاک‌شده‌ها بیرون، سقفِ مشترک، و اخطارِ روشن.
+    ids, total, truncated = await crm_service.audience_for_segment(session, shop_bot.id, segment_key)
+    if not ids:
         await callback.answer(texts.CRM_BROADCAST_EMPTY, show_alert=True)
         return
     await state.clear()
     await state.set_state(CustomerBroadcastStates.waiting_message)
-    await state.update_data(broadcast_customer_ids=[stat.customer_id for stat in members])
+    await state.update_data(broadcast_customer_ids=ids)
     await callback.answer()
-    await callback.message.answer(texts.crm_broadcast_ask(texts.CRM_SEGMENT_LABELS[segment_key], len(members)))
+    note = texts.audience_truncated_note(crm_service.AUDIENCE_LIMIT, total) if truncated else ""
+    await callback.message.answer(texts.crm_broadcast_ask(texts.CRM_SEGMENT_LABELS[segment_key], len(ids)) + note)
 
 
 # =============================================================================

@@ -259,6 +259,31 @@ def _stats_query(shop_bot_id: int, *, exclude_blocked: bool = False):
     return query
 
 
+AUDIENCE_LIMIT = 2_000
+"""سقفِ مخاطبِ یکِ «پیام به بخش» (پ۱۱۵).
+
+فهرستِ شناسه‌ها در FSMِ تلگرام (JSON) می‌نشیند؛ بی‌سقف، یکِ بخشِ ده‌هزارنفری رشتهٔ state را
+ترک می‌دهد. راهِ درستِ بلندمدت فرستادنِ *کلیدِ بخش* و خواندنِ گیرنده در لحظهٔ ارسال است، که
+لایهٔ «سازندهٔ لیستِ پایدار» می‌خواهد — تا آن روز، سقف با اخطارِ روشن در هر دو مود یکی است.
+"""
+
+
+async def audience_for_segment(
+    session: AsyncSession, shop_bot_id: int, segment_key: str
+) -> tuple[list[int], int, bool]:
+    """مخاطبِ یکِ بخش: (شناسه‌ها تا سقف، تعدادِ کلِ بخش، آیا بریده شد).
+
+    پ۱۱۵: شمارش با همان فیلتری انجام می‌شود که ارسال استفاده می‌کند (`exclude_blocked=True`)،
+    پس عددی که فروشگاه‌دار در پیامِ «این بخش N نفر دارد» می‌بیند دقیقاً همان تعدادی است که پیام
+    می‌گیرد.
+    """
+    stats, _ = await load_stats(session, shop_bot_id, exclude_blocked=True)
+    members = partition(stats)[segment_key]
+    total = len(members)
+    ids = [int(stat.customer_id) for stat in members[:AUDIENCE_LIMIT]]
+    return ids, total, total > AUDIENCE_LIMIT
+
+
 async def load_stats(
     session: AsyncSession,
     shop_bot_id: int,

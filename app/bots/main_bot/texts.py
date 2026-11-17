@@ -5189,6 +5189,11 @@ def consult_return_text(counts: dict[str, int], total: int, truncated: bool) -> 
     return "\n".join(lines)
 
 
+def audience_truncated_note(limit: int, total: int) -> str:
+    """پ۱۱۵: یکِ جمله، هر دو مود — «چرا فقط N نفر رفتند» باید برایِ فروشگاه‌دار روشن باشد."""
+    return f"\n⚠️ فقط {fa_number(limit)} نفر از {fa_number(total)} نفرِ این بخش پیام می‌گیرد."
+
+
 def consult_return_ask(segment: str, count: int) -> str:
     return (
         f"🎯 بخشِ «{CONSULT_SEGMENT_LABELS.get(segment, segment)}» — {fa_number(count)} نفر\n\n"

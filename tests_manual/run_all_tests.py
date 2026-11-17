@@ -205,6 +205,9 @@ TEST_FILES = [
     "test_p112_instagram_dm_erasure.py",
     "test_p112_bale_webhook_guards.py",
     "test_p114_web_panel_visibility.py",
+    "test_p115_broadcast_audience.py",
+    "test_p116_money_idempotency.py",
+    "test_p117_lock_order_and_expiry.py",
 ]
 
 

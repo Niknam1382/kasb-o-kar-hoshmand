@@ -29,9 +29,16 @@ async def get_by_shop_bot_and_telegram_id(
 
 async def recipients_by_shop_bot(session: AsyncSession, shop_bot_id: int) -> list[tuple[int, str]]:
     """زوج‌های (شناسه‌یِ کاربر، پلتفرم) برایِ ارسالِ پیام. پلتفرم همیشه همراه است چون
-    عددِ یکسان در تلگرام و بله می‌تواند دو آدمِ کاملاً متفاوت باشد."""
+    عددِ یکسان در تلگرام و بله می‌تواند دو آدمِ کاملاً متفاوت باشد.
+
+    پ۱۱۵: مخاطبِ «جواب نده» (پ۷۷) در *هیچ* پیامِ فعالِ این فروشگاه نمی‌آید — پیامِ همگانی، پیامِ
+    بخش، کمپین و ارسالِ زمان‌بندی‌شده همه از همین دو تابع می‌گذرند. پاسخِ خودکار به پیامِ خودِ
+    کاربر چیزِ دیگری است و اینجا به آن دست نمی‌زنیم.
+    """
     result = await session.execute(
-        select(Customer.telegram_id, Customer.platform).where(Customer.shop_bot_id == shop_bot_id)
+        select(Customer.telegram_id, Customer.platform).where(
+            Customer.shop_bot_id == shop_bot_id, Customer.is_blocked.is_(False)
+        )
     )
     return [(int(chat_id), platform or platform_service.TELEGRAM) for chat_id, platform in result.all()]
 
@@ -42,7 +49,9 @@ async def recipients_by_ids(session: AsyncSession, shop_bot_id: int, customer_id
         return []
     result = await session.execute(
         select(Customer.telegram_id, Customer.platform).where(
-            Customer.shop_bot_id == shop_bot_id, Customer.id.in_(list(customer_ids))
+            Customer.shop_bot_id == shop_bot_id,
+            Customer.id.in_(list(customer_ids)),
+            Customer.is_blocked.is_(False),
         )
     )
     return [(int(chat_id), platform or platform_service.TELEGRAM) for chat_id, platform in result.all()]
