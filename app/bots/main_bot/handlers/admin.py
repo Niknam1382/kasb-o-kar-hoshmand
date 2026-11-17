@@ -1018,7 +1018,7 @@ async def cb_toggle_web_panel(callback: CallbackQuery, session: AsyncSession) ->
 
     این سوئیچ فقط «دیدنی‌بودنِ دکمه» را کنترل می‌کند؛ درِ واقعیِ `/web/*` همان
     `WEB_PANEL_SECRET` است، پس خاموش‌کردنِ سوئیچ هیچ نشستِ جاری را نمی‌بندد (برایِ بستنِ
-    نشست‌ها «🌐 ابطالِ لینک‌ها» در پنلِ خودِ فروشگاه‌دار هست).
+    نشست‌ها «🔐 ابطالِ لینک‌هایِ وب» در پنلِ خودِ فروشگاه‌دار هست).
     """
     admin_settings = await get_admin_settings(session)
     admin_settings.web_panel_enabled = not admin_settings.web_panel_enabled
