@@ -78,7 +78,8 @@ def _health_paths() -> set[str]:
 
 async def test_route_is_registered_on_both_apps() -> None:
     paths = _health_paths()
-    assert paths == {"/health", "/metrics", "/ops/status", "/panel"}, sorted(paths)
+    # پ۱۱۰ · مسیرِ فقط‌خواندنیِ `/ws/ops` هم رویِ همین اپ است (نگاهِ زندهٔ `/panel`). وبهوک‌ها همچنان نیستند.
+    assert paths == {"/health", "/metrics", "/ops/status", "/panel", "/ws/ops"}, sorted(paths)
     main_paths = _paths_of(app_main.app.routes)
     assert "/ops/status" in main_paths, sorted(main_paths)
     assert "/webhook/main" not in paths, "وب‌هوک هرگز از اپِ سلامت سرویس نمی‌شود"

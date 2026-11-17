@@ -13,8 +13,9 @@ from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramAPIError
 from app.services.fsm_storage import build_storage as build_fsm_storage  # P32: memory|postgres (FSM_STORAGE)
 from aiogram.types import Update
-from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi import APIRouter, FastAPI, Request, Response, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from starlette.websockets import WebSocketDisconnect
 from sqlalchemy import select
 
 from app.bots.common.channel_knowledge import create_channel_knowledge_router
@@ -627,8 +628,12 @@ async def _ops_status_json() -> dict:
     }
 
 
-def _ops_html(data: dict, note: str = "") -> str:
-    """پ۹۱ · پنلِ فقط‌خواندنیِ عملیاتی در HTML (بدونِ وابستگیِ تازه، بدونِ هیچ دادهٔ مشتری)."""
+def _ops_sections_html(data: dict, note: str = "") -> str:
+    """بدنهٔ پنلِ عملیاتی — همان چیزی که `/ws/ops` هم زنده می‌فرستد (پ۱۱۰).
+
+    هیچ متنِ آزادِ کاربری اینجا نمی‌نشیند: همه‌چیز با `html.escape` و از عددهایِ سرویس می‌آید، پس
+    فرستادنِ همین تکه از WebSocket به مرورگر، سطحِ ریسکِ تازه‌ای نسازد.
+    """
 
     def esc(value: object) -> str:
         return html.escape(str(value), quote=True)
@@ -651,15 +656,6 @@ def _ops_html(data: dict, note: str = "") -> str:
     channels = data.get("channels") or {}
     status_line = "✅ بدونِ هشدارِ قرمز" if data.get("ok") else "🔴 حداقل یکِ یافتهٔ قرمز"
     return (
-        "<!doctype html><html lang=fa dir=rtl><head><meta charset=utf-8>"
-        "<meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<meta http-equiv=refresh content=30><title>پنلِ عملیاتی</title>"
-        "<style>body{font-family:system-ui,Tahoma;margin:1.2rem;background:#f6f7f9;color:#1f2933;max-width:60rem}"
-        "h1{font-size:1.25rem}h2{font-size:1rem;margin-top:1.4rem;border-bottom:1px solid #d7dbe0;padding-bottom:.2rem}"
-        "table{border-collapse:collapse;width:100%;background:#fff}th,td{border:1px solid #d7dbe0;padding:.35rem .5rem;text-align:right}"
-        "th{background:#eef1f4;font-weight:600;width:40%}ul{padding-inline-start:1.1rem}li{margin:.2rem 0}"
-        "li.error{color:#b00020}li.warn{color:#a05a00}li.info{color:#33556b}.note{color:#5a6572;font-size:.85rem}"
-        "</style></head><body>"
         f"<h1>پنلِ عملیاتیِ «کسب‌وکار هوشمند» — {esc(status_line)}</h1>"
         + (f"<p class=note>{esc(note)}</p>" if note else "")
         + f"<h2>پروسه‌ها</h2><table>{rows([('پروسه‌هایِ زنده در جمع', data.get('processes')), ('پروسه‌هایِ بی‌ضربان', data.get('stale_processes'))])}</table>"
@@ -688,9 +684,86 @@ def _ops_html(data: dict, note: str = "") -> str:
            if channels.get("shops")
            else "<p class=note>هیچِ فروشگاهی ثبت نشده است.</p>")
         + f"<h2>شمارنده‌ها</h2><table>{counters}</table>"
-        "<p class=note>این صفحه فقط‌خواندنی است: نه دکمه‌ای، نه فرمی، نه دادهٔ مشتری. اعدادِ سیستم به همان شکلِ خامِ سرویس نشان داده می‌شوند (برایِ چشمِ آدم، نه مشتریِ نهایی). کلیدِ همین صفحه همان METRICS_TOKEN است.</p>"
-        "</body></html>"
     )
+
+
+# پ۱۱۰ · تازه‌سازیِ زنده: به‌جایِ رفرشِ ۳۰ ثانیه‌ای، هر OPS_PUSH_SECONDS یکِ پیام رویِ `/ws/ops`.
+# برگشتِ امن: اگر مرورگر وبهوک را باز نکند (پراکسیِ بدونِ ارتقا، HTTP قدیمی)، همان meta-refresh
+# باقی می‌ماند و `onclose` صفحه را یک‌بار دوباره بارگذاری می‌کند تا به حالتِ رفرشِ معمولی برگردد.
+OPS_PUSH_SECONDS = 5
+OPS_WS_COOKIE = "kasbokar_ops_ws"
+OPS_WS_TICKET_WINDOW_SECONDS = 1800  # عمرِ نشانهٔ کوکی (با یکِ پنجرهٔ بخشایش، هر ۳۰ دقیقه تازه می‌شود)
+OPS_WS_MAX_LIFETIME_SECONDS = 1800  # سقفِ عمرِ هرِ اتصال، تا تسکِ بازِ بی‌پایان باقی نماند
+_LIVE_SCRIPT = (
+    "<script>(function(){"
+    "try{var w=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/ops');"
+    "var tag=document.getElementById('live');"
+    "w.onopen=function(){var m=document.querySelector('meta[http-equiv]');if(m){m.parentNode.removeChild(m);}"
+    "if(tag){tag.textContent='🟢 زنده (هر ۵ ثانیه)';}};"
+    "w.onmessage=function(e){try{var d=JSON.parse(e.data);var b=document.getElementById('ops-body');"
+    "if(b&&d&&d.html){b.innerHTML=d.html;}}catch(err){}};"
+    "w.onclose=function(){if(tag){tag.textContent='⚪️ ارتباطِ زنده بسته شد؛ رفرشِ ۳۰ ثانیه‌ای فعال است.'}"
+    "if(document.querySelector('meta[http-equiv]')===null){location.reload();}};"
+    "}catch(err){}})();</script>"
+)
+
+
+def _ops_html(data: dict, note: str = "") -> str:
+    """پ۹۱ · پوستهٔ HTMLِ پنلِ فقط‌خواندنی (بدونِ وابستگیِ تازه، بدونِ هیچ دادهٔ مشتری).
+
+    پ۱۱۰: بدنه داخلِ `<div id=ops-body>` می‌نشیند تا `/ws/ops` همان تکه را زنده جایش بگذارد. تا وقتی
+    وب‌سوکت باز است meta-refresh حذف می‌شود و وقتی بسته شد صفحه یک‌بار دوباره بارگذاری می‌شود تا
+    همان meta-refresh برگردد ⇒ هیچ حالتی نیست که صفحه بی‌به‌روزرسانی بماند.
+    """
+    return (
+        "<!doctype html><html lang=fa dir=rtl><head><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<meta http-equiv=refresh content=30><title>پنلِ عملیاتی</title>"
+        "<style>body{font-family:system-ui,Tahoma;margin:1.2rem;background:#f6f7f9;color:#1f2933;max-width:60rem}"
+        "h1{font-size:1.25rem}h2{font-size:1rem;margin-top:1.4rem;border-bottom:1px solid #d7dbe0;padding-bottom:.2rem}"
+        "table{border-collapse:collapse;width:100%;background:#fff}th,td{border:1px solid #d7dbe0;padding:.35rem .5rem;text-align:right}"
+        "th{background:#eef1f4;font-weight:600;width:40%}ul{padding-inline-start:1.1rem}li{margin:.2rem 0}"
+        "li.error{color:#b00020}li.warn{color:#a05a00}li.info{color:#33556b}.note{color:#5a6572;font-size:.85rem}"
+        "</style></head><body>"
+        f"<div id=ops-body>{_ops_sections_html(data, note)}</div>"
+        "<p class=note id=live>⚪️ نگاهِ زنده…</p>"
+        "<p class=note>این صفحه فقط‌خواندنی است: نه دکمه‌ای، نه فرمی، نه دادهٔ مشتری. اعدادِ سیستم به "
+        "همان شکلِ خامِ سرویس نشان داده می‌شوند (برایِ چشمِ آدم، نه مشتریِ نهایی). کلیدِ همین صفحه "
+        "همان METRICS_TOKEN است.</p>"
+        + _LIVE_SCRIPT
+        + "</body></html>"
+    )
+
+
+def _ops_ws_sig(stamp: int) -> str:
+    return hmac.digest(
+        settings.metrics_token.encode("utf-8"), f"ops-ws:{stamp}".encode("utf-8"), "sha256"
+    ).hex()[:24]
+
+
+def _ops_ws_ticket() -> str:
+    """نشانهٔ کوتاه‌عمرِ وب‌سوکت: شمارهٔ پنجرهٔ زمانی + امضایِ آن با همان `METRICS_TOKEN`.
+
+    چرا کوکی و نه هدر: مرورگر رویِ دست‌دهیِ WebSocket نمی‌تواند `Authorization: Basic` بفرستد، ولی
+    کوکیِ همان‌مبدأ خودکار می‌رود. نشانه چیزی غیر از «همین مرورگر این صفحه را باز کرده» را ثابت
+    نمی‌کند و هر ۳۰ دقیقه عوض می‌شود؛ پاسخِ `/ws/ops` هم فقط همان تکهٔ escape‌شدهٔ صفحه است.
+    """
+    stamp = int(time.time() // OPS_WS_TICKET_WINDOW_SECONDS)
+    return f"{stamp}.{_ops_ws_sig(stamp)}"
+
+
+def _ops_ws_ticket_ok(raw: str | None) -> bool:
+    if not raw or not settings.metrics_token or "." not in raw:
+        return False
+    head, _, tail = raw.partition(".")
+    if not head.isdigit():
+        return False
+    stamp = int(head)
+    current = int(time.time() // OPS_WS_TICKET_WINDOW_SECONDS)
+    # شمارهٔ پنجره *ملاز* است، نه تزئینی: امضایِ پنجرهٔ قبل پایِ پنجرهٔ تازه نمی‌چسبد.
+    if stamp not in (current, current - 1):
+        return False
+    return _secrets_equal(tail, _ops_ws_sig(stamp))
 
 
 @observability_router.get("/panel")
@@ -717,7 +790,59 @@ async def ops_panel(request: Request) -> Response:
     if not password or not _secrets_equal(password, settings.metrics_token):
         return _ops_auth_denied(request, challenge={"WWW-Authenticate": 'Basic realm="ops", charset="UTF-8"'})
     data = await _ops_status_json()
-    return HTMLResponse(_ops_html(data), media_type="text/html; charset=utf-8")
+    response = HTMLResponse(_ops_html(data), media_type="text/html; charset=utf-8")
+    # پ۱۱۰ · نشانهٔ وب‌سوکت (کوکیِ HttpOnly): مرورگر رویِ دست‌دهیِ WebSocket هدرِ Basic نمی‌فرستد.
+    response.set_cookie(
+        OPS_WS_COOKIE,
+        _ops_ws_ticket(),
+        max_age=OPS_WS_TICKET_WINDOW_SECONDS * 2,
+        httponly=True,
+        samesite="strict",
+        secure=(request.url.scheme == "https"),
+        path="/",
+    )
+    return response
+
+
+@observability_router.websocket("/ws/ops")
+async def ops_ws(websocket: WebSocket) -> None:
+    """پ۱۱۰ · نگاهِ زندهٔ پنلِ عملیاتی: هر ۵ ثانیه همان تکهٔ escape‌شدهٔ صفحه را یک‌طرفه می‌فرستد.
+
+    فقط‌خواندنی است و هیچ ورودی‌ای از کلاینت نمی‌خواند؛ احراز با کوکیِ نشانه (بی‌`METRICS_TOKEN`
+    یا بی‌نشانه ⇒ بسته‌شدن با کد ۴۴۰۱/۴۴۰۴). عمرِ هر اتصال سقف دارد تا تسکی بی‌پایان باز نماند،
+    و مهلتِ مرورگر برایِ دوباره وصل شدن همان meta-refresh است.
+    """
+    if not settings.metrics_token:
+        await websocket.close(code=4404)
+        return
+    if not _ops_ws_ticket_ok(websocket.cookies.get(OPS_WS_COOKIE)):
+        observability.count("ops.ws.denied")
+        await websocket.close(code=4401)
+        return
+    await websocket.accept()
+    observability.count("ops.ws.accepted")
+    deadline = time.monotonic() + OPS_WS_MAX_LIFETIME_SECONDS
+    try:
+        while time.monotonic() < deadline:
+            payload = json.dumps({"html": _ops_sections_html(await _ops_status_json())}, ensure_ascii=False)
+            await websocket.send_text(payload)
+            observability.count("ops.ws.pushes")
+            # به‌جایِ sleep محض، همین فاصله را `receive` می‌خوانیم: قطعِ مرورگر *بلافاصله* دیده می‌شود
+            # و نوشتن رویِ سوکتِ بسته رخ نمی‌دهد (وگرنه هر بستنِ عادیِ تب یکِ WARNING بی‌معنی می‌سازد).
+            try:
+                message = await asyncio.wait_for(websocket.receive(), timeout=OPS_PUSH_SECONDS)
+            except asyncio.TimeoutError:
+                continue
+            if message["type"] == "websocket.disconnect":
+                break
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    except Exception:
+        logger.warning("جریانِ `/ws/ops` با خطا بسته شد.", exc_info=True)
+    try:
+        await websocket.close()
+    except RuntimeError:
+        pass
 
 @observability_router.get("/ops/status")
 async def ops_status_endpoint(request: Request) -> Response:
