@@ -173,6 +173,8 @@ def shop_owner_panel_keyboard(tenant_mode=None, knowledge_gap: bool = True, inst
     if instagram:
         rows.append([texts.INSTAGRAM_BUTTON])
     rows.append(["⚙️ تنظیماتِ ربات فروشگاه"])
+    # پ۱۰۹ · پنجرهٔ نوشتنیِ وب (هر دو مود؛ مود فقط مجموعهٔ فعل‌هایِ داخلِ پنل را عوض می‌کند).
+    rows.append([texts.WEB_PANEL_BUTTON])
     # P22: چینشِ دونفره. قبلاً ردیف‌ها قاطی بود (سه ردیفِ تک، بعد دونفره، بعد یکِ سه‌تایی) و
     # همین منو را بی‌نظم نشان می‌داد. ترتیبِ خطیِ دکمه‌ها دست‌نخورده است ⇒ هندلرها و تست‌ها سالم‌اند.
     labels = [label for row in rows for label in row]
@@ -1387,6 +1389,16 @@ def campaign_confirm_keyboard() -> InlineKeyboardMarkup:
 def empty_screen_keyboard(back_cb: str = "main_menu", back_label: str = "⬅️ بازگشت به پنل") -> InlineKeyboardMarkup:
     """صفحهٔ خالی نباید بی‌دکمه بماند: کاربر میانِ راه گیر می‌کند و باید خودش /start بزند."""
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=back_label, callback_data=back_cb)]])
+
+
+def web_panel_keyboard() -> InlineKeyboardMarkup:
+    """پ۱۰۹: زیرِ پیامِ لینکِ پنلِ وب فقط «ابطالِ همه» هست — خودِ لینک در متن است، نه دکمهٔ callback."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=texts.WEB_PANEL_REVOKE_BUTTON, callback_data="web_panel_revoke")],
+            [InlineKeyboardButton(text="⬅️ بازگشت به پنل", callback_data="main_menu")],
+        ]
+    )
 
 
 def _page_count(total: int, page_size: int) -> int:

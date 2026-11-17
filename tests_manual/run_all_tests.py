@@ -199,6 +199,7 @@ TEST_FILES = [
     "test_p104_two_process_panel.py",
     "test_p106_pdf_markers.py",
     "test_p108_prompt_dead_buttons.py",
+    "test_p109_web_write_panel.py",
 ]
 
 

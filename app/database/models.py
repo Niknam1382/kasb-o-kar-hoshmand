@@ -240,6 +240,8 @@ class AuditEventType(str, enum.Enum):
     INSTAGRAM_UNBOUND = "instagram_unbound"
     # پ۹۹: اجرایِ سیاستِ نگهداری (تعدادِ ردیفِ پاک‌شده در details ثبت می‌شود).
     RETENTION_APPLIED = "retention_applied"
+    # پ۱۰۹: نوشتن از پنلِ وب (عملِ انجام‌شده + شناسهٔ ردیف در details است).
+    WEB_PANEL_ACTION = "web_panel_action"
 
 
 class AdminRoleType(str, enum.Enum):
@@ -1696,4 +1698,33 @@ class Notification(Base):
     )
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     sent_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class WebPanelSession(Base):
+    """پ۱۰۹ · نشستِ پنلِ نوشتنیِ وب: لینکِ یکبارمصرفِ صادرشده از رباتِ تلگرام ← کوکیِ امضاشده.
+
+    چرا رمزِ کاربری نیست: هویتِ این محصول *تلگرام* است (فروشگاه‌دار با رباتِ مرکزی احراز می‌شود)؛
+    رمزِ مستقل یعنی یکِ رازِ تازه که باید بازیابی‌اش کرد. به‌جای آن، رباتِ مرکزی یکِ توکنِ
+    تصادفیِ یکبارمصرف می‌سازد و فقط هشِ آن ذخیره می‌شود (همان الگویِ رازِ خودکارِ وبهوک) ⇒ نشتِ
+    دیتابیس لینکِ قابلِ استفاده نمی‌دهد.
+
+    مهلتِ ردیف *مطلق* است: لینک تا `LINK_TTL_SECONDS` و بعد ازِ تبدیل، همان ردیفِ نشست تا
+    `SESSION_TTL_SECONDS`. `used_at` یعنی لینک سوخته و دوباره تبدیل نمی‌شود؛ `revoked_at` یعنی
+    ابطالِ دستی از ربات. شناسهٔ ردیف داخلِ کوکی است ولی مقدارِ کوکی با HMAC روی
+    `WEB_PANEL_SECRET` ساخته می‌شود ⇒ بی‌آن کلید، حدس‌زدنِ شناسه فایده ندارد.
+    """
+
+    __tablename__ = "web_panel_sessions"
+    __table_args__ = (UniqueConstraint("token_hash", name="uq_web_panel_sessions_token_hash"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_telegram_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_agent: Mapped[str] = mapped_column(String(120), default="", server_default="", nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_seen_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actions_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 

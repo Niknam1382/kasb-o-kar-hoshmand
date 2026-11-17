@@ -33,6 +33,7 @@ from app.bots.main_bot.handlers import (
     shop_prefs,
     shop_settings,
     start,
+    web_panel,
 )
 
 _KNOWN_MENU_BUTTONS = {
@@ -71,6 +72,7 @@ _KNOWN_MENU_BUTTONS = {
     "🧮 حسابداری",
     "💬 دستیارِ مدیریتی",
     "⚙️ تنظیماتِ ربات فروشگاه",
+    "🌐 پنلِ وب",  # پ۱۰۹ (پنجرهٔ نوشتنیِ وب — لینکِ یکبارمصرف)
     # P49-الف: دکمهٔ «🟣 اینستاگرام» فقط با سوئیچِ ادمین در منو می‌آید، ولی اینجا باید همیشه ثبت
     # باشد وگرنه وسطِ FSMِ متنِ خوشآمد، زدنِ دکمه متنش را به‌عنوانِ ورودی ذخیره می‌کند.
     "🟣 اینستاگرام",
@@ -181,5 +183,9 @@ def build_main_router() -> Router:
     router.include_router(owner_ai_usage.router)  # پ۷۰: پرمصرف‌هایِ AI در پنلِ خودِ فروشگاه‌دار
     router.include_router(moderation_reports.router)  # P43 · مواردِ ۱۰/۳۰/۳۱: گزارشِ نگهبانِ محتوا
     router.include_router(instagram.router)  # P49-الف: صفحهٔ «🟣 اینستاگرامِ» فروشگاه‌دار
+    # پ۱۰۹: پنجرهٔ نوشتنیِ وب — با دروازهٔ کانالِ اجباری (مثلِ پنل)، چون لینکِ مدیریتی می‌دهد.
+    web_panel.router.message.middleware(gate)
+    web_panel.router.callback_query.middleware(gate)
+    router.include_router(web_panel.router)
     router.include_router(start.router)
     return router

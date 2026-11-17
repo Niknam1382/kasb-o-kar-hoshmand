@@ -23,6 +23,7 @@ from app.bots.main_bot import texts as main_texts
 from app.bots.main_bot.router import build_main_router
 from app.bots.shop_bot.router import build_shop_router
 from app.config import RunMode, settings
+from app.web.panel import panel_router as web_panel_router
 from app import observability
 from app.services import http_guard
 from app.database.models import OrderPayment, PaymentPurpose, PaymentStatus, ShopBot
@@ -741,6 +742,11 @@ async def metrics_endpoint(request: Request) -> Response:
 
 
 app.include_router(observability_router)
+
+# پ۱۰۹ · پنجرهٔ نوشتنیِ وبِ فروشگاه‌دار: عمداً **فقط** رویِ اپِ اصلی. اپِ سلامت (`build_health_app`)
+# این روتر را ندارد تا `/health` و `/metrics` همان سه‌مسیره بمانند و در حالتِ polling هیچ درِ
+# نوشتنیِ تازه‌ای سرویس نشود.
+app.include_router(web_panel_router)
 
 
 def build_health_app() -> FastAPI:

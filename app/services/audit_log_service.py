@@ -97,6 +97,7 @@ FILTER_GROUPS: dict[str, tuple[str, ...]] = {
         AuditEventType.OWNER_BUSINESS_MODE_CHANGED.value,
         AuditEventType.CUSTOMER_BLOCK_CHANGED.value,
         AuditEventType.AI_USAGE_CONTROL_CHANGED.value,
+        AuditEventType.WEB_PANEL_ACTION.value,  # پ۱۰۹: نوشتن از پنلِ وب (کارِ مدیریتیِ همان فروشگاه)
         AuditEventType.OWNER_DEACTIVATED.value,
         AuditEventType.OWNER_RESTORED.value,
         AuditEventType.OWNER_PURGED.value,
