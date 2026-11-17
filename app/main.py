@@ -952,12 +952,36 @@ async def webhook_bale_with_secret(path_secret: str, request: Request) -> Respon
     limited = _too_many_requests(request, "bale")
     if limited is not None:
         return limited
-    """B5: رازِ وب‌هوک توی مسیره (بله هدرِ secret نمی‌فرسته)."""
-    if not bale_credentials_service.bot_token():
+    if not bale_credentials_service.bot_token() or not _bale_webhook_open():
         return Response(status_code=404)
-    if not bale_credentials_service.webhook_secret() or not _secrets_equal(path_secret, bale_credentials_service.webhook_secret()):
+    if not _bale_webhook_authorized(request, path_secret):
         return _forbidden("webhook/bale: رازِ وب‌هوکِ نامعتبر")
     return await _process_bale_update(request)
+
+
+def _bale_webhook_open() -> bool:
+    """آیا درِ آپدیتِ بله در این استقرار اصلاً باز است؟ بسته ⇒ ۴۰۴ (نه ۴۰۳): وجودِ مسیر هم تأیید نشود.
+
+    پ۱۱۲: این گارد قبلاً فقط رویِ مسیرِ بی‌رازِ مسیری بود؛ مسیرِ رازِ مسیری در `polling` (پیش‌فرضِ
+    `.env`) هم باز بود و محافظش فقط «حدس‌زدنِ ۳۲ بایتِ تصادفی» بود. حالا در polling هر دو در ۴۰۴ند.
+    """
+    return settings.bale_updates_mode == "webhook" and bool(bale_credentials_service.webhook_secret())
+
+
+def _bale_webhook_authorized(request: Request, path_secret: str = "") -> bool:
+    """پ۱۱۲ · یکِ قضاوتِ واحد برایِ هر دو مسیرِ بله (راز در مسیر یا در هدرِ تلگرام‌مانند).
+
+    چرا: ادعایِ «بله هدرِ secret نمی‌فرستد» هرگز با یکِ وبهوکِ *واقعی* تأیید نشده بود (NOT VERIFIED)
+    و کد به همان ادعا تکیه کرده بود. حالا هر دو پذیرفته می‌شوند و یکی از آنها کافی است ⇒ اگر بله
+    هدر بفرستد مسیرِ بی‌رازِ مسیری کار می‌کند، اگر نفرستد مسیرِ مسیری کار می‌کند، و در هر دو حالت
+    جعلِ آپدیت نیازمندِ دانستنِ راز است. هیچ‌کدام برایِ پول کافی نیست: اعتبارِ واقعی از
+    `bale_service.inquire_transaction` سمتِ سرور می‌آید (تستِ پ۱۱۲ همین را می‌پاید).
+    """
+    secret = bale_credentials_service.webhook_secret()
+    if not secret:
+        return False
+    header = request.headers.get("X-Telegram-Bot-Api-Secret-Token") or ""
+    return _secrets_equal(path_secret, secret) or _secrets_equal(header, secret)
 
 
 @app.post("/webhook/bale")
@@ -965,16 +989,13 @@ async def webhook_bale(request: Request) -> Response:
     limited = _too_many_requests(request, "bale")
     if limited is not None:
         return limited
-    if not bale_credentials_service.bot_token():
+    if not bale_credentials_service.bot_token() or not _bale_webhook_open():
         return Response(status_code=404)
-    secret = bale_credentials_service.webhook_secret()
-    # P40 (امنیت): این مسیرِ بدونِ رازِ مسیری فقط وقتی معنا دارد که بله واقعاً وب‌هوک بفرستد.
-    # رازِ بله تنها در `BALE_UPDATES_MODE=webhook` ساخته می‌شود، پس در پیش‌فرضِ `.env`
-    # (polling) هیچ رازی وجود ندارد و بدونِ این گارد هر کسی رویِ :8000 می‌توانست آپدیتِ
-    # جعلی به رباتِ پرداخت بفرستد (صورتحسابِ واقعیِ بله در چتِ دلخواه + پاسخِ pre_checkout).
-    if settings.bale_updates_mode != "webhook" or not secret:
-        return Response(status_code=404)
-    if not _secrets_equal(request.headers.get("X-Telegram-Bot-Api-Secret-Token"), secret):
+    # P40 (امنیت) + پ۱۱۲: این مسیرِ بی‌رازِ مسیری فقط وقتی معنا دارد که بله واقعاً هدرِ راز را
+    # می‌فرستد؛ قضاوت در `_bale_webhook_authorized` است (mode=webhook، رازِ غیرخالی، هدر یا مسیر).
+    # در پیش‌فرضِ `.env` (polling) هیچ رازی نیست و این در وجود ندارد ⇒ کسی نمی‌توانست با آپدیتِ
+    # جعلی صورتحسابِ واقعیِ بله را در چتِ دلخواه بسازد یا `pre_checkout` را جواب دهد.
+    if not _bale_webhook_authorized(request):
         return _forbidden("webhook/bale: رازِ وب‌هوکِ نامعتبر")
     return await _process_bale_update(request)
 

@@ -1917,6 +1917,8 @@ def instagram_panel_keyboard(account) -> InlineKeyboardMarkup:
         actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_ACTIVITY_BUTTON, callback_data="ig_activity"))
         # پ۷۳: گزارشِ کامنت‌ها هم فقط با اتصال معنا دارد (بدونِ اتصال، کامنتی نمی‌رسد).
         actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_COMMENTS_BUTTON, callback_data="ig_cmt:7d:0"))
+        # پ۱۱۲: حذفِ دادهٔ دایرکت (متنِ گفتگو + هویت/CRM) — حقِ فراموشی رویِ کانالِ سوم.
+        actions.append(InlineKeyboardButton(text=texts.INSTAGRAM_DM_BUTTON, callback_data="ig_dm"))
         actions.append(InlineKeyboardButton(text="🧪 تستِ ارسال", callback_data="ig_test"))
         actions.append(InlineKeyboardButton(text="🚫 لغوِ اتصال", callback_data="ig_unbind"))
     actions.append(InlineKeyboardButton(text="📖 راهنمایِ فعال‌سازی", callback_data="ig_guide"))
@@ -2009,6 +2011,42 @@ def instagram_blocks_keyboard(rows: list) -> InlineKeyboardMarkup:
     kb.append([InlineKeyboardButton(text=texts.INSTAGRAM_COMMENTS_BUTTON, callback_data="ig_cmt:7d:0")])
     kb.append([InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+def instagram_dm_keyboard(rows: list) -> InlineKeyboardMarkup:
+    """پ۱۱۲ · دادهٔ دایرکت: هر ردیف یکِ مخاطب است و فعلِ آن فقط «حذفِ دادهٔ این مخاطب» (با تایید).
+
+    شمارِ پیام‌ها رویِ دکمه نوشته می‌شود تا فروشگاه‌دار بداند چه چیزی پاک می‌رود؛ خودِ متنِ
+    پیام‌ها هرگز در این صفحه نمایش داده نمی‌شود (این صفحه برایِ حذف است، نه برایِ خواندن).
+    """
+    kb = []
+    for row in rows:
+        label = clip(row["label"], 20)
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=f"💬 {label} · {fa_number(row['messages'])} پیام",
+                    callback_data=f"ig_dm_erase:{row['id']}",
+                )
+            ]
+        )
+    kb.append([InlineKeyboardButton(text="🔄 تازه‌سازی", callback_data="ig_dm")])
+    kb.append([InlineKeyboardButton(text="⬅️ بازگشت به اینستاگرام", callback_data="ig_screen")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+def instagram_dm_erase_confirm_keyboard(row: dict) -> InlineKeyboardMarkup:
+    """تاییدِ دوم برایِ حذفِ دادهٔ دایرکت (عملِ بازگشت‌ناپذیر، بی‌پول)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=texts.INSTAGRAM_ERASE_CONFIRM_BUTTON, callback_data=f"ig_dm_erase_yes:{row['id']}"
+                )
+            ],
+            [InlineKeyboardButton(text=texts.INSTAGRAM_ERASE_CANCEL_BUTTON, callback_data="ig_dm_erase_no")],
+        ]
+    )
 
 
 def admin_stats_keyboard(has_range: bool = False) -> InlineKeyboardMarkup:

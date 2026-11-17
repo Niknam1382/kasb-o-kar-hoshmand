@@ -240,6 +240,8 @@ class AuditEventType(str, enum.Enum):
     INSTAGRAM_UNBOUND = "instagram_unbound"
     # پ۹۹: اجرایِ سیاستِ نگهداری (تعدادِ ردیفِ پاک‌شده در details ثبت می‌شود).
     RETENTION_APPLIED = "retention_applied"
+    # پ۱۱۲: حذفِ دادهٔ دایرکتِ اینستاگرام (متنِ گفتگو + هویت/CRMِ همان مخاطب).
+    INSTAGRAM_DATA_ERASED = "instagram_data_erased"
     # پ۱۰۹: نوشتن از پنلِ وب (عملِ انجام‌شده + شناسهٔ ردیف در details است).
     WEB_PANEL_ACTION = "web_panel_action"
 

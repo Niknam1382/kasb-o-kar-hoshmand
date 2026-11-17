@@ -202,6 +202,8 @@ TEST_FILES = [
     "test_p109_web_write_panel.py",
     "test_p110_ops_websocket.py",
     "test_p111_shard_http.py",
+    "test_p112_instagram_dm_erasure.py",
+    "test_p112_bale_webhook_guards.py",
 ]
 
 

@@ -103,6 +103,7 @@ FILTER_GROUPS: dict[str, tuple[str, ...]] = {
         AuditEventType.OWNER_PURGED.value,
         AuditEventType.OWNER_SELF_DELETED.value,  # پ۶۵ · حذفِ حساب از پنلِ خودِ فروشگاه‌دار
         AuditEventType.SUBSCRIPTION_EXTENDED.value,  # پ۶۷ · تمدیدِ تک‌نفریِ اشتراک
+        AuditEventType.INSTAGRAM_DATA_ERASED.value,  # پ۱۱۲ · حذفِ دادهٔ دایرکتِ همان مخاطب
     ),
     "settings": (
         AuditEventType.ADMIN_SETTING_CHANGED.value,

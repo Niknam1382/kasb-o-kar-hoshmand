@@ -600,6 +600,75 @@ async def erase_comment_sender_data(
     return events, int(blocked)
 
 
+async def direct_senders(session: AsyncSession, shop_bot_id: int, limit: int = 25) -> list[dict]:
+    """مخاطبانِ دایرکتِ اینستاگرامِ همین فروشگاه، پرمصام‌ها اول (برایِ صفحهٔ «حذفِ دادهٔ دایرکت»).
+
+    فقط عدد و نامِ همان مخاطب؛ بدونِ هیچ متنِ گفتگو. با `platform = instagram` سنجیده می‌شود، چون
+    همان عددِ کاربر در تلگرام/بله می‌تواند آدمِ دیگری باشد (کلیدِ یکتای مشتری، پلتفرم را هم دارد).
+    """
+    rows = (
+        await session.execute(
+            select(
+                Customer.id,
+                Customer.username,
+                Customer.first_name,
+                func.count(ConversationMessage.id),
+            )
+            .join(ConversationMessage, ConversationMessage.customer_id == Customer.id, isouter=True)
+            .where(Customer.shop_bot_id == shop_bot_id, Customer.platform == platform_service.INSTAGRAM)
+            .group_by(Customer.id, Customer.username, Customer.first_name)
+            .order_by(func.count(ConversationMessage.id).desc(), Customer.id.desc())
+            .limit(limit)
+        )
+    ).all()
+    out = []
+    for customer_id, username, first_name, messages in rows:
+        label = (username or first_name or "").strip() or "بی‌نام"
+        out.append({"id": int(customer_id), "label": label[:40], "messages": int(messages or 0)})
+    return out
+
+
+async def erase_direct_sender_data(
+    session: AsyncSession, shop_bot_id: int, customer_id: int, *, actor_telegram_id: int
+) -> dict:
+    """پ۱۱۲ · حقِ فراموشی رویِ دایرکت: متنِ گفتگوها حذف و هویت/CRMِ همان مخاطب بی‌نام می‌شود.
+
+    چرا ردیفِ `Customer` حذف نمی‌شود: سفارش، سبد، کمیسیون و دفترِ همان مشتری به او وصل‌اند و حذفِ
+    ردیف، زنجیرهٔ مالی را می‌شکند (همان تصمیمِ پ۶۵ برایِ حذفِ حساب). چیزی که واقعاً «دادهٔ شخصی» است
+    اینهاست: متنِ پیام‌ها، نام/یوزرنیم/شماره، یادداشت و برچسب‌هایِ CRM.
+    مقصد با شناسهٔ ردیف + پلتفرم + فروشگاه قفل می‌شود ⇒ نامِ کاربریِ حدس‌زدنی کافی نیست و ردیفِ
+    فروشگاهِ دیگر با همان شناسه هم به این مسیر نمی‌رسد.
+    """
+    customer = (
+        await session.execute(
+            select(Customer).where(
+                Customer.id == customer_id,
+                Customer.shop_bot_id == shop_bot_id,
+                Customer.platform == platform_service.INSTAGRAM,
+            )
+        )
+    ).scalar_one_or_none()
+    if customer is None:
+        return {"ok": False, "reason": "not-found", "messages": 0}
+    deleted = await session.execute(sa_delete(ConversationMessage).where(ConversationMessage.customer_id == customer.id))
+    messages = int(deleted.rowcount or 0)
+    customer.first_name = None
+    customer.last_name = None
+    customer.username = None
+    customer.phone_number = None
+    customer.crm_notes = None
+    customer.crm_tags = None
+    await session.flush()
+    await audit_log_service.log(
+        session,
+        AuditEventType.INSTAGRAM_DATA_ERASED,
+        shop_bot_id=shop_bot_id,
+        actor_telegram_id=actor_telegram_id,
+        details=f"پ۱۱۲: دایرکتِ اینستاگرام پاک شد — پیام={messages} · مشتریِ بی‌نام={customer.id}",
+    )
+    return {"ok": True, "reason": "erased", "messages": messages}
+
+
 # ============================================================================= ۲ — آدرس‌ها و توکنِ وضعیت
 def _safe_base(raw: str | None, fallback: str) -> str | None:
     """آدرسِ پایه فقط اگر https و رویِ میزبانِ رسمیِ متا باشد پذیرفته می‌شود (ورودیِ ادمین ⇒ کدِ امن)."""

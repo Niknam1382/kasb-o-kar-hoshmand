@@ -354,6 +354,101 @@ async def cb_block_erase_no(callback: CallbackQuery, session: AsyncSession) -> N
     await _blocks_screen(callback, shop_bot, session)
 
 
+# ============================================================================= پ۱۱۲ · دادهٔ دایرکت
+async def _dm_rows(session: AsyncSession, shop_bot) -> list[dict]:
+    return await instagram_service.direct_senders(session, shop_bot.id)
+
+
+async def _dm_screen(callback: CallbackQuery, shop_bot, session: AsyncSession) -> None:
+    rows = await _dm_rows(session, shop_bot)
+    await session.commit()
+    if not rows:
+        await safe_edit(callback, f"{texts.INSTAGRAM_DM_TITLE.format(count=0)}\n\n{texts.INSTAGRAM_DM_EMPTY}",
+                        keyboards.instagram_dm_keyboard(rows))
+        return
+    body = "\n".join(
+        (
+            texts.INSTAGRAM_DM_TITLE.format(count=fa_number(len(rows))),
+            "",
+            texts.INSTAGRAM_DM_NOTE,
+        )
+    )
+    await safe_edit(callback, body, keyboards.instagram_dm_keyboard(rows))
+
+
+@router.callback_query(F.data == "ig_dm")
+async def cb_dm_screen(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer()
+    await _dm_screen(callback, shop_bot, session)
+
+
+async def _dm_row_or_none(session: AsyncSession, shop_bot, raw_id: str) -> dict | None:
+    if not raw_id.isdigit():
+        return None
+    wanted = int(raw_id)
+    for row in await _dm_rows(session, shop_bot):
+        if row["id"] == wanted:
+            await session.commit()
+            return row
+    await session.commit()
+    return None
+
+
+@router.callback_query(F.data.startswith("ig_dm_erase:"))
+async def cb_dm_erase_ask(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    row = await _dm_row_or_none(session, shop_bot, (callback.data or "").split(":", 1)[1])
+    if row is None:
+        await callback.answer(texts.INSTAGRAM_DM_INVALID, show_alert=True)
+        return
+    await callback.answer()
+    body = "\n".join(
+        (
+            f"🧾 حذفِ دادهٔ دایرکت — {row['label']}",
+            "",
+            texts.INSTAGRAM_DM_ASK.format(messages=fa_number(row["messages"])),
+            texts.INSTAGRAM_DM_SCOPE,
+        )
+    )
+    await safe_edit(callback, body, keyboards.instagram_dm_erase_confirm_keyboard(row))
+
+
+@router.callback_query(F.data.startswith("ig_dm_erase_yes:"))
+async def cb_dm_erase_yes(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None or callback.from_user is None:
+        return
+    raw_id = (callback.data or "").split(":", 1)[1]
+    result = await instagram_service.erase_direct_sender_data(
+        session, shop_bot.id, int(raw_id) if raw_id.isdigit() else -1, actor_telegram_id=callback.from_user.id
+    )
+    if not result["ok"]:
+        await session.rollback()
+        await callback.answer(texts.INSTAGRAM_DM_INVALID, show_alert=True)
+        return
+    await session.commit()
+    messages = result["messages"]
+    await callback.answer(
+        text=texts.INSTAGRAM_DM_DONE.format(messages=fa_number(messages)) if messages else texts.INSTAGRAM_DM_NOTHING,
+        show_alert=True,
+    )
+    await _dm_screen(callback, shop_bot, session)
+
+
+@router.callback_query(F.data == "ig_dm_erase_no")
+async def cb_dm_erase_no(callback: CallbackQuery, session: AsyncSession) -> None:
+    shop_bot = await require_shop_bot_cb(callback, session)
+    if shop_bot is None:
+        return
+    await callback.answer(texts.INSTAGRAM_ERASE_CANCEL_BUTTON.replace("⬅️ ", ""))
+    await _dm_screen(callback, shop_bot, session)
+
+
 @router.callback_query(F.data == "ig_blk_add")
 async def cb_block_add(callback: CallbackQuery, session: AsyncSession, state: FSMContext) -> None:
     shop_bot = await require_shop_bot_cb(callback, session)
