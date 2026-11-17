@@ -111,7 +111,7 @@ async def test_owner_can_store_and_remove_token_from_the_payments_screen(main_dp
         await session.commit()
     await owner.tap("pays_tog:bale")
     toast = (owner.last_toast.get("text") or "") if owner.session.answered_callbacks else ""
-    assert "pays_bale_token" not in toast and "توکنِ درگاهِ بله‌پی" in toast, repr(toast)
+    assert "pays_bale_token" not in toast and "توکنِ ربات + درگاه" in toast, repr(toast)
     print("✅ test_owner_can_store_and_remove_token_from_the_payments_screen PASSED")
 
 

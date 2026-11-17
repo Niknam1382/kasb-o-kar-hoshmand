@@ -147,3 +147,37 @@ connection` و `greenlet is being finalized` می‌ساختند (پ۹۶ علت�
 سه فایلِ HTTP (`test_p87`/`test_p90`/`test_p91`) ⇒ **۰** warning؛ نگهبانِ تستی:
 `test_ops_requests_leave_no_idle_in_transaction_connection`. احرازِ `/panel` و `/ops/status` دست‌نخورده
 مانده است (همان `METRICS_TOKEN`، همان سقفِ ۱۲ تلاشِ ناموفق در دقیقه).
+
+
+## ۱۹) سطحِ حملهٔ تازه‌ای که پ۱۰۹ باز کرد، و چیزی که عمداً باز نکرد (۲۰۲۶-۱۱-۱۷)
+تا پ۱۰۸ هیچ مسیرِ نوشتنیِ وب وجود نداشت: `/metrics`، `/panel`، `/ops/status` همگی فقط‌خواندنی با
+HTTP Basic بودند. پ۱۰۹ یکِ درِ نوشتن باز کرد ⇒ ریسک‌هایِ تازه و درمان‌هایشان:
+
+| ریسک | درمانِ پیاده‌شده | شاهد |
+|---|---|---|
+| رمزِ ضعیف/فراموش‌شدهٔ کاربر وب (کلاسیک‌ترین دلیلِ شکستِ پنل‌هایِ وب) | هیچ رمزِ کاربری وجود ندارد: هویت از تلگرام می‌آید (لینکِ یکبارمصرف، ۹۰۰ ثانیه اعتبار، `used_at` ⇒ یک‌بار مصرف) | `test_link_is_single_use_and_expiry_stops_the_session` |
+| حدسِ توکنِ لینک | امضایِ HMAC-SHA256 با `WEB_PANEL_SECRET`؛ مقایسه با `compare_digest`؛ `secrets.token_urlsafe` برایِ نشانه | `test_forged_cookie_is_not_read` + `test_disabled_secret_returns_404` |
+| CSRF رویِ فرم‌هایِ POST | کوکیِ `HttpOnly + SameSite=Strict` + توکنِ CSRFِ مشتقِ جدا از همان HMAC؛ بدونِ توکنِ درست ⇒ ۴۰۳ و `session.rollback()` | `test_form_without_valid_csrf_changes_nothing` |
+| نشستِ دزدیده‌شده از مرورگرِ دیگر | کوکی فقط عددِ ردیفِ نشست را می‌برد و `owner_telegram_id` از ردیفِ خوانده می‌شود؛ سرریزِ نشسته با «🌐 ابطالِ لینک‌ها»؛ `user_agent` ثبت می‌شود | `test_forged_cookie_is_not_read` + `test_revoke_and_menu_registration` |
+| دسترسیِ بیش‌ازحد (افزودنِ «یه دکمهٔ دیگر هم بگذاریم») | `ACTIONS` صریح و چهارموردی است؛ کیف‌پول/پرداخت/توکن/کمپین در هیچ فرمی نیستند؛ اکشنِ ناشناخته بی‌اثر + ردیفِ ممیزیِ ناموفق | `test_no_money_path_is_reachable_from_the_web` |
+| کوئریِ مالکیت‌نداشته (IDOR) | هر اکشن از `get_owned_by_id(..., shop_bot.id)` می‌گذرد؛ هدفِ متعلقِ بهِ فروشگاهِ دیگر ⇒ بی‌اثر | `test_actions_are_scoped_and_audited` |
+| نشسته‌ای که اسکریپتِ ربات‌سازی می‌کند | `MAX_ACTIONS_PER_SESSION = ۲۰۰` و `actions_count` در هر اکشن زیاد می‌شود | **پوششِ تستی ندارد** (سقف در کدِ `apply_action` اعمال می‌شود؛ عددِ ۲۰۰ در تست سنجیده نشده) |
+| رمزِ وب = رمزِ متریک (یکِ نشتی = همه‌چیز) | `WEB_PANEL_SECRET` متغیرِ **جدا** است؛ اگر خالی باشد هر چهار مسیر ۴۰۴ می‌دهند (نه ۴۰۱/۴۰۳، یعنی وجودِ درِ جدید افشا نمی‌شود) | `test_disabled_secret_returns_404` + `test_routes_are_hidden_without_secret_and_absent_from_health_app` |
+| ردیابیِ قبولی | هر اکشن یکِ `web_panel_action` در دفترِ ممیزی با `actor_ref`؛ شمارِ تلاش‌هایِ ناموفقِ `/web/login` با همان سقفِ IP (۲۰/دقیقه) بسته شد | `test_actions_are_scoped_and_audited` |
+
+پ۱۱۰ یکِ مسیرِ `/ws/ops` اضافه کرد که فقط دادهٔ عینِ `/panel` را می‌فرستد؛ پیشِ شرطِ پذیرش، بلیطِ کوکیِ
+امضاشدهٔ همان نشست است (پنجرهٔ ۱٬۸۰۰ ثانیه، `stamp` فقط جاری یا یکِ پنجرهٔ قبل) و بدونِ آن پیش ازِ
+`accept()` بسته می‌شود ⇒ هیچ هندشیکِ وب‌سوکتِ ناشناسی سرویسِ عیب‌یاب را مصرف نمی‌کند. **MEASURED**
+(`scripts/ws_handshake_probe.py`): بی‌نشانه رد، با نشانه `101` + `Sec-WebSocket-Accept` درست.
+
+پ۱۱۲ دو چیزِ امنیتیِ باقی‌مانده را بست (`test_closed_in_polling_for_both_routes`، `test_secret_from_header_or_path_and_rejections`، `test_forged_update_cannot_move_money_without_server_inquiry`): (۱) وبهوکِ بله دیگر به «نظرم نمی‌رسد که بله نشانه بفرستد» وابسته
+نیست — نشانه از هدر `X-Telegram-Bot-Api-Secret-Token` **یا** از مسیر خوانده می‌شود و تا توکنِ بله و
+`BALE_UPDATES_MODE=webhook` تنظیم نشده هر دو مسیر ۴۰۴ می‌دهند؛ (۲) با SQL ثابت شد جعلِ
+`successful_payment` در بدنهٔ آپدیت هیچ پولی جابه‌جا نمی‌کند، چون مرجعِ حقیقت `inquire_transactionِ`
+سمتِ سرور است (تستِ تازه + تستِ پ۴۰ که دست‌نخورده سبز ماند).
+
+**باقی‌مانده‌هایِ دانسته (نه کشف، انتخاب):** لینکِ پنجرهٔ وب در چتِ تلگرام می‌افتد ⇒ هرکس به چتِ صاحبِ
+فروشگاه دسترسی داشته باشد تا ۱۵ دقیقه فرصت دارد (کوتاه‌بودنِ TTL و ابطالِ دستی همان ریسک را می‌خورد).
+`WEB_PANEL_SECRET` در `ENCRYPTION_KEY` رمزنگاری نمی‌شود (رازِ تنظیماتیِ `.env` است، نه دادهٔ دیتابیس).
+مسیرِ `/web/*` هیچ‌وقت در `build_health_app()` نیست ⇒ سنجه‌هایِ سلامتِ پ۲۱/پ۸۷ سطحِ حملهٔ تازه را به
+اپِ بی‌ربط راه نمی‌دهند.

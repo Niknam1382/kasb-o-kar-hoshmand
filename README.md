@@ -45,6 +45,15 @@ breaker، قیمت‌گذاریِ کیف‌پول، سوییچ‌هایِ اضط
 و هشدارِ خودکار به ادمین با cooldown، جمعِ شمارنده‌ها **بینِ همهٔ پروسه‌ها** (پ۷۹) و دو خطِ gauge در
 `/metrics` (`kasbokar_runtime_processes` / `_stale_processes`، پ۸۱).
 
+**ازِ مرورگر، بی‌رمزِ تازه (پ۱۰۸ تا پ۱۱۲)**: دکمهٔ «🌐 پنلِ وب» در پنلِ فروشگاه‌دار یکِ **لینکِ یکبارمصرفِ
+۱۵ دقیقه‌ای** می‌سازد (امضایِ HMAC با `WEB_PANEL_SECRET`؛ کوکی ۶ ساعته + CSRF + ابطالِ فوری از ربات) و در
+همان صفحه می‌توانی محصول را روشن/خاموش کنی، موجودی یا قیمت را عوض کنی و قدمِ بعدیِ سفارش را برداری —
+بدونِ دسترسیِ هیچ‌کس به کیف‌پول، پرداخت و توکن‌ها. `/panel` هم با `/ws/ops` زنده شد: به‌جایِ رفرشِ هر ۳۰
+ثانیه، هر ۵ ثانیه یکِ فریم (اگر وب‌سوکت بسته شد همان meta-refresh برمی‌گردد). در پنلِ اینستاگرام،
+«🧾 دادهٔ دایرکت» فهرستِ فرستندگان را فقط با شمارِ پیام نشان می‌دهد و پاک‌کردنِ دادهٔ یکِ نفر با تاییدِ
+دومرحله‌ای و ثبتِ ممیزی انجام می‌شود. پرامپت‌ها دیگر هیچ دکمهٔ غیروجودی نام نمی‌برند و یکِ گیتِ تازه
+(`scripts/check_prompt_buttons.py`) همین را در هر commit می‌پاید.
+
 **برایِ مشتریِ نهایی (رباتِ فروشگاه)**: چتِ AI، عکس/صدا، سفارش با تاییدِ خودِ مشتری، سبد، کدِ تخفیف، پرداختِ آنلاین.
 
 ## معماریِ کلی
@@ -92,24 +101,27 @@ docker compose run --rm bot alembic upgrade head
 docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
-مجموعاً **۱۷۶ فایلِ تست** (۱۸۴ فایلِ Python در `tests_manual/`) با **۱٬۰۹۲ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۷۶/۱۷۶ · ۱٬۰۹۲ · `SUITE_EXIT=0`** (۲۰۲۶-۱۱-۱۷، پس ازِ پ۱۰۰–پ۱۰۷)
+مجموعاً **۱۸۲ فایلِ تست** (۱۹۰ فایلِ Python در `tests_manual/`) با **۱٬۱۲۱ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۸۲/۱۸۲ · ۱٬۱۲۱ · کدِ خروجِ ۰** (۲۰۲۶-۱۱-۱۷، پس ازِ پ۱۰۸–پ۱۱۳)
 (۲۰۲۶-۱۱-۱۶، پس ازِ پ۹۵؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۷۵ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
 (عددِ کوئری/کارِ هر پیام) و `tests_manual/load_simulation.py`. فقط یه فایل:
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
 `kasbokar_test` اجرا می‌شود تا تنظیماتِ پنلِ تو پاک نشود). جزئیات و چک‌لیستِ تستِ دستیِ تلگرام: `docs/testing-guide.md`.
 
-بررسیِ استاتیک: `python3 scripts/check_gates.py` — پنج گیت را با هم اجرا می‌کند: `check_refs`
+بررسیِ استاتیک: `python3 scripts/check_gates.py` — شش گیت را با هم اجرا می‌کند: `check_refs`
 (ارجاعِ شکسته)، `check_attrs` (ویژگیِ ناموجود)، `lint_names`، از P24 `check_callbacks`
-(هر `callback_data` که کیبوردی می‌سازد باید هندلری داشته باشد ⇒ «دکمهٔ مرده» به production نمی‌رسد)
-و `check_text_hygiene` (نویسهٔ سیریلیک/CJK/هانجی داخلِ متنِ فارسی). رویِ ویندوز هم بدونِ داکر اجرا می‌شود.
+(هر `callback_data` که کیبوردی می‌سازد باید هندلری داشته باشد ⇒ «دکمهٔ مرده» به production نمی‌رسد)،
+`check_text_hygiene` (نویسهٔ سیریلیک/CJK/هانجی داخلِ متنِ فارسی) و از پ۱۰۸ `check_prompt_buttons`
+(هیچ «🔘 دکمه»ای که داخلِ گیومه در متن/پرامپت نام برده می‌شود نباید در کیبوردها غیروجود داشته باشد ⇒
+«دکمهٔ مرده» در حرفِ ربات هم به production نمی‌رسد). رویِ ویندوز هم بدونِ داکر اجرا می‌شود.
 
 ## ساختارِ پروژه
 
 ```
 app/
   config.py                 # تنظیمات از متغیرهایِ محیطی (pydantic-settings)
-  main.py                   # FastAPI + حالتِ polling/webhook، /health، webhookها
-  database/                 # models.py (۵۴ جدول)، session.py
+  main.py                   # FastAPI + حالتِ polling/webhook، /health، /panel، /ws/ops، webhookها
+  web/                      # پنجرهٔ نوشتنیِ مرورگر برایِ فروشگاه‌دار (پ۱۰۹): panel.py
+  database/                 # models.py (۵۵ جدول)، session.py
   bots/
     common/                 # میدل‌ورهایِ مشترک (گیتِ کانال، escapeِ دکمه‌هایِ منو، ...)
     main_bot/               # ربات اصلی: router.py + handlers/ (start, panel, products, admin,
@@ -117,9 +129,11 @@ app/
     shop_bot/               # رباتِ فروشگاه: handlers/customer.py (چتِ AI، سفارش، سبد، ...)
   services/                 # منطقِ کسب‌وکار (۱۰۳ فایل، بدونِ وابستگی به aiogram)
   utils/                    # رمزنگاری، اعتبارسنجی، تاریخِ شمسی، ...
-migrations/                 # Alembic (head: b7d1e4a9c260 — تک‌head، مایگریشن‌ها فقط افزودنی)
+migrations/                 # Alembic (head: a3f7c2b5d810 — تک‌head، مایگریشن‌ها فقط افزودنی)
 tests_manual/               # تست‌هایِ end-to-end با FakeSession + harness.py / shop_setup.py
-scripts/                    # check_gates.py → check_refs / check_attrs / lint_names / check_callbacks / check_text_hygiene
+scripts/                    # check_gates.py → check_refs / check_attrs / lint_names / check_callbacks /
+                            #   check_text_hygiene / check_prompt_buttons + سنجه‌ها (scale_probe، http_load_probe،
+                            #   ws_handshake_probe، two_process_probe، ab_prompt_test)
 docs/                       # راهنماها و changelogها
 ```
 

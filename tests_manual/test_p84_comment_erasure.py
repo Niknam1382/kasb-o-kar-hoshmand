@@ -190,7 +190,7 @@ async def test_panel_requires_confirmation_and_reports_counts() -> None:
     body = owner.last_edit_text
     assert "🗑 حذفِ داده‌هایِ @sara" in body, body
     assert "۲ کامنت از این حساب دیده شده" in body, body
-    assert "آنچه پاک نمی‌شود" in body, body
+    assert "آنچه اینجا پاک می‌شود" in body, body
     assert not any(char.isascii() and char.isdigit() for char in body.splitlines()[2]), body
 
     confirm = callbacks(owner.last_edit_markup)

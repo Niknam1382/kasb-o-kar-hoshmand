@@ -44,6 +44,7 @@ from app.services import (  # noqa: E402
     admin_settings_service,
     ai_context,
     ai_pool_service,
+    ai_service,
     channel_knowledge_service,
     knowledge_service,
     product_service,
@@ -184,6 +185,7 @@ async def run(shop_bot_id: int, *, limit: int, order: str, out_path: str, dry_ru
         row = {"n": i, "q": question, "a": got["A"], "b": got["B"]}
         rows.append(row)
         print(f"  {i}. A={row['a']['ms']}ms/{row['a']['tokens']}t · B={row['b']['ms']}ms/{row['b']['tokens']}t")
+    await ai_service.close_http_session()
 
     def _vals(prefix: str, key: str) -> list[int]:
         return [r[prefix][key] for r in rows if isinstance(r[prefix][key], int)]

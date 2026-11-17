@@ -159,7 +159,7 @@ def test_routes_are_hidden_without_secret_and_absent_from_health_app() -> None:
         settings.panel_secret = previous
 
     health = _paths_of(app_main.build_health_app().routes)
-    assert health == {"/health", "/metrics", "/ops/status", "/panel"}, sorted(health)
+    assert health == {"/health", "/metrics", "/ops/status", "/panel", "/ws/ops"}, sorted(health)
     main_paths = _paths_of(app_main.app.routes)
     for path in ("/web/login", "/web/panel", "/web/action", "/web/logout"):
         assert path in main_paths, sorted(main_paths)

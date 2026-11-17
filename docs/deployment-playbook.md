@@ -162,7 +162,7 @@ docker compose cp bot:/tmp/guide.pdf docs/deployment-playbook.pdf
 
 سه چیزی که **لازم نیست** و خیلی‌ها اشتباه می‌کنند:
 1. **مایگریشن/ایندکسِ تازه:** کوئری‌هایِ حذف‌شده همه با کلیدِ اصلی بودند؛ مشکل تعدادشان بود، نه پلنِ اجرا.
-2. **`--scale bot=2`:** همچنان بی‌فایده (قفلِ ضدِ تکرارِ polling نسخهٔ دوم را عملاً بیکار می‌گذارد).
+2. **`--scale bot=2` بی‌تنظیمِ شارد:** همچنان بی‌فایده (قفلِ ضدِ تکرارِ polling نسخهٔ دوم را بیکار می‌گذارد). راهِ درست از پ۱۱۱: چند پروسه با `SHARD_COUNT`/`SHARD_INDEX`ِ *متفاوت* (سنجیده: ۴ پروسه رویِ ۱۲ فروشگاه ⇒ پوششِ کامل، همپوشانیِ صفر، ۴/۴ قفلِ یکتا).
 3. **دسته‌ای‌کردنِ آمارِ گزارشِ شبانه:** عمداً انجام نشد — ۱۰ کوئری به‌ازایِ هر گزارشِ فرستاده‌شده، هر
    ۳۰ دقیقه ≈ ۲٫۸ statement/ثانیه؛ تجمیعِ آن‌ها ریسکِ عوض‌شدنِ عددِ داخلِ گزارش را داشت و ارزش نداشت.
 
@@ -179,6 +179,9 @@ docker compose cp bot:/tmp/guide.pdf docs/deployment-playbook.pdf
 | `MAIN_BOT_TOKEN` | خالی | رباتِ اصلی بالا نمی‌آید. توکنِ ربات‌هایِ فروشگاهی از پنل گرفته می‌شود، نه .env |
 | `BALE_BOT_TOKEN`، `BALE_UPDATES_MODE` | خالی / `polling` | ربات/پرداختِ بله خاموش. polling هیچ دامنه/HTTPS نمی‌خواهد |
 | `METRICS_TOKEN` | خالی | `/metrics` عمداً ۴۰۴ می‌دهد (امن). برایِ مانیتورینگ یکِ رمزِ بلند بگذار |
+| `WEB_PANEL_SECRET` | خالی | پنجرهٔ نوشتنیِ وب («🌐 پنلِ وب») خاموش است و هر چهار مسیرِ `/web/*` ۴۰۴ می‌دهند. برایِ روشن‌کردن یکِ رمزِ بلندِ جدا از `METRICS_TOKEN` بگذار (ساختش مثلِ `ENCRYPTION_KEY`، با `secrets.token_urlsafe(32)`)؛ اگر عوضش کنی همهٔ لینک‌ها و کوکی‌هایِ جاری می‌میرند و فقط از راهِ ربات دوباره لینک می‌شود ساخت |
+| `OPS_PUSH_SECONDS` | ۵ | فاصلهٔ فریم‌هایِ `/ws/ops` در پنلِ عملیاتی. هر اتصالِ زنده یکِ `server_doctor.inspect()` کامل در هر دوره ⇒ اگر کسی زیاد نگاه می‌کند این را بالا ببر |
+| `SHARD_COUNT` / `SHARD_INDEX` | ۱ / ۰ | با `SHARD_COUNT=2` دو پروسهٔ poller ربات‌ها را *بینِ خودشان* تقسیم می‌کنند (`ShopBot.id % 2`) و هرکدام قفلِ ایمنیِ خودش را می‌گیرد؛ `SHARD_INDEX` تکراری ⇒ دو پروسهٔ هم‌شارd ⇒ فقط یکِ برنده |
 | `WEBHOOK_RATE_LIMIT_PER_MINUTE` | ۶۰۰ (به‌ازایِ IP) | اگر پشتِ nginx باشی و IPِ همه را یکی ببیند، کاربرانِ واقعی قفل ۴۲۹ می‌گیرند ⇒ IPِ واقعی را با `X-Forwarded-For` برسان یا سقف را بالا ببر |
 | `LOG_LEVEL` | `INFO` | `DEBUG` رویِ سرورِ شلوغ = دیسکِ پر |
 
@@ -633,3 +636,47 @@ poller + core، سهمِ هرِ پروسه یک‌چهارم می‌شود و ه
 `curl -H "x-metrics-token: …" http://127.0.0.1:8000/ops/status`. بدونِ `METRICS_TOKEN` این مسیر ۴۰۴ است،
 پس در reverse-proxy هم چیزی برایِ عموم باز نمی‌شود. برایِ هشدارِ «worker خوابیده» کافی است رویِ
 `stale_processes > 0` یا `processes < تعدادِ سرویس‌ها` شرط بگذاری.
+
+
+## ۱۱) نگاهِ زندهٔ `/panel` و پروکسی که وب‌سوکت را نمی‌شناسد (پ۱۱۰)
+`/panel` از پ۱۱۰ به‌جایِ رفرشِ ۳۰ ثانیه‌ای، از `/ws/ops` فریمِ ۵ ثانیه‌ای می‌گیرد. این دو هدر را پروکسی که
+وسط است باید رد کند، وگرنه اتصال با ۴۰۰/۴۰۵ بسته می‌شود و صفحه بی‌سروصدا به همان meta-refresh برمی‌گردد
+(پس نشکنند، فقط زنده نمی‌شود):
+
+```
+location /ws/ {
+    proxy_pass http://kasbokar_bot;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 60s;      # بیشتر از OPS_PUSH_SECONDS
+    proxy_send_timeout 60s;
+}
+```
+
+سنجهٔ بی‌هزینهٔ همین دست‌دهی (از همان میزبانِ سرویس، بدونِ هیچ پولِ AI و بدونِ تلگرام):
+
+```bash
+docker compose run --rm bot python3 scripts/ws_handshake_probe.py --base http://127.0.0.1:8000
+```
+
+خروجی دو خط دارد: «بی‌نشانه» (باید رد شود) و «با نشانه» (باید `Sec-WebSocket-Accept` درست و فریم‌هایِ
+متوالی بگیرد). اگر بی‌نشانه پذیرفته شد، یعنی بلیطِ کوکیِ `/panel` هیچ ارزشی ندارد ⇒ فوری سراغِ
+`WEB_PANEL_SECRET`/`METRICS_TOKEN` برو.
+
+## ۱۲) مایگریشن: یکِ بار تمرینِ برگشت، قبلِ اینکه لازم شود (پ۱۰۹)
+همهٔ مایگریشن‌ها افزودنی‌اند، اما «افزودنی بودن» یعنی هیچ‌وقت downgrade را تمرین نکرده‌ای. الگویِ امن
+رویِ یکِ دیتابیسِ جدا (نه `kasbokar`، نه production):
+
+```bash
+pg_dump ... > قبل.sql                       # همیشه اول
+docker compose run --rm bot alembic upgrade head
+docker compose run --rm bot alembic downgrade -1
+docker compose run --rm bot alembic upgrade head
+docker compose run --rm bot alembic heads   # باید فقط یکِ head باشد
+```
+
+**MEASURED (پ۱۰۹، `kasbokar_drill`):** ۵۵ جدول پس ازِ upgrade ← ۵۴ جدول پس ازِ `downgrade -1` و
+`to_regclass('web_panel_sessions')` = NULL؛ upgradeِ دوباره بدونِ خطا. یعنی اگر روزی لازم شد، لینک‌هایِ
+پنجرهٔ وب از دست می‌روند ولی هیچ دادهٔ کسب‌وکاری حذف نمی‌شود. رویِ production هیچ‌وقت `downgrade` نزن —
+بازگشتِ واقعی همان `pg_dump` است.

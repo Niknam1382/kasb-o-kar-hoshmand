@@ -157,20 +157,6 @@ async def revoke_for_owner(session: AsyncSession, owner_telegram_id: int) -> int
     return int(result.rowcount or 0)
 
 
-async def active_links(session: AsyncSession, owner_telegram_id: int) -> list[WebPanelSession]:
-    rows = (
-        await session.execute(
-            select(WebPanelSession)
-            .where(
-                WebPanelSession.owner_telegram_id == owner_telegram_id,
-                WebPanelSession.revoked_at.is_(None),
-                WebPanelSession.expires_at > _now(),
-            )
-            .order_by(WebPanelSession.id.desc())
-            .limit(10)
-        )
-    ).scalars().all()
-    return list(rows)
 
 
 async def shop_for_owner(session: AsyncSession, owner_telegram_id: int) -> ShopBot | None:
