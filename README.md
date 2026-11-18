@@ -101,14 +101,14 @@ docker compose run --rm bot alembic upgrade head
 docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
-مجموعاً **۱۹۱ فایلِ تست** با **۱٬۱۶۰ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده:
-**۱۹۱/۱۹۱ · ۱٬۱۶۰ · کدِ خروجِ ۰** (۲۰۲۶-۱۱-۱۸، پس ازِ پ۱۱۴–پ۱۲۳). `app/` ⇒ ۱۸۰ فایل / ۵۴٬۷۷۴ خط پایتون
+مجموعاً **۱۹۲ فایلِ تست** با **۱٬۱۶۴ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده:
+**۱۹۲/۱۹۲ · ۱٬۱۶۴ · کدِ خروجِ ۰** (۲۰۲۶-۱۱-۱۸، پس ازِ پ۱۱۴–پ۱۲۴). `app/` ⇒ ۱۸۰ فایل / ۵۴٬۷۷۴ خط پایتون
 (۲۰۲۶-۱۱-۱۶، پس ازِ پ۹۵؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۷۵ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
 (عددِ کوئری/کارِ هر پیام) و `tests_manual/load_simulation.py`. فقط یه فایل:
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
 `kasbokar_test` اجرا می‌شود تا تنظیماتِ پنلِ تو پاک نشود). جزئیات و چک‌لیستِ تستِ دستیِ تلگرام: `docs/testing-guide.md`.
 
-بررسیِ استاتیک: `python3 scripts/check_gates.py` — شش گیت را با هم اجرا می‌کند: `check_refs`
+بررسیِ استاتیک: `python3 scripts/check_gates.py` — هشت گیت را با هم اجرا می‌کند: `check_refs`
 (ارجاعِ شکسته)، `check_attrs` (ویژگیِ ناموجود)، `lint_names`، از P24 `check_callbacks`
 (هر `callback_data` که کیبوردی می‌سازد باید هندلری داشته باشد ⇒ «دکمهٔ مرده» به production نمی‌رسد)،
 `check_text_hygiene` (نویسهٔ سیریلیک/CJK/هانجی داخلِ متنِ فارسی) و از پ۱۰۸ `check_prompt_buttons`

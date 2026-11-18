@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -107,7 +108,11 @@ class Settings(BaseSettings):
     # `/web/*` وجود ندارند (۴۰۴) — یعنی با تنظیماتِ امروزِ همین استقرار هیچ درِ نوشتنیِ تازه‌ای باز
     # نمی‌شود. این کلید *جدا* از METRICS_TOKEN است، چون آن کلید فقط «دیدن» می‌دهد و این «تغییر دادن».
     # آدرسِ لینک از WEBHOOK_BASE_URL ساخته می‌شود (کلیدِ تازه‌ای برایِ آن لازم نیست).
-    panel_secret: str = ""
+    # پ۱۲۴ (باگِ واقعیِ دیپلوی): مستندات، `.env.example` و راهنمایِ ادمین همه `WEB_PANEL_SECRET`
+    # را نوشته بودند، ولی pydantic-settings این فیلد را با نامِ `PANEL_SECRET` می‌خواند ⇒ کسی که
+    # طبقِ راهنما کلید را می‌گذاشت، همه‌یِ `/web/*` را ۴۰۴ می‌دید و هیچ خطایی هم نمی‌گرفت.
+    # هر دو نام پذیرفته می‌شود (WEB_PANEL_SECRET = همان چیزی که مستندات قول داده بود).
+    panel_secret: str = Field(default="", validation_alias=AliasChoices("WEB_PANEL_SECRET", "PANEL_SECRET"))
     # P21-B (O2): در حالتِ polling هم یک اپِ کوچکِ «فقط /health و /metrics» بالا بیاید.
     # مسیرهایِ webhook در این اپ نیستند، پس رازِ وب‌هوک هم مثلِ حالتِ webhook الزامی نمی‌شود.
     health_enabled: bool = True

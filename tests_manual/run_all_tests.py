@@ -18,6 +18,12 @@ import db_env  # هم‌کناریِ همین فایل در tests_manual/
 
 TEST_DIR = Path(__file__).parent
 
+
+# پ۱۲۴: سقفِ زمانِ هر فایلِ تست. ۶۰ ثانیه بود و یکِ بار زیرِ بارِ CPU (ساختنِ PDF در همان
+# ماشین) test_p42 را کشت؛ همان فایل تنها ۱۵٫۴ ثانیه طول می‌کشد (MEASURED). عددِ تازه همچنان
+# گیرِ «معلق‌شدنِ واقعی» است ولی خطایِ ساختگیِ رقابتِ CPU تولید نمی‌کند.
+PER_FILE_TIMEOUT_SECONDS = 150
+
 TEST_FILES = [
     "test_start_registration.py",
     "test_shop_bot_and_products.py",
@@ -213,6 +219,7 @@ TEST_FILES = [
     "test_p120_merchant_id_encrypted.py",
     "test_p122_voice_size_cap.py",
     "test_p123_peak_rate.py",
+    "test_p124_deploy_readiness.py",
 ]
 
 
@@ -237,7 +244,7 @@ def main() -> int:
                 env=db_env.child_env(),
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=PER_FILE_TIMEOUT_SECONDS,
             )
             elapsed = time.monotonic() - start
             output = proc.stdout + proc.stderr
