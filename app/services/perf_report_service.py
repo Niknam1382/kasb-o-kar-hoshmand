@@ -11,8 +11,16 @@
 نمایندهٔ سِشنِ بازِ تلگرام نیست (تلگرام آن را نمی‌دهد)، ولی همان چیزی است که بارِ واقعیِ AI و
 دیتابیس را می‌سازد.
 
-کوئری‌ها: سه aggregate (دانه‌ها، شمارشِ قابلیت‌ها، شمارشِ سفارش/مشاوره/پرداخت) — بدونِ حلقهٔ
-per-shop، چون در ۵۰۰ فروشگاه همان اشتباهِ P29 تکرار می‌شد.
+کوئری‌ها: سه aggregate (دانه‌ها، شمارشِ قابلیت‌ها، شمارشِ سفارش/مشاوره/پرداخت) + چند aggregateِ
+گروهیِ دیگر (کانال‌ها، پنج شلوغ‌ترینِ فروشگاه) — بدونِ حلقهٔ per-shop، چون در ۵۰۰ فروشگاه همان
+اشتباهِ P29 تکرار می‌شد.
+
+پ۱۲۳ (خواستِ صریحِ مالکِ محصول: «درخواست در ثانیه را میانگین نشان نده»): `messages_per_minute` تنها
+عددِ نرخیِ گزارش نبود که گمراه می‌کرد — هیچ‌جا نمی‌گفت بدترینِ ثانیهٔ سرور چند درخواست دیده است.
+`_peak_per_second` اضافه شد: با دو پاس (سطلِ یک‌دقیقه‌ای رویِ کلِ بازه ⇒ شلوغ‌ترینِ سه دقیقه ⇒
+هیستوگرامِ ثانیه‌ای فقط حولِ همان‌ها، هر طرف ۶۰ ثانیه) پیکِ *واقعی*، طولِ رَکوردِ پیوستهٔ آن و ثانیهٔ
+وقوعش را می‌دهد؛ برایِ دو منبع: پیامِ مشتری و ردیف‌هایِ واقعیِ مصرفِ AI. هزینه: به‌ازایِ هر منبع یکِ
+aggregateِ دقایق + حداکثرِ سه پرس‌وجویِ ثانیه‌ای رویِ پنجره‌هایِ ۳ دقیقه‌ای.
 """
 from __future__ import annotations
 
@@ -52,6 +60,13 @@ FEATURE_LABELS: tuple[tuple[WalletTransactionReason, str], ...] = (
 )
 _BARS = "▁▂▄▆█"
 
+# پ۱۲۳ (درخواستِ مستقیمِ مالکِ محصول): عددِ «میانگینِ پیام در دقیقه» نمی‌تواند بگوید سرور در بدترینِ
+# لحظه چقدر بار دیده است. این سه ثابت پاسِ دوم (هیستوگرامِ ثانیه‌ای) را کنترل می‌کنند.
+PEAK_TOP_MINUTES = 3          # چند دقیقهٔ شلوغِ بازه با دقتِ ثانیه بازبینی می‌شود
+PEAK_WINDOW_PADDING_SECONDS = 60   # هر طرفِ دقیقهٔ شلوغ، تا رَکوردِ پیوستهٔ پیک درست اندازه گرفته شود
+PEAK_THRESHOLD_RATIO = 0.8    # «ثانیهٔ داغ» = ثانیه‌ای با ≥ ۸۰٪ پیک
+AI_REASONS = tuple(reason for reason, _label in FEATURE_LABELS)
+
 
 def _bucket_seconds(bucket_minutes: int) -> int:
     return bucket_minutes * 60
@@ -87,6 +102,78 @@ def auto_grain(span_hours: float) -> int:
     if span_hours <= 24 * (MAX_BUCKETS - 1):
         return 1440
     return max(10080, math.ceil(span_hours * 60 / (MAX_BUCKETS - 1)))
+
+
+def _peak_from_seconds(seconds: dict[int, int], *, candidates: set[int]) -> dict[str, Any] | None:
+    """بیشینهٔ *واقعیِ* شمارِ رویداد در یکِ ثانیهٔ ساعتی (نه میانگین هیچ پنجره‌ای).
+
+    سه عدد برمی‌گرداند که سؤالِ ادمین را جواب می‌دهد: چند تا در ثانیه (`rps`)، چند ثانیهٔ پیوسته رویِ
+    همان عدد مانده (`run_seconds`) و در کدام ثانیه (`at`). `candidates` فقط ثانیه‌هایِ خودِ
+    دقیقه(های)ِ شلوغ است؛ ثانیه‌هایِ همسایه فقط برایِ اندازه‌گیریِ طولِ رَکورد خوانده می‌شوند تا یکِ
+    پیکِ ۹۰ ثانیه‌ای به دو تا شکسته نشود.
+    """
+    pool = {second: count for second, count in seconds.items() if second in candidates and count > 0}
+    if not pool:
+        return None
+    peak_second = min(second for second in pool if pool[second] == max(pool.values()))
+    rps = pool[peak_second]
+    run = 1
+    probe = peak_second - 1
+    while seconds.get(probe) == rps:
+        run += 1
+        probe -= 1
+    probe = peak_second + 1
+    while seconds.get(probe) == rps:
+        run += 1
+        probe += 1
+    threshold = max(1, math.ceil(rps * PEAK_THRESHOLD_RATIO))
+    return {
+        "rps": rps,
+        "at": dt.datetime.fromtimestamp(peak_second, dt.timezone.utc),
+        "run_seconds": run,
+        "hot_seconds": sum(1 for count in pool.values() if count >= threshold),
+        "threshold": threshold,
+    }
+
+
+async def _peak_per_second(
+    session: AsyncSession, source: str, since: dt.datetime, until: dt.datetime
+) -> dict[str, Any] | None:
+    """دو پاس: سطلِ یک‌دقیقه‌ای رویِ کلِ بازه ⇒ شلوغ‌ترینِ دقیقه‌ها؛ بعدِ هیستوگرامِ ثانیه‌ای فقط حولِ همان‌ها.
+
+    چرا این شکل: هیستوگرامِ ثانیه‌ای رویِ یکِ بازهٔ هفتگی تا ۶۰۴٬۸۰۰ سطر برمی‌گرداند، پس اول با یکِ
+    aggregateِ ارزان «کجا شلوغ بوده» پیدا می‌شود و فقط همان چند دقیقه با دقتِ ثانیه خوانده می‌شود.
+    `source = "messages"` ⇒ پیامِ مشتری (نقشهٔ راهِ بار؛ هر پیام معمولاً یکِ فراخوانِ AI می‌سازد)
+    `source = "ai_requests"` ⇒ شمارِ واقعیِ مصرفِ AI از دفترِ کیف‌پول.
+    """
+    if source == "messages":
+        moment, table, clauses = ConversationMessage.created_at, ConversationMessage, (ConversationMessage.role == "user",)
+    elif source == "ai_requests":
+        moment, table, clauses = WalletTransaction.created_at, WalletTransaction, (WalletTransaction.reason.in_(list(AI_REASONS)),)
+    else:  # pragma: no cover — دفاع در برابرِ فراخوانِ اشتباه
+        raise ValueError(f"منبعِ ناشناخته برایِ پیک: {source}")
+
+    minute_expr = cast(func.floor(func.extract("epoch", moment) / 60), Integer).label("m")
+    busy = select(minute_expr, func.count()).select_from(table).where(moment >= since, moment < until, *clauses)
+    rows = (await session.execute(busy.group_by(minute_expr).order_by(func.count().desc()).limit(PEAK_TOP_MINUTES))).all()
+    if not rows:
+        return None
+
+    busy_minutes = {int(minute_index) for minute_index, _count in rows}
+    candidates = {
+        second
+        for minute_index in busy_minutes
+        for second in range(minute_index * 60, minute_index * 60 + 60)
+    }
+    seconds: dict[int, int] = {}
+    for minute_index in sorted(busy_minutes):
+        low = dt.datetime.fromtimestamp(minute_index * 60 - PEAK_WINDOW_PADDING_SECONDS, dt.timezone.utc)
+        high = dt.datetime.fromtimestamp(minute_index * 60 + 60 + PEAK_WINDOW_PADDING_SECONDS, dt.timezone.utc)
+        second_expr = cast(func.floor(func.extract("epoch", moment)), Integer).label("s")
+        span = select(second_expr, func.count()).select_from(table).where(moment >= low, moment < high, *clauses)
+        for second_index, second_count in (await session.execute(span.group_by(second_expr))).all():
+            seconds[int(second_index)] = int(second_count)
+    return _peak_from_seconds(seconds, candidates=candidates)
 
 
 async def build(
@@ -216,6 +303,9 @@ async def build(
     span_seconds = max(1.0, (window_until - since).total_seconds())
     messages_per_minute = (int(messages_total or 0) / span_seconds) * 60.0
 
+    peak_messages = await _peak_per_second(session, "messages", since, window_until)
+    peak_ai = await _peak_per_second(session, "ai_requests", since, window_until)
+
     return {
         "range_key": range_key,
         "label": build_range_label(since, window_until) if custom else RANGE_LABELS.get(range_key, RANGE_LABELS["24h"]),
@@ -230,6 +320,8 @@ async def build(
         "series": series,
         "peak_moment": peak_moment,
         "peak_customers": peak_value,
+        "peak_messages_per_second": peak_messages,
+        "peak_ai_requests_per_second": peak_ai,
         "active_now": active_now,
         "messages": int(messages_total or 0),
         "customers": int(customers_total or 0),

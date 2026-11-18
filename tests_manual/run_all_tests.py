@@ -212,6 +212,7 @@ TEST_FILES = [
     "test_p119_outbox_lease_and_bounds.py",
     "test_p120_merchant_id_encrypted.py",
     "test_p122_voice_size_cap.py",
+    "test_p123_peak_rate.py",
 ]
 
 

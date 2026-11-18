@@ -1046,6 +1046,35 @@ PERF_RANGE_CANCELLED = "↩️ لغو شد؛ بازهٔ گزارش عوض نشد
 PERF_RANGE_CLEARED = "✖️ بازهٔ دلخواه حذف شد؛ پنجرهٔ آماده برگشت."
 
 
+def _peak_speed_lines(data: dict) -> list[str]:
+    """پ۱۲۳: پیکِ واقعیِ «درخواست در ثانیه» — چند تا، چند ثانیه پیوسته، و کِی (بدونِ میانگین‌گیری)."""
+    from app.utils.jalali import format_jalali_date, to_tehran
+
+    labels = (
+        ("peak_messages_per_second", "پیامِ مشتری"),
+        ("peak_ai_requests_per_second", "درخواستِ AIِ واقعی (دفترِ مصرف)"),
+    )
+    out = ["\n⏱ پیکِ واقعی در ثانیه (میانگینِ پنجره نیست):"]
+    seen = False
+    for key, label in labels:
+        peak = data.get(key)
+        if not peak:
+            out.append(f"• {label}: در این بازه هیچ رویدادی ثبت نشده.")
+            continue
+        seen = True
+        moment = to_tehran(peak["at"])
+        stamp = f"{format_jalali_date(moment)}، ساعت {moment.strftime('%H:%M:%S')}".translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+        out.append(
+            f"• {label}: {fa_number(peak['rps'])} در یکِ ثانیه — {fa_number(peak['run_seconds'])} ثانیه پیوسته رویِ همین عدد · "
+            f"{fa_number(peak['hot_seconds'])} ثانیه با ≥ {fa_number(peak['threshold'])} در دقایقِ پربارِ بازه"
+        )
+        out.append(f"  زمانِ پیک: {stamp} (به وقتِ تهران)")
+    if not seen:
+        out.append("• برایِ هیچ‌کدام داده‌ای در این بازه نبود.")
+    out.append("دقایقِ پربار = شلوغ‌ترینِ سه دقیقهٔ بازه که با دقتِ ثانیه بازخوانی شده‌اند (پیکِ هر ثانیه‌ای در جایِ دیگرِ بازه نمی‌تواند از پیکِ این‌ها بیشتر باشد).")
+    return out
+
+
 def perf_report_text(data: dict) -> str:
     """گزارشِ همزمانی و عملکرد (P30) — متنِ تخت با نوارِ متنی."""
     from app.services import perf_report_service
@@ -1079,19 +1108,25 @@ def perf_report_text(data: dict) -> str:
         lines.append("\nپرمشغله‌ترینِ فروشگاه‌ها (۵ تا):")
         lines += [f"• @{username}: {fa_number(customers)} مشتری · {fa_number(messages)} پیام" for username, customers, messages in top_shops]
 
+    lines += _peak_speed_lines(data)
+
     rate = float(data.get("messages_per_minute") or 0.0)
     rate_label = f"{rate:.4f}".rstrip("0").rstrip(".").translate(str.maketrans("0123456789.", "۰۱۲۳۴۵۶۷۸۹٫"))
     if 0 < rate < 0.0001:
         rate_label = "کمتر از ۰٫۰۰۰۱"
     needed = perf_report_service.ai_concurrency_estimate(rate)
+    peak_ai = data.get("peak_ai_requests_per_second") or {}
+    peak_rps = int(peak_ai.get("rps") or 0)
+    peak_needed = perf_report_service.ai_concurrency_estimate(float(peak_rps) * 60.0)
     lines.append(
-        f"\n⚙️ بارِ لازم برایِ هوشِ مصنوعی (تخمینی): {fa_number(needed)} درخواستِ هم‌زمان"
-        f" — میانگینِ {rate_label} پیام در دقیقه؛ با فرضِ یک فراخوانی برایِ هر پیام و تأخیرِ ۵ ثانیه"
+        f"\n⚙️ بارِ لازم برایِ هوشِ مصنوعی (تخمینی): در اوج {fa_number(peak_needed)} درخواستِ هم‌زمان"
+        f" (بر اساسِ پیکِ {fa_number(peak_rps)} درخواست در ثانیه) · در میانگینِ بازه {fa_number(needed)} درخواستِ هم‌زمان"
+        f" ({rate_label} پیام در دقیقه — این یکی میانگین است، نه اوج)؛ با فرضِ یک فراخوانی برایِ هر پیام و تأخیرِ ۵ ثانیه"
     )
     if data.get("custom_range"):
         lines.append(f"\n🗓 بازهٔ دلخواه: {data['label']} · دانه: {fa_number(data['bucket_minutes'])} دقیقه")
     lines.append("\nهمزمانی در نمودار یعنی مشتریِ متمایزِ پیام‌دهنده در هر دانه؛ نه تعدادِ درخواست‌هایِ واقعاً هم‌زمان.")
-    lines.append("تخمینِ بالا میانگینِ بار است، نه ظرفیتِ تضمین‌شده یا بارِ اوج؛ تأخیرِ واقعیِ هوشِ مصنوعی سنجیده نشده.")
+    lines.append("تخمینِ بالا (همِ عددِ اوج و همِ میانگین) بر مبنایِ فرضِ تأخیرِ ۵ ثانیه است، نه ظرفیتِ تضمین‌شده؛ تأخیرِ واقعیِ هوشِ مصنوعی سنجیده نشده.")
     lines.append("آمارِ همین حالا مستقل از بازهٔ انتخابی است؛ شمارشِ قابلیت‌ها از دفترِ مصرفِ اعتبار می‌آید.")
     return "\n".join(lines)
 
