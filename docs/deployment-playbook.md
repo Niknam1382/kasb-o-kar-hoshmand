@@ -359,7 +359,11 @@ docker compose exec db psql -U postgres -d kasbokar -c "select count(*) from pg_
     `scripts/check_env_coverage.py` (گیتِ هشتمِ `check_gates.py`) بررسی می‌کند هر فیلدِ `Settings` با
     همان نامی که کد می‌خواند در `.env.example` و `.env.docker.example` آمده باشد و هیچ کلیدِ نمونه‌ای
     مرده نباشد.
-12. **تمرینِ سردِ نصب (اگر رویِ سرورِ تازه می‌روی):** با یکِ دیتابیسِ خالیِ موقت،
+12. **زمانِ خاموش‌شدن (پ۱۲۴-ب):** `docker stop -t 120 $(docker compose ps -q bot)` را رویِ سرورِ واقعی
+    بگیر؛ رویِ ماشینِ توسعه با فقط دو ربات، بینِ **۱۶ تا ۳۹ ثانیه** اندازه گرفته شد (MEASURED)، به‌همین
+    دلیلِ `stop_grace_period` در `docker-compose.yml` از ۳۰ به **۹۰ ثانیه** رفت. اگر این عدد را کوچک
+    بگیری، هر دیپلوی با SIGKILL تمام می‌شود.
+13. **تمرینِ سردِ نصب (اگر رویِ سرورِ تازه می‌روی):** با یکِ دیتابیسِ خالیِ موقت،
     `docker compose run --rm bot python3 scripts/check_migration_roundtrip.py` را اجرا کن؛ این اسکریپت
     یکِ دیتابیسِ یک‌بارمصرف می‌سازد، `upgrade head` ← `downgrade base` ← `upgrade head` را می‌زند و
     شمارشِ جدول‌ها و تک‌head بودن را چاپ می‌کند (به `kasbokar` و `kasbokar_test` دست نمی‌زند).
