@@ -1048,6 +1048,12 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
     try:
         file_io = await message.bot.download(message.voice.file_id)
         audio_bytes = file_io.read()
+        # پ۱۲۲: به `file_size` اعلامی هم اعتماد نمی‌کنیم — حجمِ واقعیِ خوانده‌شده هم بازبینی می‌شود،
+        # وگرنه یکِ متادیتایِ کوچکِ دروغ، کلِ فایل را در حافظه می‌نشاند.
+        if len(audio_bytes) > MAX_VOICE_BYTES:
+            logger.warning("ویسِ مشتری %s از سقفِ حجمی رد شد: %s بایت", message.from_user.id, len(audio_bytes))
+            await message.answer(texts.VOICE_TOO_BIG)
+            return
         await session.commit()  # آزاد کردنِ اتصالِ دیتابیس قبل از انتظارِ AI (ظرفیت؛ فازِ ۶-الف)
         transcript = await ai.transcribe_audio(audio_bytes, filename="voice.ogg")
     except ai_service.AiServiceError:

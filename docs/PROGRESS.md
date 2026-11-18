@@ -2187,7 +2187,7 @@ MEASUREDِ تمرینِ مایگریشن رویِ `kasbokar_drill`: upgrade از
 (بی‌رقابت، سقف‌دار)؛ `observability.scrub` علاوه برِ الگوها، خودِ مقدارِ
 `ENCRYPTION_KEY`/`MAIN_BOT_TOKEN`/`WEB_PANEL_SECRET`/`METRICS_TOKEN`/`BALE_BOT_TOKEN` را هم می‌ماسک
 می‌کند؛ دانلودِ ویس سقفِ ۴ مگابایت گرفت (`MAX_VOICE_BYTES` + `texts.VOICE_TOO_BIG`).
-دو نکتهٔ صادقانه: ۱) سقفِ ویس **بی‌تست** ماند (NOT RUN — هندلرِ ویس Botِ توکن‌مت لازم دارد).
+دو نکتهٔ صادقانه: ۱) سقفِ ویس در آن دور **بی‌تست** ماند (NOT RUN) — که در پ۱۲۲ بسته شد (§۱۱۴).
 ۲) تستِ کدِ تخفیف یکِ تصمیمِ محصولی را آشکار کرد: `UniqueConstraint(discount_code_id, shop_owner_id)`
 یعنی هر کد برایِ هر صاحبِ حساب یکِ بار؛ پس مسابقه با صاحب‌حساب‌هایِ متفاوت سنجیده شد.
 بازشده‌هایِ همین فهرست که عمداً انجام نشد (مایگریشن/بازآرایی/تصمیمِ مالک): رمزنگاریِ
@@ -2271,3 +2271,15 @@ rollbackِ گذارِ `paid`).
 `test_p116_money_idempotency.py` و `test_p117_lock_order_and_expiry.py` را در `run_all_tests.py`
 ثبت کرده بود ولی خودِ فایل‌ها در کامیت نمی‌بودند (الگویِ «پارکِ موقتِ تستِ فازِ بعد»)؛ این دو فایل
 همراه با سوم و چهارم و پنجم در همین بسته commit می‌شوند.
+
+
+## ۱۱۴) پ۱۲۲ — قفلِ «NOT RUN»ِ پ۱۱۸ باز شد و یکِ حفرهٔ واقعیِ همان نگهبان بسته شد (۲۰۲۶-۱۱-۱۸)
+`customer_voice` تنها نقطهٔ این پروژه بود که می‌دانستیم بی‌تست است. پ۱۲۲ با یکِ `_Transportِ` کوچک
+(`id` + `download` + `send_message`) و دو جایگزینیِ عمدی (`ai_pool_service.build_ai_service` و
+`customer._schedule_debounced_processing`) همان هندلر را مستقیم صدا می‌زند و سه حالت را می‌بندد:
+اعلامِ بزرگ ⇒ **بی‌دانلود** / اعلامِ کوچک با بدنهٔ بزرگ ⇒ رد **پیش ازِ AI و پیش ازِ کسر** / ویسِ معمولی
+⇒ رونویسیِ یک‌باره + دقیقاً یکِ ردیفِ `voice_transcription`. در همین مسیر روشن شد که نگهبانِ پ۱۱۸ فقط
+`voice.file_size` (یکِ عددِ **اعلامی**) را می‌دید ⇒ بازبینیِ دوم رویِ `len(audio_bytes)` افزوده شد.
+تست: `test_p122_voice_size_cap.py` ⇒ **MEASURED ۳/۳ PASS**. ادعاهایِ NOT RUN در
+`docs/changelog-p118.md`، §۲۰/§۲۲ِ `SECURITY_AUDIT_REPORT.md`، `REMAINING_ISSUES.md` و §۸۳ِ
+`TEST_RESULTS.md` به‌روز شدند. تفصیل: `docs/changelog-p122.md`.

@@ -211,6 +211,7 @@ TEST_FILES = [
     "test_p118_resource_bounds.py",
     "test_p119_outbox_lease_and_bounds.py",
     "test_p120_merchant_id_encrypted.py",
+    "test_p122_voice_size_cap.py",
 ]
 
 

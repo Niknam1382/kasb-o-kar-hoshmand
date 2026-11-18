@@ -160,7 +160,7 @@ docker compose up -d bot             # بعد ازِ اجرا برگردان
 
 **چطور بگیرم:** یکِ فایل ⇒ `docker compose run --rm -e PYTHONIOENCODING=utf-8 -e PYTHONUTF8=1 bot python3 tests_manual/run_one.py test_p79_counter_aggregation.py`
 (رویِ `kasbokar_test`؛ اگر مایگریشنِ تازه رویِ دیسک هست ولی در ایمیج نه، `-v "$PWD/migrations:/app/migrations:ro"` را هم اضافه کن).
-کلِ مجموعه ⇒ `run_all_tests.py` (≈۲۵ دقیقه؛ عددِ انتظاریِ پس ازِ پ۱۱۴–پ۱۲۱: **۱۸۹ فایل · ۱٬۱۵۳ تست · exit=0**، MEASURED ۲۰۲۶-۱۱-۱۸).
+کلِ مجموعه ⇒ `run_all_tests.py` (≈۲۵ دقیقه؛ عددِ انتظاریِ پس ازِ پ۱۱۴–پ۱۲۲: **۱۹۰ فایل · ۱٬۱۵۶ تست · exit=0**، MEASURED ۲۰۲۶-۱۱-۱۸).
 **قبل ازِ اجرایِ کلِ مجموعه، `docker compose stop bot`** تا قفلِ polling و TRUNCATE نسازد.
 
 
