@@ -134,7 +134,10 @@ async def test_disabled_commission_moves_no_money() -> None:
     assert await wallet_transactions(reason=WalletTransactionReason.COMMISSION) == [], "کمیسیونِ خاموش نباید ردیفِ دفتری بسازد"
     assert await owner_balance(OWNER_TG_ID) == 1_000_000
     reserved, status, percent = await _reserve_state()
-    assert reserved == 0 and status is None and percent is None
+    # پ۱۱۶ (یافتهٔ ۹): با کمیسیونِ خامود هم هیچ hold/وضعیت/ردیفِ دفتری ساخته نمی‌شود، ولی
+    # نرخِ همان لحظه (صفر) رویِ ردیف مُهر می‌شود تا روشن‌کردنِ نرخ پیش ازِ تسویه، سفارشِ
+    # بازِ در جریان را دوباته قیمت نزند. تغییرِ عمدیِ این بند در docs/PROGRESS.md §۱۱۰ ثبت شده.
+    assert reserved == 0 and status is None and percent == Decimal("0"), (reserved, status, percent)
     print("✅ test_disabled_commission_moves_no_money PASSED")
 
 

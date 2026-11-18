@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 PENDING = "pending"
 SENT = "sent"
 FAILED = "failed"
+# پ۱۱۹: وضعیتِ میانیِ «رزرو شده و در حالِ ارسال» (بی‌ستونِ تازه، فقط یکِ مقدارِ رشته‌ایِ دیگر)
+SENDING = "sending"
+SEND_LEASE_SECONDS = 300
 
 MAX_ATTEMPTS = 6
 BACKOFF_SECONDS = (30, 120, 600, 1800, 3600, 7200)
@@ -98,8 +101,19 @@ async def send_due(session: AsyncSession, bot_manager, main_bot, limit: int = DU
 
     رباتِ هر صف از پلتفرمِ خودش انتخاب می‌شود (`customer_bot`)؛ فرستادنِ شناسهٔ بله‌ای از
     رباتِ تلگرام می‌تواند به آدمِ غریبه‌ای برسد که همان عدد را دارد.
+
+    پ۱۱۹ (یافتهٔ ۱۲): ارسالِ شبکه دیگر داخلِ تراکنشِ قفل‌دار نیست. ردیف‌ها اول با وضعیتِ `sending` و یکِ
+    مهلتِ کوتاه رزرو و commit می‌شوند (قفل‌ها همان‌جا آزاد می‌شوند)، بعد پیام می‌رود و نتیجهٔ هر ردیف
+    جدا commit می‌شود ⇒ اگر پروسه وسطِ حلقه بمیرد، فقط ردیف‌هایی که واقعاً ارسال شده‌اند «رفته»
+    شمرده می‌شوند، نه اینکه همهٔ `limit` دوباره از اول بروند. ردیفِ گیرکرده در `sending` بعد ازِ
+    مهلت به صفِ عادی برمی‌گردد.
     """
     now = now or _utcnow()
+    await session.execute(
+        update(Notification)
+        .where(Notification.status == SENDING, Notification.next_attempt_at <= now)
+        .values(status=PENDING)
+    )
     result = await session.execute(
         select(Notification)
         .where(Notification.status == PENDING, Notification.next_attempt_at <= now)
@@ -109,45 +123,81 @@ async def send_due(session: AsyncSession, bot_manager, main_bot, limit: int = DU
     )
     rows = list(result.scalars().all())
     summary = {"sent": 0, "retrying": 0, "failed": 0}
+    if not rows:
+        await session.commit()
+        return summary
+
+    plan = [
+        {
+            "id": int(row.id),
+            "chat_id": int(row.chat_id),
+            "text": str(row.text),
+            "platform": str(row.platform),
+            "shop_bot_id": row.shop_bot_id,
+            "label": str(row.label or ""),
+            "attempts": int(row.attempts or 0),
+        }
+        for row in rows
+    ]
     for row in rows:
-        bot = main_bot if row.shop_bot_id is None else bot_manager.customer_bot(row.shop_bot_id, row.platform)
+        row.status = SENDING
+        row.next_attempt_at = now + datetime.timedelta(seconds=SEND_LEASE_SECONDS)
+    await session.commit()
+
+    for item in plan:
+        bot = main_bot if item["shop_bot_id"] is None else bot_manager.customer_bot(item["shop_bot_id"], item["platform"])
+        error: str | None = None
+        can_give_up = True
         if bot is None:
-            _defer(row, "رباتِ این مشتری در این سرویس فعال نیست", now)
-            summary["retrying"] += 1
-            continue
-        try:
-            await bot.send_message(row.chat_id, row.text)
-        except Exception as exc:  # noqa: BLE001 — هر خطایِ شبکه/دسترسی یعنی «الان نه»، نه «هیچ‌وقت»
-            _defer(row, str(exc), now)  # تنها جایِ افزایشِ attempts (قبلاً دو بار زیاد می‌شد)
-            if row.attempts >= MAX_ATTEMPTS:
-                row.status = FAILED
+            # رباتِ این فروشگاه فعال نیست ⇒ صف را نمی‌سوزانیم (همان رفتارِ پیشین: فقط عقب می‌افتد)
+            error, can_give_up = "رباتِ این مشتری در این سرویس فعال نیست", False
+        else:
+            try:
+                await bot.send_message(item["chat_id"], item["text"])
+            except Exception as exc:  # noqa: BLE001 — هر خطایِ شبکه/دسترسی یعنی «الان نه»، نه «هیچ‌وقت»
+                error = str(exc)
+        if error is None:
+            await session.execute(
+                update(Notification)
+                .where(Notification.id == item["id"])
+                .values(status=SENT, sent_at=_utcnow(), last_error=None)
+            )
+            summary["sent"] += 1
+        else:
+            attempts = item["attempts"] + 1  # تنها جایِ افزایشِ attempts
+            give_up = can_give_up and attempts >= MAX_ATTEMPTS
+            await session.execute(
+                update(Notification)
+                .where(Notification.id == item["id"])
+                .values(
+                    attempts=attempts,
+                    last_error=(error or "")[:200],
+                    status=FAILED if give_up else PENDING,
+                    next_attempt_at=next_attempt_at(attempts, now),
+                )
+            )
+            if give_up:
                 summary["failed"] += 1
                 logger.warning(
                     "اعلانِ %s (id=%s) بعد از %s تلاش بی‌نتیجه ماند؛ در پنلِ ادمین قابلِ مشاهده است.",
-                    row.label, row.id, row.attempts,
+                    item["label"] or "بی‌برچسب", item["id"], attempts,
                 )
             else:
                 summary["retrying"] += 1
-            continue
-        row.status = SENT
-        row.sent_at = _utcnow()
-        row.last_error = None
-        summary["sent"] += 1
-    await session.flush()
+        await session.commit()
     return summary
 
 
-def _defer(row: Notification, error: str, now: datetime.datetime) -> None:
-    row.attempts = int(row.attempts or 0) + 1
-    row.last_error = (error or "")[:200]
-    row.next_attempt_at = next_attempt_at(row.attempts, now)
-
-
 async def stats(session: AsyncSession) -> dict[str, int]:
-    """شمارشِ صف برایِ پنلِ ادمین: {pending, failed, sent}."""
+    """شمارشِ صف برایِ پنلِ ادمین: {pending, failed, sent, sending} (`sending` از پ۱۱۹)."""
     rows = await session.execute(select(Notification.status, func.count()).group_by(Notification.status))
     counts = {status: int(count) for status, count in rows.all()}
-    return {"pending": counts.get(PENDING, 0), "failed": counts.get(FAILED, 0), "sent": counts.get(SENT, 0)}
+    return {
+        "pending": counts.get(PENDING, 0),
+        "failed": counts.get(FAILED, 0),
+        "sent": counts.get(SENT, 0),
+        "sending": counts.get(SENDING, 0),
+    }
 
 
 async def next_attempt_time(session: AsyncSession) -> datetime.datetime | None:

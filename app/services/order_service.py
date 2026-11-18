@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import OrderConsultation, OrderStatus, OrderType, Product
 from app.services import order_state, order_transition_service, product_service, shop_prefs_service
 from app.services.admin_settings_service import get_admin_settings
+
+logger = logging.getLogger(__name__)
 
 # وضعیت‌هایی که با دکمه‌ی «مرحله‌ی بعد» می‌شه ازشون جلو رفت، به همین ترتیب.
 _ADVANCE_SEQUENCE = [OrderStatus.CONFIRMED, OrderStatus.PROCESSING, OrderStatus.SHIPPED, OrderStatus.COMPLETED]
@@ -397,12 +400,37 @@ async def expire_stale_reservations(session: AsyncSession) -> list[OrderConsulta
         .limit(order_state.EXPIRY_SCAN_BATCH)
     )
     expired = list(result.scalars().all())
+    if not expired:
+        return []
+
+    # پ۱۱۷ (یافتهٔ ۸ِ بازرسی): سبدِ چندقلمی یکِ «گروه» است. اگر فقط ردیفِ منقضی‌شده را EXPIRED
+    # کنیم، گروه رویِ {expired, pending} می‌ماند و چون EXPIRED پایانی است، آنِ باقی‌مانده هیچ‌وقت
+    # تایید/رد نمی‌شود. راهِ درست: گذارِ اتمیِ کلِ گروه (با رویداد + آزادسازیِ رزروِ خودکار).
+    done: list[OrderConsultation] = []
+    seen_groups: set[str] = set()
     for order in expired:
+        group_key = order.cart_checkout_group_id or f"o{order.id}"
+        if group_key in seen_groups:
+            continue
+        seen_groups.add(group_key)
+        outcome = await order_transition_service.transition_group(
+            session, order, OrderStatus.EXPIRED, actor_type="system", reason="انقضای رزروِ موجودی"
+        )
+        if outcome.ok:
+            done.extend([row for row in outcome.rows if order_state.value_of(row.status) == order_state.EXPIRED])
+            continue
+        # گروه با گذارِ مجاز قابلِ بستن نبود (مثلاً یکِ قلمِ تاییدشده در همان سبد). در این حالت
+        # وضعیتِ هیچ ردیفی دست نمی‌خورد ولی رزروِ همین ردیفِ منقضی‌شده آزاد می‌شود، تا موجودی
+        # قفلِ ابدی نماند؛ دلیلش در لاگ می‌آید تا «چرا سفارش باز ماند» قابلِ ردیابی باشد.
+        logger.warning(
+            "انقضای رزرو برایِ گروه %s با گذارِ گروهی ممکن نشد (%s)؛ فقط رزرو آزاد شد.",
+            group_key,
+            outcome.reason or "",
+        )
         await _release_reservation(session, order)
-        order.status = OrderStatus.EXPIRED
-    if expired:
-        await session.flush()
-    return expired
+        order.reservation_expires_at = None
+    await session.flush()
+    return done
 
 
 async def count_by_type(session: AsyncSession, shop_bot_id: int) -> dict[str, int]:

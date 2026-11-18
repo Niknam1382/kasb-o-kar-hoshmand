@@ -113,7 +113,10 @@ async def test_column_exists_with_safe_default() -> None:
         if down:
             parents.update(re.findall(r"[\"']([0-9a-f]{8,})[\"']", down.group(1)))
     heads = revisions - parents
-    assert heads == {"c9e2f4a7b135"}, f"یکِ headِ پ۱۱۴ لازم است؛ دیده شد: {sorted(heads)}"
+    # پ۱۲۰: چیزی که قاعدهٔ پروژه می‌گوید «همیشه یکِ head» است، نه «هد همین عدد باشد» — با هر
+    # مایگریشنِ افزودنیِ تازه، پینِ عددِ هدِ خودِ پ۱۱۴ می‌شکست (و تستِ پ۱۱۴ عملاً بی‌معنی).
+    assert len(heads) == 1, f"همیشه فقط یکِ alembic head لازم است؛ دیده شد: {sorted(heads)}"
+    assert "c9e2f4a7b135" in revisions, "رِویشنِ پ۱۴ از تاریخچهٔ مایگریشن‌ها بیرون افتاده است"
     p114 = [path for path in files if "p114_web_panel_switch" in path.name]
     assert len(p114) == 1, p114
     body = p114[0].read_text(encoding="utf-8")

@@ -1450,6 +1450,7 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
     await chat_billing_service.deduct_and_notify(
         session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot,
         ai_total_tokens=ai_result.total_tokens,
+        idempotency_key=f"ai:ig:comment:{event.comment_id}",
     )
     await session.commit()
 
@@ -1673,6 +1674,7 @@ async def _handle_inbound(session: AsyncSession, main_bot, event: DirectMessage)
     await chat_billing_service.deduct_and_notify(
         session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot, customer_id=customer.id,
         ai_total_tokens=ai_result.total_tokens,
+        idempotency_key=f"ai:ig:dm:{event_key(event)}",
     )
     await session.commit()
 

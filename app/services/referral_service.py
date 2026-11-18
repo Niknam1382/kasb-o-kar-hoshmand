@@ -31,8 +31,12 @@ async def process_referral_reward(session: AsyncSession, referred_owner_id: int,
     نبود، با ساختِ چند حسابِ فیک و تاپ‌آپِ خیلی کم، قابلِ‌سوءاستفاده بود؛
     پورسانتِ درصدی این مشکل رو نداره چون بدونِ پرداختِ واقعی، ارزشی نداره.
     """
+    # پ۱۱۶ (یافتهٔ ۲ِ بازرسی): ردیفِ معرف را *قفل* می‌کنیم تا دو پرداختِ هم‌زمانِ یکِ حسابِ
+    # معرفی‌شده، پاداش را دوبار ندهد؛ قفل رویِ سطرِ خودِ Referral است، نه رویِ جدول.
     result = await session.execute(
-        select(Referral).where(Referral.referred_id == referred_owner_id, Referral.reward_status == REWARD_STATUS_PENDING)
+        select(Referral)
+        .where(Referral.referred_id == referred_owner_id, Referral.reward_status == REWARD_STATUS_PENDING)
+        .with_for_update()
     )
     referral = result.scalar_one_or_none()
     if referral is None:
@@ -47,7 +51,14 @@ async def process_referral_reward(session: AsyncSession, referred_owner_id: int,
 
     referrer = await shop_owner_service.get_by_id(session, referral.referrer_id)
 
-    await wallet_service.add_charge(session, referrer, amount, reason=WalletTransactionReason.REFERRAL_REWARD)
+    await wallet_service.add_charge(
+        session,
+        referrer,
+        amount,
+        reason=WalletTransactionReason.REFERRAL_REWARD,
+        # کلیدِ ایدبمپوتنسیِ پایدار: شناسهٔ خودِ ردیفِ معرف (پ۱۱۶).
+        reference=f"referral:{referral.id}",
+    )
 
     referral.reward_status = REWARD_STATUS_REWARDED
     referral.rewarded_at = datetime.datetime.now(datetime.timezone.utc)

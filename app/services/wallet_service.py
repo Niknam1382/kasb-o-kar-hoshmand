@@ -107,6 +107,11 @@ async def add_charge(
     if amount_toman <= 0:
         raise ValueError("مبلغِ شارژ باید مثبت باشه")
 
+    # پ۱۱۷ (یافتهٔ ۶ِ بازرسی): ترتیبِ قفلِ سراسریِ پول = اولِ ShopOwner، بعدِ WalletCharge.
+    # settle/دریافتِ کمیسیون و جارویِ انقضا از اول همین ترتیب بودند؛ این‌جا برعکس قفل می‌گرفت،
+    # پس دو تراکنشِ هم‌زمان حلقهٔ مرگ می‌سازند (قربانی: rollbackِ کلِ گذارِ paid).
+    await session.execute(select(ShopOwner).where(ShopOwner.id == owner.id).with_for_update())
+
     if merge_into_latest:
         latest = await latest_live_charge(session, owner)
         if latest is not None:
@@ -182,6 +187,14 @@ def _charge_idempotency_key(owner_id: int, payment_id: int | None, reference: st
     return None
 
 
+def _lot_key(base: str | None, first: bool, charge_id: int) -> str | None:
+    """کلیدِ ردیفِ دفتری: ردیفِ اولِ هرِ کسر کلیدِ خامِ رویداد را می‌گیرد (تا چکِ ایدبمپوتنسی
+    با `=`ِ دقیق و رویِ ایندکسِ یکتا کار کند) و ردیف‌هایِ بعدی `:lot:` می‌گیرند (پ۱۱۹)."""
+    if base is None:
+        return None
+    return base if first else f"{base}:lot:{charge_id}"
+
+
 async def deduct(
     session: AsyncSession,
     owner: ShopOwner,
@@ -202,15 +215,42 @@ async def deduct(
     `customer_id` (پ۵۵) فقط رویِ همان ردیفِ در حالِ نوشتن ست می‌شود؛ جملهٔ اضافه‌ای
     نمی‌زند. اگر قابلِ نسبت‌دادن نباشد (کامنتِ اینستاگرام، خلاصهٔ CRM، دستیارِ مدیریتی
     یا ردیف‌هایِ قدیمی) NULL می‌ماند و رتبه‌بندیِ مصرفِ کاربران آن را نمی‌شمارد.
+
+    پ۱۱۶ (یافتهٔ ۱۱ِ بازرسی): اگر `idempotency_key` داده شود و ردیفِ دفتری با *همانِ همان* کلید قبلاً نوشته
+    شده باشد (ردیفِ اولِ هر کسر کلیدِ خامِ رویداد را می‌گیرد، پس چک با `=`ِ دقیق رویِ ایندکسِ یکتا)، این فراخوانی **بی‌اثر** است و True برمی‌گرداند —
+    یعنی بازپخشِ یکِ batchِ نیمه‌کارهٔ polling (یا هر دوباره‌کوشی) موجودی را دو بار کم نمی‌کند.
     """
+    if idempotency_key:
+        seen = (
+            await session.execute(
+                select(WalletTransaction.id)
+                .where(WalletTransaction.idempotency_key == idempotency_key)
+                .limit(1)
+            )
+        ).first()
+        if seen is not None:
+            logger.info(
+                "کسرِ تکراریِ %s تومن با کلیدِ %s نادیده گرفته شد (ایدبمپوتنسیِ پ۱۱۶).",
+                amount_toman,
+                idempotency_key,
+            )
+            return True
+
     if amount_toman <= 0:
         return True
 
+    # پ۱۱۷ (یافتهٔ ۶) + پ۱۲۱: ترتیبِ قفلِ سراسریِ پول = **اولِ ShopOwner، بعدِ WalletCharge**،
+    # و این ترتیب باید *دستوریِ قطعی* باشد نه وابسته به planِ کوئری. نسخهٔ تک‌statement
+    # (`FOR UPDATE OF wallet_charges, shop_owners` با join) در اجرا سطرهایِ charge را گاهی *پیش از*
+    # سطرِ owner قفل می‌کرد؛ چون `commission_service.settle` اولِ owner را تنها قفل می‌کند، دو
+    # تسویه/کسرِ هم‌زمان دورِ قفل می‌ساختند ⇒ `DeadlockDetected` (تستِ پ۱۷ در سوئیتِ کامل گرفت).
+    # یکِ statementِ اضافه به‌ازایِ هر کسر قیمتِ همان قطعی‌بودن است (سقفِ پ۳۱: ۳۱ ⇒ ۳۲).
+    await session.execute(select(ShopOwner.id).where(ShopOwner.id == owner.id).with_for_update())
     result = await session.execute(
         select(WalletCharge)
         .where(WalletCharge.shop_owner_id == owner.id, WalletCharge.is_expired.is_(False), WalletCharge.remaining_toman > 0)
         .order_by(WalletCharge.expires_at.asc())
-        .with_for_update()
+        .with_for_update(of=(WalletCharge,))
     )
     charges = list(result.scalars().all())
 
@@ -231,6 +271,7 @@ async def deduct(
 
     remaining_to_deduct = amount_toman
     pending_tokens = ai_total_tokens
+    first_lot = True
     for charge in charges:
         if remaining_to_deduct <= 0:
             break
@@ -249,10 +290,11 @@ async def deduct(
                 # کلیدِ ایدپوتنسی به‌ازایِ (رویداد، بسته) است: یک مصرفِ بزرگ ممکن است بینِ
                 # چند بسته پخش شود و قیدِ یکتا نباید جلویِ خودِ آن را بگیرد، ولی
                 # اجرایِ دوبارهٔ همان رویداد رویِ همان بسته را می‌گیرد.
-                idempotency_key=None if idempotency_key is None else f"{idempotency_key}:lot:{charge.id}",
+                idempotency_key=_lot_key(idempotency_key, first_lot, charge.id),
                 ai_total_tokens=pending_tokens,
             )
         )
+        first_lot = False
         # پ۶۹: توکنِ یکِ فراخوانی فقط رویِ اولین ردیفِ این کسر می‌نشیند؛ اگر مصرف بینِ چند بسته
         # پخش شده باشد، جمعِ توکن‌ها همان یک فراخوانی می‌ماند و دوباره شمرده نمی‌شود.
         pending_tokens = None
@@ -532,16 +574,15 @@ async def expire_stale_charges(session: AsyncSession) -> int:
         owners_by_id = {o.id: o for o in owners_result.scalars().all()}
 
     count = 0
+    # پ۱۱۹ (یافتهٔ ۱۲): یکِ UPDATE به‌ازایِ هر صاحبِ حساب، نه به‌ازایِ هر بسته؛ فروشگاهِ
+    # دارایِ چندِ بستهٔ منقضی، پیش‌تر چندِ UPDATE رویِ همانِ سطر می‌زد.
+    totals_by_owner: dict[int, int] = {}
     for charge in stale_charges:
         owner = owners_by_id.get(charge.shop_owner_id)
         if owner is None:
             continue
         expired_amount = charge.remaining_toman
-        await session.execute(
-            update(ShopOwner)
-            .where(ShopOwner.id == owner.id)
-            .values(wallet_balance_toman=func.greatest(0, ShopOwner.wallet_balance_toman - expired_amount))
-        )
+        totals_by_owner[owner.id] = totals_by_owner.get(owner.id, 0) + int(expired_amount)
         session.add(
             WalletTransaction(
                 shop_owner_id=owner.id,
@@ -556,6 +597,12 @@ async def expire_stale_charges(session: AsyncSession) -> int:
         count += 1
 
     await session.flush()
+    for owner_id, total in totals_by_owner.items():
+        await session.execute(
+            update(ShopOwner)
+            .where(ShopOwner.id == owner_id)
+            .values(wallet_balance_toman=func.greatest(0, ShopOwner.wallet_balance_toman - total))
+        )
     return count
 
 

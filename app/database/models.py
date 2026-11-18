@@ -272,7 +272,10 @@ class AdminSettings(Base):
     ai_fallback_api_key: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     ai_fallback_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     ai_fallback_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    zarinpal_merchant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # پ۱۲۰ (یافتهٔ ۵): آخرین رازِ هم‌خانوادهٔ این جدول که خام می‌خوابید. مثلِ P24 برایِ
+    # `platform_card_number`: `EncryptedText` نوعِ ستون را Text می‌خواهد (مایگریشنِ افزودنی)
+    # و مقدارِ قدیمیِ رمزنگاری‌نشده هم خوانده می‌شود؛ یکِ پاسِ بوت‌آپ رمزاش می‌کند.
+    zarinpal_merchant_id: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
     # P24 (د(۴)): شمارهٔ کارتِ پلتفرم هم مثلِ بقیهٔ رازها باید در حالتِ رمزنگاری‌شده بخوابد؛
     # `.env.example` و راهنمایِ ادمین از P18 همین را ادعا می‌کردند ولی ستون plain بود.
     # `EncryptedText` نوعِ ستون را عوض نمی‌کند (Text) و خواندنِ مقدارِ کهنهٔ رمزنگاری‌نشده
@@ -675,9 +678,9 @@ class ShopBot(Base):
     zarinpal_merchant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # کدِ درگاهِ بله‌پیِ خودِ همین فروشگاه (نه پلتفرم) — برایِ اینکه مشتری‌ها
     # بتونن هزینه‌ی سفارش رو مستقیم به حسابِ خودِ فروشگاه‌دار پرداخت کنن (فازِ
-    # ۳). درست مثلِ zarinpal_merchant_id بالا رمزنگاری نمی‌شه (هم‌راستا با
-    # طرزِ ذخیره‌یِ فعلیِ این‌جور شناسه‌هایِ درگاه در این پروژه — برخلافِ
-    # encrypted_token که واقعاً کنترلِ کاملِ رباتُ می‌ده و رمزنگاری می‌شه).
+    # ۳). برخلافِ zarinpal_merchant_idِ بالا، این یکی رازِ خودِ پلتفرم نیست ولی
+    # همان‌طور که از اسمش پیداست توکن است ⇒ `EncryptedToken(512)`.
+    # (توضیحِ قدیمی اینجا می‌گفت «رمزنگاری نمی‌شه»؛ از پ۲۰ ستون `EncryptedToken` است — اصلاح شد.)
     bale_provider_token: Mapped[str | None] = mapped_column(EncryptedToken(512), nullable=True)
     # سوال‌هایی که فروشگاه‌دار موقعِ چک‌اوتِ سبدِ خرید از مشتری می‌پرسه — هر خط
     # یه سوال. خالی/تنظیم‌نشده = پیش‌فرض (فقط شماره‌تماس + آدرس). دقیقاً مثلِ

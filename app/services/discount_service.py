@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime
 from decimal import ROUND_DOWN, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import DiscountCode, DiscountCodeUsage, DiscountType
@@ -79,8 +79,14 @@ async def toggle_code_active(session: AsyncSession, code_id: int) -> DiscountCod
 async def record_usage(session: AsyncSession, discount_code_id: int, shop_owner_id: int, payment_id: int) -> None:
     session.add(DiscountCodeUsage(discount_code_id=discount_code_id, shop_owner_id=shop_owner_id, payment_id=payment_id))
 
-    discount = await session.get(DiscountCode, discount_code_id)
-    if discount is not None:
-        discount.used_count += 1
-
+    # پ۱۱۸ (یافتهٔ ۵): شمارشِ مصرف اتمیک است. `used_count += 1` رویِ شیءِ ORM دو پرداختِ هم‌زمان
+    # را به یکِ شمارش می‌رساند و سقفِ max_uses رد می‌شود؛ این UPDATE شرطی هر دو را می‌بندد.
+    await session.execute(
+        update(DiscountCode)
+        .where(
+            DiscountCode.id == discount_code_id,
+            or_(DiscountCode.max_uses.is_(None), DiscountCode.used_count < DiscountCode.max_uses),
+        )
+        .values(used_count=DiscountCode.used_count + 1)
+    )
     await session.flush()

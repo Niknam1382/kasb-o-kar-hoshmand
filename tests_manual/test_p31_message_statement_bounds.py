@@ -41,9 +41,14 @@ OWNER_TG_ID = 999331
 SHOP_BOT_TG_ID = 999332
 CUSTOMER_TG_ID = 999333
 
-# سقفِ statementهایِ یکِ پیامِ تنها: ۳۰ پیش ازِ P33-D (MEASURED)، ۲۹ بعد ازِ پاس‌دادنِ
-# شناسۀ مشتری از میدل‌ور به تسکِ پاسخ. عددِ سنجیده‌شده با همین تست، نه برآورد.
-MAX_STATEMENTS_PER_MESSAGE = 29
+# سقفِ statementهایِ یکِ پیامِ تنها (MEASURED با همین تست، نه برآورد):
+#   ۳۰ پیش ازِ P33-D · ۲۹ بعد ازِ پاس‌دادنِ شناسۀ مشتری از میدل‌ور به تسکِ پاسخ
+#   ۳۱ در پ۱۱۶ — هر کسرِ موجودی یکِ SELECTِ ایدبمپوتنسی رویِ ایندکسِ
+#        `wallet_transactions.idempotency_key` می‌زند و در این مسیر دو کسر داریم (چت + تشخیصِ سفارش)
+#   ۳۳ در پ۱۲۱ — قفلِ `shop_owners` دوباره از قفلِ `wallet_charges` جدا شد تا ترتیبِ قفلِ سراسری
+#        («Owner سپس Charges») دستوریِ قطعی باشد؛ نسخهٔ تک‌statement در سوئیتِ کامل Deadlock ساخت.
+# تغییرهایِ عمدیِ رفتار، با دلیل، در docs/PROGRESS.md §۱۱۰ ثبت شده‌اند.
+MAX_STATEMENTS_PER_MESSAGE = 33
 MAINTENANCE_WORD = "به‌روزرسانی"
 
 

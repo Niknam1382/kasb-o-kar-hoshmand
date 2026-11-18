@@ -39,6 +39,10 @@ KIND_LABELS: dict[str, str] = {
     KIND_LEDGER: "اختلافِ همسنجیِ دفترِ کیف‌پول",
 }
 
+# پ۱۱۸ (یافتهٔ ۱۲): کلیدِ سطل «نوعِ رویداد + چکیدهٔ پیام» است، پس هر پیامِ خطایِ تازه یکِ سطلِ
+# تازه می‌سازد؛ بی‌سقف، سرویسِ پرخطا رم را تا OOM بالا می‌برد.
+MAX_TRACKED_KEYS = 500
+
 _events: dict[str, collections.deque] = {}
 _details: dict[str, str] = {}
 _last_alert: dict[str, float] = {}
@@ -46,6 +50,17 @@ _alert_times: collections.deque = collections.deque()
 _bot = None
 # فقط بعدِ install() (یعنی در اجرایِ واقعیِ برنامه) پیامی ارسال می‌شود؛ در تست فقط شمارش می‌شود.
 _enabled = False
+
+
+def _prune_keys() -> None:
+    # پ۱۱۸ (یافتهٔ ۱۲): سقفِ سطل‌ها — قدیمی‌ترین کلید با ارجاع‌هایِ کناری‌اش پاک می‌شود.
+    while len(_events) > MAX_TRACKED_KEYS:
+        oldest = next(iter(_events), None)
+        if oldest is None:
+            return
+        del _events[oldest]
+        _details.pop(oldest, None)
+        _last_alert.pop(oldest, None)
 
 
 def reset() -> None:
@@ -99,6 +114,7 @@ def record_event(kind: str, detail: str) -> bool:
         while bucket and now - bucket[0] > WINDOW_SECONDS:
             bucket.popleft()
         bucket.append(now)
+        _prune_keys()
         _details[key] = clean
         if len(bucket) < threshold:
             return False

@@ -49,6 +49,28 @@ def _invalidate_read_cache_on_flush(session: SyncSession, flush_context: Any) ->
         reset_read_cache()
 
 
+async def reencrypt_merchant_id(session: AsyncSession) -> bool:
+    """پ۱۲۰ · اگر مرچنت‌آیدی زرین‌پالِ پلتفرم هنوز خام در دیتابیس است، یک‌بار بازنویسی شود.
+
+    چرا در بوت‌آپ و نه در مایگریشن: مثلِ رازهایِ وب‌هوک (پ۲۰ · B2) — `ENCRYPTION_KEY` همین‌جا در
+    دسترس است و اجرایِ دوباره بی‌اثر می‌ماند. ستون `EncryptedText` مقدار را رمزگشایی‌شده برمی‌گرداند،
+    پس برایِ فهمیدنِ «خام بودن» باید خودِ ستون با SQLِ خام خوانده شود.
+    """
+    from sqlalchemy import text as sql_text
+    from sqlalchemy.orm import attributes
+
+    from app.utils.encryption import looks_encrypted
+
+    raw = (await session.execute(sql_text("SELECT zarinpal_merchant_id FROM admin_settings WHERE id = 1"))).scalar()
+    if not raw or looks_encrypted(str(raw)):
+        return False
+    row = await get_admin_settings(session)
+    row.zarinpal_merchant_id = row.zarinpal_merchant_id  # نوشتنِ همان متنِ plaintext ⇒ رمز در DB
+    attributes.flag_modified(row, "zarinpal_merchant_id")
+    await session.flush()
+    return True
+
+
 async def get_admin_settings(session: AsyncSession) -> AdminSettings:
     settings_row = await session.get(AdminSettings, 1)
     if settings_row is None:

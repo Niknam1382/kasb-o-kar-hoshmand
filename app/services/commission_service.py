@@ -97,6 +97,30 @@ def usable_credit(owner: ShopOwner) -> int:
     return wallet_service.usable_credit(owner)
 
 
+async def _reload_locked(session: AsyncSession, rows: list[OrderConsultation]) -> list[OrderConsultation]:
+    """ردیف‌هایِ گروه را *زیرِ قفلِ سطر* دوباره می‌خواند (پ۱۱۷).
+
+    چرا لازم شد: `settle`/`reserve` تا اینجا با ردیف‌هایی کار می‌کردند که caller *پیش ازِ قفلِ
+    صاحبِ فروشگاه* خوانده بود. دو تسویهٔ هم‌زمان رویِ یکِ گروه، هر دو `RESERVED` می‌دیدند و
+    کمیسیون دو بار از کیف‌پول کم می‌شد (کلیدِ ایدبمپوتنسیِ دفتری هم جلویِ این را نمی‌گرفت، چون
+    ردیفِ اول هنوز commit نشده بود). با قفلِ سطر، دومینِ فراخوانی صبر می‌کند و بعد `SETTLED`
+    می‌بیند ⇒ «already».
+    """
+    if not rows:
+        return rows
+    ids = [int(row.id) for row in rows]
+    fresh = list(
+        (
+            await session.execute(
+                select(OrderConsultation).where(OrderConsultation.id.in_(ids)).with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return fresh or rows
+
+
 async def _lock_owner(session: AsyncSession, owner_id: int) -> ShopOwner | None:
     # populate_existing: همان session ممکن است ShopOwner را زودتر خوانده باشد (مثلاً مسیرِ
     # تاییدِ پرداخت)؛ بدونِ بازخوانی، `+=` رویِ عددِ بیاتِ پایتونی = گم‌شدنِ تغییرِ تراکنشِ دیگر
@@ -122,6 +146,17 @@ async def _info_row(session: AsyncSession, owner_id: int, group_key: str, action
     await session.flush()
 
 
+async def _stamp_rate(session: AsyncSession, rows: list[OrderConsultation], percent: Decimal) -> None:
+    """مُهرِ نرخِ همین لحظه رویِ ردیف‌هایی که هنوز نرخِ ثبت‌شده ندارند (پ۱۱۶)."""
+    changed = False
+    for row in rows:
+        if row.commission_percent is None:
+            row.commission_percent = percent
+            changed = True
+    if changed:
+        await session.flush()
+
+
 def _snapshot(rows: list[OrderConsultation]) -> Decimal | None:
     for row in rows:
         if row.commission_percent is not None:
@@ -137,9 +172,17 @@ async def reserve(
     rows: list[OrderConsultation],
     admin_settings,
 ) -> CommissionResult:
-    """قفلِ کمیسیونِ موردانتظارِ یک گروه. اگر کمیسیون خامود است ⇒ بی‌اثر و صفر."""
+    """قفلِ کمیسیونِ موردانتظارِ یک گروه. اگر کمیسیون خامود است ⇒ بی‌اثر و صفر.
+
+    پ۱۱۶ (یافتهٔ ۹ِ بازرسی): هر جا نرخِ معتبری محاسبه شد ولی رزرو انجام نشد (موجودیِ ناکافی)
+    همان نرخ رویِ ردیف‌ها مُهر می‌شود؛ بدونِ این مهر `settle` به نرخِ زنده برمی‌گشت و تغییرِ
+    نرخِ ادمین سفارشِ باز را دوباره قیمت می‌زد.
+    """
     percent = rate_of(admin_settings)
     if percent <= 0:
+        # کمیسیون خامود است ⇒ هیچ پولی حرکت نمی‌کند و hold ساخته نمی‌شود؛ ولی نرخِ همین لحظه
+        # (صفر) مُهر می‌شود تا اگر ادمین پیش ازِ تسویه نرخ را روشن کرد، سفارشِ باز دوباته قیمت نخورد.
+        await _stamp_rate(session, rows, percent)
         return CommissionResult("reserve", 0, False, "disabled")
     expected = commission_toman(eligible_group_amount(rows), percent)
     if expected <= 0:
@@ -147,13 +190,16 @@ async def reserve(
 
     owner = await _lock_owner(session, owner_id)
     if owner is None:
+        await _stamp_rate(session, rows, percent)
         return CommissionResult("reserve", 0, False, "insufficient")
 
+    rows = await _reload_locked(session, rows)  # پ۱۱۷: دو رزروی هم‌زمان رویِ یکِ گروه
     already = sum(int(row.commission_toman or 0) for row in rows if row.commission_status == RESERVED)
     if already or all(row.commission_status in (SETTLED, REVERSED) for row in rows):
         return CommissionResult("reserve", already, False, "already")
 
     if usable_credit(owner) < expected:
+        await _stamp_rate(session, rows, percent)
         return CommissionResult("reserve", expected, False, "insufficient")
 
     owner.commission_reserved_toman = int(owner.commission_reserved_toman or 0) + expected
@@ -190,6 +236,9 @@ async def settle(
     if owner is None:
         return CommissionResult("settle", 0, False, "insufficient")
 
+    # پ۱۱۷: قفلِ سطرهایِ گروه، بعدِ قفلِ صاحبِ فروشگاه (همان ترتیب: Owner → Order rows → Charges)
+    rows = await _reload_locked(session, rows)
+    percent = _snapshot(rows) or percent
     reserved_total = sum(int(row.commission_toman or 0) for row in rows if row.commission_status == RESERVED)
     if reserved_total == 0:
         if all(row.commission_status in (SETTLED, REVERSED) for row in rows):

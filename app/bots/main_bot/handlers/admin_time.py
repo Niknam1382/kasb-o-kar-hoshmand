@@ -33,6 +33,7 @@ from app.utils.validators import fa_number, format_toman, parse_positive_int_tex
 logger = logging.getLogger(__name__)
 
 BTN_ADMIN_TIME = "⏱ اعتبار و زمان"
+NOT_IN_SCOPE = "این عملیات بیرونِ دامنهٔ دسترسیِ شماست."
 
 router = Router(name="admin_time")
 router.message.filter(IsAdmin())
@@ -175,9 +176,27 @@ async def extend_days(message: Message, state: FSMContext, session: AsyncSession
     await _make_preview(message, state, session, kind="extend", days=days)
 
 
+async def _outside_actor_scope(session: AsyncSession, actor_id: int, batch_id: str) -> bool:
+    """پ۱۱۹ (یافتهٔ ۵): مجموعهٔ هدف در پیش‌نمایش منجمد می‌شود، ولی اجرا/انصراف هیچ بازبینیِ
+    دامنه‌ای نداشت ⇒ ادمینِ دامنه‌دار می‌توانست دستهٔ ساختهٔ سوپرادمین را اجرا یا لغو کند.
+    سوپرادمین/بی‌دامنه ⇒ `scope_for` همان None است و رد نمی‌شود."""
+    scope = await admin_role_service.scope_for(session, actor_id)
+    if scope is None:
+        return False
+    batch = await credit_batch_service.get_batch(session, batch_id)
+    if batch is None:
+        return False  # خودِ execute/cancel پیامِ «پیدا نشد» را می‌دهد
+    targets = {int(owner_id) for owner_id in credit_batch_service.params_of(batch).get("owner_ids", [])}
+    return str(batch.created_by) != str(actor_id) or not targets <= scope
+
+
 @router.callback_query(F.data.startswith("at_no:"))
 async def batch_cancel(callback: CallbackQuery, session: AsyncSession) -> None:
-    await credit_batch_service.cancel(session, callback.data.split(":", 1)[1])
+    batch_id = callback.data.split(":", 1)[1]
+    if await _outside_actor_scope(session, callback.from_user.id, batch_id):
+        await callback.answer(NOT_IN_SCOPE, show_alert=True)
+        return
+    await credit_batch_service.cancel(session, batch_id)
     await callback.answer()
     await callback.message.edit_text(CANCELLED)
 
@@ -185,6 +204,9 @@ async def batch_cancel(callback: CallbackQuery, session: AsyncSession) -> None:
 @router.callback_query(F.data.startswith("at_go:"))
 async def batch_go(callback: CallbackQuery, session: AsyncSession) -> None:
     batch_id = callback.data.split(":", 1)[1]
+    if await _outside_actor_scope(session, callback.from_user.id, batch_id):
+        await callback.answer(NOT_IN_SCOPE, show_alert=True)
+        return
     result = await credit_batch_service.execute(session, batch_id, by=str(callback.from_user.id))
     if result.batch is None:
         await callback.answer(STALE, show_alert=True)

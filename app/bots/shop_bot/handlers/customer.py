@@ -82,7 +82,10 @@ _pending_tasks: dict[tuple[int, int, str], asyncio.Task] = {}
 _pending_started_at: dict[tuple[int, int, str], float] = {}
 # P33-D: شناسه‌ای که میدل‌ور ساخته، تسکِ پاسخ دوباره «مشتریِ جدید» نمی‌سازد (یکِ درجِ
 # ON CONFLICT به‌ازایِ هر پیام کمتر). بافرها in-process‌اند، پس این هم همان‌جا می‌ماند.
+MAX_VOICE_BYTES = 4 * 1024 * 1024  # پ۱۱۸: سقفِ دانلودِ ویسِ مشتری (بایت)
 _pending_customer_ids: dict[tuple[int, int, str], int] = {}
+# پ۱۱۶ (یافتهٔ ۱۱): شناسهٔ پیامِ آخرِ هرِ دسته، تا کسرِ هزینهٔ AI کلیدِ ایدبمپوتنسیِ پایدار داشته باشد.
+_pending_event_ids: dict[tuple[int, int, str], str] = {}
 
 # فازِ ۶-الف: برایِ هر (فروشگاه، مشتری، پلتفرم) *فقط یه پردازش* هم‌زمان اجرا می‌شه. بدونِ این قفل، پیامی که وسطِ پردازشِ
 # دسته‌یِ قبلی (فراخوانیِ AI چند ثانیه‌ای) می‌رسید یه چرخه‌یِ debounceِ جدا شروع می‌کرد و هم‌زمان با اولی
@@ -200,6 +203,7 @@ async def _check_access(message: Message, session: AsyncSession, shop_bot, main_
 async def _deduct_and_notify(
     session: AsyncSession, owner, admin_settings, amount_toman: int, reason: WalletTransactionReason, main_bot: Bot,
     customer_id: int | None = None, ai_total_tokens: int | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     """P49-الف: بدنه به `chat_billing_service.deduct_and_notify` رفت تا کانالِ سوم (اینستاگرام)
     همان ریاضیِ پول را صدا بزند، نه یکِ نسخهٔ دوم از آن. این نام فقط wrapper مانده تا چهار
@@ -209,7 +213,7 @@ async def _deduct_and_notify(
     مصرفِ هوشِ مصنوعی به‌ازایِ هر کاربر رتبه‌بندی شود."""
     await chat_billing_service.deduct_and_notify(
         session, owner, admin_settings, amount_toman, reason, main_bot,
-        customer_id=customer_id, ai_total_tokens=ai_total_tokens,
+        customer_id=customer_id, ai_total_tokens=ai_total_tokens, idempotency_key=idempotency_key,
     )
 
 
@@ -565,7 +569,7 @@ async def customer_message(message: Message, session: AsyncSession, main_bot: Bo
 
     _schedule_debounced_processing(
         shop_bot.id, message.from_user.id, message.text, message.bot, main_bot,
-        window=_batch_window(shop_bot), customer_id=customer.id,
+        window=_batch_window(shop_bot), customer_id=customer.id, event_ref=str(message.message_id),
     )
 
 
@@ -577,10 +581,13 @@ def _schedule_debounced_processing(
     main_bot: Bot,
     window: float | None = None,
     customer_id: int | None = None,
+    event_ref: str | None = None,
 ) -> None:
     key = (shop_bot_id, customer_tg_id, platform_service.platform_of(shop_bot_instance))
     if customer_id is not None:
         _pending_customer_ids[key] = int(customer_id)
+    if event_ref is not None:
+        _pending_event_ids[key] = event_ref
     window = DEBOUNCE_SECONDS if window is None else window
     _pending_buffers.setdefault(key, []).append(text)
 
@@ -628,6 +635,7 @@ async def _wait_then_process(key: tuple[int, int, str], delay: float, shop_bot_i
             messages = _pending_buffers.pop(key, [])
             _pending_started_at.pop(key, None)
             known_customer_id = _pending_customer_ids.pop(key, None)
+            event_ref = _pending_event_ids.pop(key, None)
             if _pending_tasks.get(key) is asyncio.current_task():
                 _pending_tasks.pop(key, None)  # از اینجا به بعد پیامِ تازه نباید این تسکِ در حالِ پردازش رو لغو کنه
             if not messages:
@@ -639,7 +647,7 @@ async def _wait_then_process(key: tuple[int, int, str], delay: float, shop_bot_i
                 async with session_scope() as session:
                     await _generate_and_send_reply(
                         session, shop_bot_id, customer_tg_id, combined_text, shop_bot_instance, main_bot,
-                        known_customer_id=known_customer_id,
+                        known_customer_id=known_customer_id, event_ref=event_ref,
                     )
             except Exception:
                 logger.exception("پردازشِ پیام‌هایِ جمع‌شده‌یِ مشتری %s در فروشگاه %s با خطا مواجه شد.", customer_tg_id, shop_bot_id)
@@ -655,6 +663,7 @@ async def _generate_and_send_reply(
     shop_bot_instance: Bot,
     main_bot: Bot,
     known_customer_id: int | None = None,
+    event_ref: int | None = None,
 ) -> None:
     shop_bot = await shop_bot_service.get_by_id(session, shop_bot_id)
     if shop_bot is None or not shop_bot.is_active:
@@ -774,7 +783,8 @@ async def _generate_and_send_reply(
     # صراحتاً از «سبد» حرف زده باشه؛ در غیرِ این صورت (و همچنین وقتی پیام دستورِ سبد
     # نبود) همین خطِ چتِ عادیِ زیر بدونِ هیچ تغییری اجرا می‌شه.
     if await _maybe_handle_cart_edit(
-        session, shop_bot, customer, owner, admin_settings, ai, products, combined_text, shop_bot_instance, main_bot
+        session, shop_bot, customer, owner, admin_settings, ai, products, combined_text, shop_bot_instance, main_bot,
+        event_ref=event_ref,
     ):
         return
 
@@ -823,10 +833,15 @@ async def _generate_and_send_reply(
     await _deduct_and_notify(
         session, owner, admin_settings, cost, WalletTransactionReason.CHAT_MESSAGE, main_bot,
         customer_id=customer.id, ai_total_tokens=ai_result.total_tokens,
+        idempotency_key=(
+            f"ai:chat:{shop_bot_id}:{customer_tg_id}:{event_ref}:{len(combined_text)}" if event_ref else None
+        ),
     )
 
     full_history = history + [{"role": "user", "content": combined_text}, {"role": "assistant", "content": reply}]
-    asyncio.create_task(_detect_and_notify_order(shop_bot_id, customer.id, full_history, shop_bot_instance, main_bot))
+    asyncio.create_task(
+        _detect_and_notify_order(shop_bot_id, customer.id, full_history, shop_bot_instance, main_bot, event_ref)
+    )
 
 
 def _get_cart_edit_lock(key: tuple[int, int]) -> asyncio.Lock:
@@ -848,6 +863,7 @@ async def _maybe_handle_cart_edit(
     combined_text: str,
     shop_bot_instance: Bot,
     main_bot: Bot,
+    event_ref: int | None = None,
 ) -> bool:
     """
     ویرایشِ سبدِ خرید با زبانِ طبیعی (فازِ ۳، زیربخشِ ۴). True یعنی این پیام یه دستورِ سبد
@@ -883,6 +899,9 @@ async def _maybe_handle_cart_edit(
             await _deduct_and_notify(
                 session, owner, admin_settings, cost, WalletTransactionReason.CART_EDIT, main_bot,
                 customer_id=customer.id, ai_total_tokens=tokens_used,
+                idempotency_key=(
+                    f"ai:cart:{shop_bot.id}:{customer.id}:{event_ref}:{len(combined_text)}" if event_ref else None
+                ),
             )
 
         if result is None:
@@ -1019,6 +1038,13 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
         await message.answer(texts.AI_ERROR_REPLY)
         return
 
+    # پ۱۱۸ (یافتهٔ ۵): ویس هم مثلِ عکسِ مشتری سقفِ حجمی می‌خواهد؛ بی‌سقف یکِ فایلِ سنگین
+    # کامل در حافظه می‌نشیند و بعد به سرویسِ تبدیلِ صوت می‌رود.
+    declared_voice_size = getattr(message.voice, "file_size", None)
+    if declared_voice_size is not None and declared_voice_size > MAX_VOICE_BYTES:
+        await message.answer(texts.VOICE_TOO_BIG)
+        return
+
     try:
         file_io = await message.bot.download(message.voice.file_id)
         audio_bytes = file_io.read()
@@ -1042,11 +1068,13 @@ async def customer_voice(message: Message, session: AsyncSession, main_bot: Bot)
     await _deduct_and_notify(
         session, owner, admin_settings, cost, WalletTransactionReason.VOICE_TRANSCRIPTION, main_bot,
         customer_id=customer.id,
+        idempotency_key=f"ai:voice:{shop_bot.id}:{customer.id}:{message.message_id}",
     )
 
     # مسیرِ صوت شناسه را در دسترس ندارد (مشتری را میدل‌ور حل می‌کند) ⇒ مثلِ قبل ساخته می‌شود.
     _schedule_debounced_processing(
-        shop_bot.id, message.from_user.id, transcript, message.bot, main_bot, window=_batch_window(shop_bot)
+        shop_bot.id, message.from_user.id, transcript, message.bot, main_bot, window=_batch_window(shop_bot),
+        event_ref=str(message.message_id),
     )
 
 
@@ -1056,6 +1084,7 @@ async def _detect_and_notify_order(
     full_history: list[dict[str, str]],
     shop_bot_instance: Bot,
     main_bot: Bot,
+    event_ref: int | None = None,
 ) -> None:
     """
     بازطراحیِ سفارش‌گیری: قبلاً این تابع (اگه کلاسیفایر «completed» تشخیص
@@ -1099,6 +1128,9 @@ async def _detect_and_notify_order(
                 await _deduct_and_notify(
                     session, owner, admin_settings, cost, WalletTransactionReason.ORDER_DETECTION, main_bot,
                     customer_id=customer_id,
+                    idempotency_key=(
+                        f"ai:detect:{shop_bot_id}:{customer_id}:{event_ref}:{len(full_history)}" if event_ref else None
+                    ),
                 )
 
             if result is None:

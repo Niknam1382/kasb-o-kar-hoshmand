@@ -31,6 +31,7 @@ from app.database.models import OrderPayment, PaymentPurpose, PaymentStatus, Sho
 from app.database.session import session_scope
 from app.services import (
     admin_alert_service,
+    admin_settings_service,
     app_roles,
     bot_branding_service,
     ai_service,
@@ -113,6 +114,16 @@ async def _load_active_shop_bots(
             logger.info("%d رازِ وب‌هوکِ خام در دیتابیس رمزنگاری شد.", reencrypted)
     except Exception:
         logger.exception("بازنویسیِ رمزنگاری‌شدهٔ رازهایِ وب‌هوک ناموفق بود (ربات‌ها کار می‌کنند).")
+    # پ۱۲۰ (یافتهٔ ۵): مرچنت‌آیدی زرین‌پالِ پلتفرم هم اگر در نصبِ قدیمی خام نوشته شده باشد،
+    # یک‌بار رمز می‌شود (ستون از پ۱۲۰ `EncryptedText` است؛ مقدارِ قدیمی خوانده می‌شود).
+    try:
+        async with session_scope() as session:
+            merchant_reencrypted = await admin_settings_service.reencrypt_merchant_id(session)
+            await session.commit()
+        if merchant_reencrypted:
+            logger.info("مرچنت‌آیدی زرین‌پالِ پلتفرم در دیتابیس رمزنگاری شد.")
+    except Exception:
+        logger.exception("رمزنگاریِ مرچنت‌آیدی زرین‌پال ناموفق بود (پرداخت‌ها کار می‌کنند).")
     await bot_manager.load_all(shop_bots, bale_enabled=bale_enabled)
     # P45: شمارِ *ثبت‌شده* در این پروسه گزارش می‌شود، نه شمارِ ردیف‌هایِ دیتابیس؛ با شارد، هر پروسه
     # فقط بخشِ خودش را نگه می‌دارد و عددِ «همه» لاگِ چند پروسه را گمراه‌کننده می‌کرد.

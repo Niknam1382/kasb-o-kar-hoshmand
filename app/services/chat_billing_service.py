@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 async def deduct_and_notify(
     session, owner, admin_settings, amount_toman: int, reason: WalletTransactionReason, main_bot: Bot,
     customer_id: int | None = None, ai_total_tokens: int | None = None,
+    idempotency_key: str | None = None,
 ) -> None:
     """بعدِ فراخوانیِ موفقِ هوش مصنوعی، هزینه رو از کیف‌پول کم می‌کنه و در صورتِ لزوم به فروشگاه‌دار خبر می‌ده.
     این تابع هیچ‌وقت به مشتری خطا نشون نمی‌ده؛ فقط خودِ فروشگاه‌دار (از طریقِ ربات اصلی) مطلع می‌شه.
@@ -36,7 +37,8 @@ async def deduct_and_notify(
     (کامنتِ اینستاگرام، خلاصهٔ CRM، دستیارِ مدیریتی) ردیف بی‌نام می‌ماند و در رتبه‌بندیِ مصرفِ
     کاربران شمرده نمی‌شود — عددِ ساختگی از گذشته ساخته نمی‌شود."""
     success = await wallet_service.deduct(
-        session, owner, amount_toman, reason, customer_id=customer_id, ai_total_tokens=ai_total_tokens
+        session, owner, amount_toman, reason, customer_id=customer_id, ai_total_tokens=ai_total_tokens,
+        idempotency_key=idempotency_key,
     )
     if not success:
         # موجودی در لحظه‌یِ کسر کافی نبوده (مثلاً دقیقاً همین چندِ تومنِ آخر رو یه پیامِ هم‌زمانِ

@@ -208,6 +208,9 @@ TEST_FILES = [
     "test_p115_broadcast_audience.py",
     "test_p116_money_idempotency.py",
     "test_p117_lock_order_and_expiry.py",
+    "test_p118_resource_bounds.py",
+    "test_p119_outbox_lease_and_bounds.py",
+    "test_p120_merchant_id_encrypted.py",
 ]
 
 

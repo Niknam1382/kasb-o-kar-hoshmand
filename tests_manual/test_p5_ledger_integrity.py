@@ -109,8 +109,10 @@ async def test_new_ledger_columns_are_filled_on_insert() -> None:
         )
     spend = (await _ledger_rows(owner_id))[-1]
     assert spend.amount_toman == -50_000, spend.amount_toman
-    # کلیدِ ایدپوتنسیِ مصرف به بسته هم وابسته است (یک مصرفِ بزرگ بینِ چند بسته پخش می‌شود)
-    assert spend.idempotency_key.startswith("spend:7:lot:"), spend.idempotency_key
+    # پ۱۱۶ (تغییرِ عمدیِ ثبت‌شده در docs/PROGRESS.md §۱۱۰): مصرفِ تک‌بسته‌ای کلیدِ خامِ خودش را
+    # نگه می‌دارد تا پیش‌بازبینیِ ایدبمپوتنسی با `= کلید` رویِ ایندکس بنشیند؛ فقط بسته‌هایِ
+    # بعدیِ یکِ مصرفِ پخش‌شده پسوندِ `:lot:` می‌گیرند (تفصیلش در test_p116_money_idempotency).
+    assert spend.idempotency_key == "spend:7", spend.idempotency_key
     assert spend.currency == "TOMAN" and spend.status == "settled"
     print("✅ test_new_ledger_columns_are_filled_on_insert PASSED")
 

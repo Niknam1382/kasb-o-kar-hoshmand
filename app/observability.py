@@ -56,11 +56,36 @@ _PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+_LITERAL_CACHE: tuple[tuple[str, ...], ...] = ()
+
+
+def _literal_secrets() -> tuple[str, ...]:
+    """مقادیرِ واقعیِ رازهایِ `.env` که هیچ الگویی ندارند (کلیدِ رمزنگاری و مانندش).
+
+    پ۱۱۸ (یافتهٔ ۵): تا پیشِ این scrub فقط *شکل‌های* شناخته‌شده را می‌ماسک کرد؛ اگر کسی
+    `ENCRYPTION_KEY` را در یکِ f-string لاگ می‌کرد، عیناً در لاگ/JSON می‌نشست. این فهرست
+    خودِ مقدارها را می‌گیرد (بی‌چاپ، بی‌ذخیره) و فقط برایِ مقایسه در حافظه می‌ماند.
+    """
+    from app.config import settings
+
+    raw = (
+        settings.encryption_key,
+        settings.main_bot_token,
+        settings.panel_secret,
+        settings.metrics_token,
+        getattr(settings, "bale_bot_token", ""),
+    )
+    return tuple({value.strip() for value in raw if isinstance(value, str) and len(value.strip()) >= 6})
+
+
 def scrub(text: str) -> str:
     """همهٔ شکل‌هایِ راز را به `●…` تبدیل می‌کند. بی‌خطر برایِ متنِ فارسیِ معمولی."""
     out = text
     for pattern in _PATTERNS:
         out = pattern.sub(lambda m: m.group(0)[:3] + "●●●●", out)
+    for secret in _literal_secrets():
+        if secret in out:
+            out = out.replace(secret, secret[:3] + "●●●●")
     return out
 
 
