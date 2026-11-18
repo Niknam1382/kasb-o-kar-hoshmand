@@ -102,7 +102,7 @@ docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
 مجموعاً **۱۹۲ فایلِ تست** با **۱٬۱۶۴ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده:
-**۱۹۲/۱۹۲ · ۱٬۱۶۴ · کدِ خروجِ ۰** (۲۰۲۶-۱۱-۱۸، پس ازِ پ۱۱۴–پ۱۲۴). `app/` ⇒ ۱۸۰ فایل / ۵۴٬۷۷۴ خط پایتون
+**۱۹۲/۱۹۲ · ۱٬۱۶۴ · کدِ خروجِ ۰** (۲۰۲۶-۱۱-۱۸، پس ازِ پ۱۱۴–پ۱۲۴). `app/` ⇒ ۱۸۰ فایل / ۵۴٬۹۱۴ خط پایتون
 (۲۰۲۶-۱۱-۱۶، پس ازِ پ۹۵؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۷۵ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
 (عددِ کوئری/کارِ هر پیام) و `tests_manual/load_simulation.py`. فقط یه فایل:
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
