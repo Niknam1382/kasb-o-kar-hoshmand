@@ -101,7 +101,8 @@ docker compose run --rm bot alembic upgrade head
 docker compose run --rm bot python3 tests_manual/run_all_tests.py
 ```
 
-مجموعاً **۱۸۲ فایلِ تست** (۱۹۰ فایلِ Python در `tests_manual/`) با **۱٬۱۲۱ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده: **۱۸۲/۱۸۲ · ۱٬۱۲۱ · کدِ خروجِ ۰** (۲۰۲۶-۱۱-۱۷، پس ازِ پ۱۰۸–پ۱۱۳)
+مجموعاً **۱۸۹ فایلِ تست** با **۱٬۱۵۳ تستِ جداگانه** — آخرین اجرایِ کاملِ Docker-تاییدشده:
+**۱۸۹/۱۸۹ · ۱٬۱۵۳ · کدِ خروجِ ۰** (۲۰۲۶-۱۱-۱۸، پس ازِ پ۱۱۴–پ۱۲۱). `app/` ⇒ ۱۸۰ فایل / ۵۴٬۷۷۴ خط پایتون
 (۲۰۲۶-۱۱-۱۶، پس ازِ پ۹۵؛ عددها در `TEST_RESULTS.md` §۶۲ تا §۷۵ با برچسبِ MEASURED). برایِ سنجشِ ظرفیت: `scripts/scale_probe.py`
 (عددِ کوئری/کارِ هر پیام) و `tests_manual/load_simulation.py`. فقط یه فایل:
 `docker compose run --rm bot python3 tests_manual/run_one.py test_crm.py` (رویِ دیتابیسِ جدا
@@ -129,7 +130,7 @@ app/
     shop_bot/               # رباتِ فروشگاه: handlers/customer.py (چتِ AI، سفارش، سبد، ...)
   services/                 # منطقِ کسب‌وکار (۱۰۳ فایل، بدونِ وابستگی به aiogram)
   utils/                    # رمزنگاری، اعتبارسنجی، تاریخِ شمسی، ...
-migrations/                 # Alembic (head: a3f7c2b5d810 — تک‌head، مایگریشن‌ها فقط افزودنی)
+migrations/                 # Alembic (head: d7b3f0a4c8e2 — تک‌head، مایگریشن‌ها فقط افزودنی)
 tests_manual/               # تست‌هایِ end-to-end با FakeSession + harness.py / shop_setup.py
 scripts/                    # check_gates.py → check_refs / check_attrs / lint_names / check_callbacks /
                             #   check_text_hygiene / check_prompt_buttons + سنجه‌ها (scale_probe، http_load_probe،
@@ -186,3 +187,20 @@ docs/                       # راهنماها و changelogها
 آماده‌سازیِ قابلیت، همان خاموش‌کردنِ سوئیچ کافی است. خاموش‌کردنِ سوئیچ ورودِ نو را می‌بندد
 (`/web/login` ⇒ ۴۰۴) و لینکِ صادرشده را نمی‌سوزاند؛ بستنِ فوریِ نشست‌هایِ جاری کارِ «🔐 ابطالِ لینک‌هایِ وب» است.
 تست: `tests_manual/test_p114_web_panel_visibility.py` (۵ حالت) · چنجلاگ: `docs/changelog-p114.md`.
+
+
+## پ۱۱۶ تا پ۱۱۸ · پنج یافتهٔ بازرسیِ مسیرِ پول بسته شد (۲۰۲۶-۱۱-۱۷)
+• **ایدبمپوتنسی:** کسرِ هزینهٔ AI، پاداشِ معرف و تسویهٔ کمیسیون دیگر با رویدادِ تکراری دوبار پول
+  کم نمی‌کنند (کلیدِ پایدار از `message_id`/`event.id`، قفلِ سطرِ `Referral`، قفلِ سطرهایِ گروه در
+  `settle`/`reserve`).
+• **نرخِ کمیسیون در لحظهٔ سفارش قفل می‌شود:** عوض‌کردنِ نرخِ ادمین، سفارشِ باز را دوباره قیمت
+  نمی‌زند (`_stamp_rate` حتی در شاخه‌هایِ «خاموش» و «بی‌موجودی»).
+• **ترتیبِ یکتایِ قفل:** «اولِ `shop_owners`، بعدِ `wallet_charges`» در همهٔ مسیرها ⇒ حلقهٔ مرگی که
+  می‌توانست کلِ گذارِ `paid` را rollback کند بسته شد.
+• **انقضایِ سبد گروهی است:** یکِ قلمِ منقضی‌شده کلِ سبد را (با رویداد) EXPIRED می‌کند؛ اگر قلمِ
+  تاییدشده در میان باشد فقط رزرو آزاد می‌شود و لاگ می‌خورد.
+• **سقف‌ها و ماسک‌ها:** `rate_limiter` و هشدارهایِ ادمین سقفِ کلید دارند، شمارشِ `max_uses` در SQL
+  اتمیک شد، خودِ مقدارِ رازهایِ `.env` در لاگ ماسک می‌شود، و ویسِ مشتری سقفِ ۴ مگابایت گرفت.
+• تست‌ها: `test_p116_money_idempotency.py` (۵) · `test_p117_lock_order_and_expiry.py` (۴) ·
+  `test_p118_resource_bounds.py` (۴). تفصیل: `docs/changelog-p116.md` تا `docs/changelog-p118.md`
+  و `REMAINING_ISSUES.md` §پ۱۱۶–پ۱۱۸.

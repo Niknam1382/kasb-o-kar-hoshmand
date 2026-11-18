@@ -1294,3 +1294,30 @@ payloadِ `/ops/status` = ۷۸۴ بایت با یکِ یافته.
 • PDFها: admin-guide ۹۳٬۹۰۹ بایت/۲۹ صفحه · user-guide ۶۲٬۹۲۱/۱۸ · deployment-playbook ۹۸٬۱۸۳/۲۶ ·
   plain-report-fa ۷۸٬۰۴۶/۲۰ · شمارشِ `**` ⇒ صفر. **NOT RUN:** بازرسیِ چشمیِ صفحه‌هایِ تازه (بی‌رستر‌سازِ PDF
   رویِ میزبان و در ایمیج).
+
+## §۸۳) سوئیتهایِ این بسته — پ۱۱۶ تا پ۱۲۱ (MEASURED · ۲۰۲۶-۱۱-۱۸)
+| اجرا | نتیجه | برچسب |
+|---|---|---|
+| سوئیتِ کاملِ انتهایِ پ۱۱۶–پ۱۱۸ (ایمیجِ همان وضعیت) | ۱۸۵/۱۸۷ فایل، ۱٬۱۳۵ تست، دو fail (`test_p5_ledger_integrity` به‌خاطرِ پینِ شکلِ کلید، `test_owner_assistant` با `ForeignKeyViolation`)، `EXIT=1` | MEASURED |
+| فایل‌هایِ دست‌خورده/مشکوک پس ازِ رفع‌ها (تک‌فایل) | `test_p5_commission` ۱۰/۱۰ · `test_p5_ledger_integrity` ۸/۸ · `test_p31_message_statement_bounds` ۳/۳ (`count=33`) · `test_p116_money_idempotency` ۶/۶ · `test_p117_lock_order_and_expiry` ۴/۴ (سه بار پشتِ سر) · `test_p118_resource_bounds` ۴/۴ · `test_p119_outbox_lease_and_bounds` ۴/۴ · `test_p120_merchant_id_encrypted` ۴/۴ · `test_p114_web_panel_visibility` ۵/۵ · `test_p20_performance_outbox` ۷/۷ · `test_p20_money_integrity` ۸/۸ · `test_p21_growth` ۶/۶ · `test_p21_ops` ۵/۵ · `test_owner_assistant` ۷/۷ | MEASURED |
+| **سوئیتِ کاملِ نهاییِ این بسته** (پس ازِ رفعِ بن‌بستِ پ۱۲۱) | **۱۸۹/۱۸۹ فایل · ۱٬۱۵۳ تستِ پاس · `EXIT=0` · صفر fail** | MEASURED |
+| گیت‌هایِ ایستایی (پس ازِ همهٔ تغییرها + پس ازِ ویرایشِ مستندات) | `check_refs` / `check_attrs` / `lint_names` / `check_callbacks` (۴۲۶ شکلِ `callback_data`) / `check_text_hygiene` / `check_prompt_buttons` / ثبتِ فایل‌هایِ تست ⇒ هفتِ هفت OK، `exit=0`؛ `ruff --select F,E9 app/ scripts/` تمیز | MEASURED |
+| زنجیرهٔ مایگریشن | `alembic heads` ⇒ `d7b3f0a4c8e2 (head)` (یکِ head) · `alembic upgrade head` رویِ دیتابیسِ توسعه اجرا شد (پیش ازِ آن `pg_dump`: ۴۴۶٬۴۷۸ بایت) · نوعِ ستونِ تازه در `information_schema` ⇒ `text` | MEASURED |
+
+**سه عددی که در این بسته جابه‌جا شد و باید درست خوانده شود:**
+• سقفِ statementِ یکِ پیامِ متنی: ۲۹ ← ۳۱ (پ۱۱۶) ← **۳۳** (پ۱۲۱) — بهایِ ایدبمپوتنسیِ کسرِ AI و
+ترتیبِ قطعیِ قفلِ پول. عددِ ۳۳ با اجرایِ واقعیِ تستِ پ۳۱ سنجیده شد (`PASSED (count=33)`).
+• شمارشِ فایل/تست: ۱۸۴/۱٬۱۳۱ (پ۱۱۵) ⇒ **۱۸۹/۱٬۱۵۳** در انتهایِ این بسته (۵ فایلِ تستِ تازه:
+پ۱۱۶، پ۱۱۷، پ۱۱۸، پ۱۱۹، پ۱۲۰ + یکِ تستِ افزوده داخلِ پ۱۱۶).
+• تعدادِ خطوطِ پایتونِ `app/`: **MEASURED ۵۴٬۷۷۴ خط در ۱۸۰ فایل** (`find app -name '*.py'`).
+
+**سه PDFِ بازنویسی‌شده با محتوایِ این بسته** (رِسیپتِ `/work`، `scripts/build_docs_pdf.py`):
+`docs/admin-guide.pdf` ⇒ **MEASURED ۹۷٬۷۱۱ بایت** · `docs/plain-report-fa.pdf` ⇒ **MEASURED ۷۸٬۵۸۹ بایت** ·
+`docs/deployment-playbook.pdf` ⇒ **MEASURED ۹۸٬۵۴۹ بایت**. شمارشِ صفحه و بازرسیِ چشمیِ «هیچ `**` خام
+در متنِ رندرشده نباشد» در این دور **NOT RUN** است (در ایمیج هیچ کتابخانۀ استخراجِ متنِ PDF نیست:
+`pypdf`/`PyPDF2`/`pdfminer` هر سه نا‌موجود — سنجیده شد)، پس این دو ادعا را از دورهایِ پیشین تکرار
+نکرده‌ایم.
+
+**NOT RUN / بی‌شاهد در این بسته:** ارسالِ واقعیِ پیام/پرداخت (سیاستِ محصول) · رفتارِ سقفِ حجمِ ویس
+(پیاده‌شده، بی‌تست) · سنجشِ دوبارهٔ `/metrics` با ترافیکِ واقعی · تأییدِ عملیِ رفعِ بن‌بست زیرِ بارِ
+چندپروسه‌ای (رفع با سه اجرایِ پشتِ سرِ تستِ همزمانی سنجیده شد، نه با بارسنجی).

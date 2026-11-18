@@ -606,7 +606,8 @@ poller + core، سهمِ هرِ پروسه یک‌چهارم می‌شود و ه
 (جدول‌هایِ تازه: `instagram_comment_events`، `instagram_comment_blocks`، `runtime_counter_snapshots` +
 ستون‌هایِ `products.category`، `knowledge_gaps.cluster_key`، سه ستونِ تکرارِ کمپین). هیچ ستون/جدولی
 حذف نمی‌شود و `downgrade` هر کدام تک‌تکِ ساختار را برمی‌گرداند (MEASURED با
-`scripts/check_migration_roundtrip.py`: تک‌هد `f8c3a1d6b240`، ۵۴ جدول).
+`scripts/check_migration_roundtrip.py`: در آن اجرا تک‌هد `f8c3a1d6b240` با ۵۴ جدول — عددِ امروز را با اجرایِ دوباره‌یِ همان اسکریپت بگیر، نه از این خط).
+در پ۱۲۰ یکِ مایگریشنِ افزودنی دیگر اضافه شد: `d7b3f0a4c8e2` که عرضِ ستونِ `admin_settings.zarinpal_merchant_id` را به `TEXT` باز می‌کند تا رمزنگاریِ `EncryptedText` جا شود (هیچ ستونی حذف/تنگ نمی‌شود؛ `downgrade` عمداً no-op است). هدِ امروز ⇒ **MEASURED** با `docker compose run --rm bot alembic heads` ⇒ `d7b3f0a4c8e2 (head)`.
 
 **یکِ فرآیندِ تازه در هرِ پروسه:** `scheduler.run_counter_heartbeat` هر ۳۰ ثانیه یکِ upsert می‌نویسد
 (۲ کوئری: upsert + خواندنِ ردیف‌ها). بارش ناچیز است (در ۵۰۰ فروشگاه، ۵۰۰ ضربان در ۳۰ ثانیه ≈ ۱۷ کوئری/
