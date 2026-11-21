@@ -1393,7 +1393,8 @@ async def _handle_comment(session: AsyncSession, main_bot, event: CommentEvent) 
             await session.commit()
             return  # جوابِ عمومیِ زیرِ کامنتِ تخلفی، برندِ فروشگاه را هم آلوده می‌کند
 
-    if not admin_settings.ai_api_key:
+    pool_chat_keys = await ai_pool_service.get_active_entries_for_capability(session, "chat")
+    if not admin_settings.ai_api_key and not pool_chat_keys:
         mark_comment(row, COMMENT_SKIPPED, reason="no_ai_key")
         await session.commit()
         return
@@ -1598,8 +1599,9 @@ async def _handle_inbound(session: AsyncSession, main_bot, event: DirectMessage)
         await send_message(session, account, event.sender_psid, shop_texts.SHOP_UNAVAILABLE, window_opened_at=window_opened_at)
         return
 
-    if not admin_settings.ai_api_key:
-        logger.warning("کلید API هوش مصنوعی تنظیم نشده؛ پاسخِ اینستاگرام ممکن نیست (فروشگاه %s).", shop_bot.id)
+    pool_chat_keys = await ai_pool_service.get_active_entries_for_capability(session, "chat")
+    if not admin_settings.ai_api_key and not pool_chat_keys:
+        logger.warning("هیچ کلیدِ چتی (استخر یا تنظیماتِ قدیمی) تنظیم نشده؛ پاسخِ اینستاگرام ممکن نیست (فروشگاه %s).", shop_bot.id)
         await send_message(session, account, event.sender_psid, shop_texts.AI_ERROR_REPLY, window_opened_at=window_opened_at)
         await bot_error_service.log_error(session, shop_bot.id)
         await session.commit()

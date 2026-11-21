@@ -735,7 +735,8 @@ async def _generate_and_send_reply(
         await shop_bot_instance.send_message(customer_tg_id, texts.SHOP_UNAVAILABLE)
         return
 
-    if not admin_settings.ai_api_key:
+    pool_chat_keys = await ai_pool_service.get_active_entries_for_capability(session, "chat")
+    if not admin_settings.ai_api_key and not pool_chat_keys:
         logger.warning("کلید API هوش مصنوعی هنوز تنظیم نشده؛ پاسخ‌گویی به مشتری ممکن نیست.")
         await shop_bot_instance.send_message(customer_tg_id, texts.AI_ERROR_REPLY)
         await bot_error_service.log_error(session, shop_bot_id)
